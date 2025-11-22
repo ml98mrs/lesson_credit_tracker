@@ -1,0 +1,270 @@
+Latest version 21/22/25
+
+
+C:\Users\kagaw\dev\lesson_credit_tracker
+├── app
+│   ├── (admin)
+│   │   ├── admin
+│   │   │   ├── allocations
+│   │   │   │   ├── [lessonId]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   ├── credit
+│   │   │   │   └── expiring
+│   │   │   │       └── page.tsx
+│   │   │   ├── credit-invoices
+│   │   │   │   ├── [externalRefOrLotId]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── import
+│   │   │   │       └── page.tsx
+│   │   │   ├── dashboard
+│   │   │   │   └── page.tsx
+│   │   │   ├── hazards
+│   │   │   │   ├── page.tsx
+│   │   │   │   └── ResolveHazardButton.tsx
+│   │   │   ├── lessons
+│   │   │   │   ├── [lessonId]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── cancelled-snc
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── confirmed
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── queue
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── review
+│   │   │   │       ├── ConfirmBar.tsx
+│   │   │   │       └── page.tsx
+│   │   │   ├── maintenance
+│   │   │   │   └── page.tsx
+│   │   │   ├── reports
+│   │   │   │   ├── credit-usage
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── expiry
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── low-credit
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── revenue-cost
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── uptake
+│   │   │   │       └── page.tsx
+│   │   │   ├── settings
+│   │   │   │   ├── audit-log
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── enums
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── expiry-policy
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── pricing-tiers
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── rbac
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── snc-policy
+│   │   │   │       └── page.tsx
+│   │   │   ├── students
+│   │   │   │   ├── [studentId]
+│   │   │   │   │   ├── credit-lots
+│   │   │   │   │   │   ├── [creditLotId]
+│   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   └── new
+│   │   │   │   │   │       ├── AddCreditModal.tsx
+│   │   │   │   │   │       └── page.tsx
+│   │   │   │   │   ├── lessons
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── policies
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── page.tsx
+│   │   │   │   │   ├── pageBACKUP.tsx
+│   │   │   │   │   ├── SettleOverdraftButton.tsx
+│   │   │   │   │   └── StudentTeacherAssignments.tsx
+│   │   │   │   ├── low-credit
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── new
+│   │   │   │   │   ├── NewStudentForm.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   ├── teachers
+│   │   │   │   ├── [teacherId]
+│   │   │   │   │   ├── expenses
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── invoices
+│   │   │   │   │   │   ├── [invoiceId]
+│   │   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── rates
+│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── new
+│   │   │   │   │   ├── NewTeacherForm.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   └── write-offs
+│   │   │       └── page.tsx
+│   │   └── layout.tsx
+│   ├── (public)
+│   │   ├── help
+│   │   │   └── page.tsx
+│   │   ├── login
+│   │   │   └── page.tsx
+│   │   ├── privacy
+│   │   │   └── page.tsx
+│   │   ├── session-expired
+│   │   │   └── page.tsx
+│   │   └── terms
+│   │       └── page.tsx
+│   ├── (student)
+│   │   ├── student
+│   │   │   ├── credit
+│   │   │   │   └── page.tsx
+│   │   │   ├── dashboard
+│   │   │   │   └── page.tsx
+│   │   │   ├── lessons
+│   │   │   │   └── page.tsx
+│   │   │   └── uptake
+│   │   │       └── page.tsx
+│   │   └── layout.tsx
+│   ├── (teacher)
+│   │   ├── teacher
+│   │   │   ├── dashboard
+│   │   │   │   └── page.tsx
+│   │   │   ├── expenses
+│   │   │   │   ├── new
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   ├── invoices
+│   │   │   │   ├── [invoiceId]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── current-month
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   ├── lessons
+│   │   │   │   ├── [lessonId]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── delete
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── new
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   ├── profile
+│   │   │   │   └── page.tsx
+│   │   │   ├── students
+│   │   │   │   ├── [studentId]
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   └── _debug-user.tsx
+│   │   └── layout.tsx
+│   ├── api
+│   │   ├── admin
+│   │   │   ├── allocations
+│   │   │   │   └── by-lesson
+│   │   │   │       └── route.ts
+│   │   │   ├── credit-lots
+│   │   │   │   ├── award-minutes
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── import-invoice
+│   │   │   │   │   ├── route.ts
+│   │   │   │   │   └── routeBACKUP123.ts
+│   │   │   │   └── settle-overdraft
+│   │   │   │       └── route.ts
+│   │   │   ├── hazards
+│   │   │   │   ├── by-lesson
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── resolve
+│   │   │   │       └── route.ts
+│   │   │   ├── lessons
+│   │   │   │   ├── confirm
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── decline
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── preview
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── review
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── update
+│   │   │   │       └── route.ts
+│   │   │   ├── maintenance
+│   │   │   │   ├── cleanup-lessons
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── mark-dormant
+│   │   │   │       └── route.ts
+│   │   │   ├── search
+│   │   │   │   └── route.ts
+│   │   │   ├── student-teachers
+│   │   │   │   ├── assign
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── unassign
+│   │   │   │       └── route.ts
+│   │   │   ├── students
+│   │   │   │   ├── update-status
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── update-tier
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── write-off-overdraft
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── route.ts
+│   │   │   └── teachers
+│   │   │       ├── rates
+│   │   │       │   ├── base
+│   │   │       │   │   └── route.ts
+│   │   │       │   └── override
+│   │   │       │       └── route.ts
+│   │   │       └── route.ts
+│   │   ├── auth
+│   │   │   └── callback
+│   │   │       └── route.ts
+│   │   └── teacher
+│   │       └── lessons
+│   │           └── log
+│   │               └── route.ts
+│   ├── 404.tsx
+│   ├── 500.tsx
+│   ├── favicon.ico
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── components
+│   ├── admin
+│   │   ├── admin-global-search.tsx
+│   │   ├── AdminSignOutButton.tsx
+│   │   ├── LessonHazards.tsx
+│   │   ├── LotAllocations.tsx
+│   │   ├── MaintenancePanel.tsx
+│   │   ├── SNCInfoPanel.tsx
+│   │   ├── StudentStatusToggle.tsx
+│   │   ├── StudentTierSelector.tsx
+│   │   ├── TeacherRatesForm.tsx
+│   │   ├── TierBadge.tsx
+│   │   ├── WriteOffOverdraftButton.tsx
+│   │   └── WriteOffRemainingButton.tsx
+│   ├── badges
+│   │   └── HazardBadge.tsx
+│   ├── banners
+│   │   ├── ExpirySoonBanner.tsx
+│   │   ├── LowCreditBanner.tsx
+│   │   └── LowCreditByDeliveryBanner.tsx
+│   ├── lessons
+│   │   └── LessonTypeBadge.tsx
+│   ├── misc
+│   │   └── CreditMeter.tsx
+│   └── ui
+│       └── Section.tsx
+└── lib
+    ├── api
+    │   └── admin
+    │       ├── creditLots.ts
+    │       ├── dashboard.ts
+    │       ├── expiringCredit.ts
+    │       ├── lessons.ts
+    │       └── lowCredit.ts
+    ├── supabase
+    │   ├── admin.ts
+    │   ├── browser.ts
+    │   ├── client.ts
+    │   ├── server.ts
+    │   └── teacher.ts
+    ├── credit-lot-colors.ts
+    ├── credit-lot-labels.ts
+    ├── credit-lot-ordering.ts
+    ├── credit-lot-types.ts
+    ├── credit-lot-utils.ts
+    ├── formatters.ts
+    └── utils.ts

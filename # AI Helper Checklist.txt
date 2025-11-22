@@ -1,0 +1,1329 @@
+---
+
+# AI Helper Checklist · Lesson Credit Tracker
+
+> **Purpose**
+> This document is the canonical, AI-friendly spec for the Lesson Credit Tracker project.
+> Whenever ChatGPT is used as an “AI Helper” for this project, it should follow this document as the source of truth.
+
+---
+
+## Summary
+
+**Project:** Lesson Credit Tracker (Next.js + Supabase · Admin / Teacher / Student portals).
+
+**Core invariants**
+
+* Minutes in DB, hours (2 dp) in UI
+
+  * Exception: individual lesson duration may show minutes.
+* Money in pennies (DB), `£` in UI.
+* Time in UTC (DB), display in Europe/London.
+* DB uses `snake_case`; client + query params use `camelCase`
+
+  * e.g. `studentId`, `teacherId`, `lessonId`, `creditLotId`, `invoiceRef`.
+
+**Business logic**
+
+* No allocation/SNC/expiry/write-off maths in React.
+* All rules live in SQL tables/views/RPCs; React only reads + formats.
+* Use `getAdminSupabase` for admin data access; `getServerSupabase` for session-based student/teacher.
+
+**Credits & SNC**
+
+* Credit lots & FIFO allocation via `credit_lots` + `allocations` + planner/RPCs.
+* SNC: `lessons.is_snc` + `snc_mode = 'none' | 'free' | 'charged'`, decided by planner.
+* All SNC lessons are paid to the teacher; “free vs charged” is **student-credit only**.
+
+**Key views (must stay canonical)**
+
+* Student-side:
+  `v_credit_lot_remaining`, `v_student_credit_summary`, `v_student_snc_status_current_month`,
+  `v_student_snc_lessons`, `v_student_credit_delivery_summary`, `v_student_award_reason_summary`,
+  `v_student_last_activity`, `v_student_dynamic_credit_alerts`, `v_student_dynamic_credit_alerts_by_delivery`,
+  `v_student_usage_last_3m`, `v_student_teacher_rate_summary`.
+* Teacher-side:
+  `v_teacher_lessons`, `v_teacher_last_activity`, `v_teacher_usage_last_3m`,
+  `v_teacher_lesson_stats_by_month`, `v_teacher_rate_summary`.
+
+**Teacher 360**
+
+* Hub at `/admin/teachers/[teacherId]` with header, workload, rates snapshot, lesson stats, money summary (Phase 2), hazards, assigned students, and recent lessons, all driven by views (no maths in React).
+
+> Please follow this as the source of truth and don’t invent new tables/enums or move business logic into React without checking.
+
+---
+
+## 0. Global Principles
+
+1. **Never re-implement business logic in React**
+
+   * All core rules live in Postgres (tables, views, RPCs).
+   * React / Next.js = presentation + orchestration only.
+   * Especially: **allocation, SNC, expiry, write-offs, lifecycle** → SQL.
+
+2. **Conventions must not break**
+
+   * **Minutes vs hours**
+
+     * DB: minutes.
+     * UI: hours with 2 decimal places (e.g. via `formatMinutesAsHours`).
+     * Exception: individual lesson duration can be shown in minutes.
+   * **Money**
+
+     * DB: pennies (`integer`).
+     * UI: `£` with 2 dp.
+   * **Time**
+
+     * DB: UTC.
+     * UI: Europe/London, via `formatDateTimeLondon` etc.
+
+3. **Naming**
+
+   * DB: `snake_case`.
+   * Client + query params: `camelCase`.
+   * Examples:
+
+     * `studentId`, `teacherId`, `lessonId`, `creditLotId`, `invoiceRef`.
+   * API JSON payloads mirror these names.
+
+4. **Access patterns**
+
+   * Admin/teacher mutations:
+     `UI → /api/... → zod validation → RPC`.
+   * No direct Supabase writes from client for admin-critical actions.
+   * Admin data access (server) must use `getAdminSupabase`.
+   * Session-based access (student/teacher/public) uses `getServerSupabase`.
+
+5. **Schema discipline**
+
+   * Don’t silently introduce new tables/enums or drop/change required fields.
+   * Any new table/enum must be explicitly agreed and documented here.
+   * Student lifecycle and write-offs must follow the rules below.
+
+---
+
+## 1. Architecture & Route Groups
+
+* **Next.js App Router** with role-based route groups:
+
+  * `(public)` – marketing, login, etc.
+  * `(student)` – `/student/...`
+  * `(teacher)` – `/teacher/...`
+  * `(admin)` – `/admin/...`
+
+* **Admin URLs & query params**
+
+  * Use explicit camelCase params:
+
+    * `lessonId`, `studentId`, `teacherId`, `creditLotId`, `invoiceRef`.
+  * Example patterns:
+
+    * `/admin/lessons/review?lessonId=...`
+    * `/api/admin/lessons/review?lessonId=...`
+
+---
+
+## 2. Core Domain Concepts
+
+### 2.1 Credits & Allocations
+
+* Credits are stored in `credit_lots`:
+
+  * `source_type`: `invoice | award | overdraft` (etc.).
+  * `minutes_granted`, `start_date`, `expiry_policy`, `expiry_date`, `state`.
+  * Optional restrictions:
+
+    * `delivery_restriction`
+    * `tier_restriction`
+    * `length_restriction`.
+
+* Allocations:
+
+  * Table: `allocations`.
+  * One row per (lesson, credit_lot, minutes_allocated).
+  * Allocation order = **FIFO** over credit lots, respecting expiry & policies.
+
+* FIFO order / type priority:
+
+  * `invoice → award → adjustment → overdraft`.
+  * Overdraft lot used **only as last resort**.
+
+* Expiry policies:
+
+  * `none` – no expiry date.
+  * `advisory` – expiry date for guidance; system does **not** enforce.
+  * `mandatory` – hard stop unless admin override.
+
+### 2.2 Invoices & `rpc_import_invoice` (invoice → credit lot)
+
+**Purpose**
+
+* Create (or idempotently return) an `invoice` credit lot for a student, based on invoice metadata and optional scheduling info.
+* All invoice credit is stored in `credit_lots` with `source_type = 'invoice'`.
+
+**Inputs & validation (simplified)**
+
+* `p_student_id` – required.
+* `p_external_ref` – required; trimmed (`btrim`), uppercased for `external_ref_norm`.
+  Idempotency key is `(student_id, source_type='invoice', external_ref_norm)`.
+* `p_minutes_granted` – required, must be a positive integer (minutes).
+* `p_start_date` – required.
+* `p_delivery_restriction` – optional; must be `'online'` or `'f2f'` if present
+  (invoice lots do **not** use `'hybrid'` restrictions; `NULL` means unrestricted).
+* `p_tier_restriction` – optional; must match the `public.tier` enum (e.g. `basic` / `premium` / `elite` once the enum is updated).
+* `p_expiry_policy` – required; one of `'none' | 'advisory' | 'mandatory'`.
+
+**Expiry behaviour**
+
+* `expiry_policy = 'none'` → `expiry_date = NULL` (no expiry at all).
+
+* `expiry_policy IN ('advisory','mandatory')`:
+
+  * If `p_expiry_date` is provided, it is used directly (explicit override from UI).
+  * Else, if `p_lessons_per_month` and `p_duration_per_lesson_mins` are set and > 0:
+
+    * Compute an estimated number of months:
+
+      ```text
+      months_final = ceil(
+        (minutes_granted / duration_per_lesson_mins)
+        / lessons_per_month
+        * (1 + buffer)
+      )
+      ```
+
+      where `buffer = p_buffer` or **0.5 by default**, and `months_final >= 1`.
+    * `expiry_date = start_date + months_final months`.
+  * Else:
+
+    * Fallback: `expiry_date = start_date + 12 months`.
+
+* Guard: `expiry_date` (when not null) may not be before `start_date`.
+
+**Insert & idempotency**
+
+* Inserts a new row into `credit_lots` with:
+
+  * `source_type = 'invoice'`
+  * `minutes_granted`, `start_date`, `expiry_policy`, `expiry_date`
+  * optional `delivery_restriction`, `tier_restriction`, `length_restriction`
+  * `state = 'open'`, `created_at = now()`.
+
+* Uses `ON CONFLICT ON CONSTRAINT uq_credit_lots_student_source_extrefnorm DO NOTHING` to enforce idempotency.
+
+  * If a **new** lot is created:
+
+    * Writes a `credit_lot_events` row with `event_type = 'created'` containing all input parameters (including buffer and schedule info).
+  * If a lot already exists for the same `(student, 'invoice', external_ref_norm)`:
+
+    * Returns the existing lot unchanged.
+    * Writes a `credit_lot_events` row with `event_type = 'duplicate_detected'` and the attempted input (`input_minutes_granted`, `input_start_date`, etc).
+
+* Always returns the `credit_lots` row that represents that invoice for that student.
+
+### 2.3 SNC (Short-Notice Cancellation) & `rpc_confirm_lesson`
+
+* `lessons` columns:
+
+  * `is_snc` boolean.
+  * `snc_mode`: `'none' | 'free' | 'charged'`.
+
+* **Tier-based SNC rules** (decided in planner / SNC logic):
+
+  * `basic` → all SNCs charged (student’s credit is deducted).
+  * `premium` / `elite` → earliest SNC **per calendar month** is free; others charged.
+  * `NULL / legacy tier` → first ever SNC free (no monthly reset); later SNCs charged.
+
+* SNC logic is implemented in:
+
+  * Planner function (e.g. `fn_plan_lesson_allocation`).
+  * `rpc_confirm_lesson` reads SNC decisions from planner (`sncMode`) and sets `snc_mode` on the lesson.
+
+* **Teacher pay**:
+
+  * All SNC lessons are **paid to the teacher**.
+  * “Free vs charged” is **student-facing only** (whether credit is deducted).
+
+**Key RPC – `rpc_confirm_lesson`**
+
+* Confirms a pending lesson using the planner’s JSON plan.
+* Enforces idempotency:
+
+  * If allocations already exist and `p_reallocate = false`, it raises an error.
+  * If allocations already exist and `p_reallocate = true`, it deletes them and re-applies a fresh planner plan.
+* Handles admin override:
+
+  * `p_admin_override = true` is only honoured when the JWT role is `admin`; otherwise the call fails.
+* Responsible for:
+
+  * Writing `allocations` rows (including overdraft allocations via `get_or_create_overdraft_lot`),
+  * Updating `lessons.state` to `'confirmed'`,
+  * Updating `lessons.snc_mode` (`'none' | 'free' | 'charged'`) based on planner output.
+
+**Implementation notes (`rpc_confirm_lesson`)**
+
+* `fn_plan_lesson_allocation(lesson_id, admin_override)` is the **single source of truth** for:
+
+  * which credit lots are used,
+  * how many minutes are allocated from each, and
+  * whether an overdraft lot is required.
+    `rpc_confirm_lesson` never recalculates allocations; it only materialises the planner’s JSON `plan` into `allocations` rows.
+
+* **Free SNCs** (`is_snc = true` and `isFreeSnc = true` from the planner):
+
+  * Lesson is set to `state = 'confirmed'` and `snc_mode = 'free'`.
+  * **No rows are written to `allocations`** for that lesson, so the student’s credit is not reduced.
+  * The teacher is still paid for the lesson via future pay views.
+
+* **Charged SNCs** (`snc_mode = 'charged'`) behave like normal lessons from an allocation point of view:
+
+  * The planner chooses lots and overdraft steps, and `rpc_confirm_lesson` inserts those into `allocations`.
+
+### 2.4 Student Lifecycle & Write-offs
+
+* `students.status`:
+
+  * `current`, `dormant`, `past`.
+
+* Lifecycle rules:
+
+  * Auto-dormant:
+
+    * `current` with non-negative remaining
+    * and “no activity” beyond a configured threshold
+    * → move to `dormant`.
+  * `past` reserved for students whose account is closed **and** balance is zeroed via write-offs.
+
+* Write-offs:
+
+  * Table: `credit_write_offs`.
+  * RPCs: write-off remaining positive credit, or overdraft (negative) when closing a student.
+  * Admin only; must be auditable.
+
+
+### 2.5 Hazards & Hazard Resolutions (lesson / allocation issues)
+
+Hazards are operational “red / amber / yellow” flags that highlight lessons or allocations that need human review (delivery mismatch, length mismatch, overdraft usage, expiry issues, SNC overuse). All logic lives in Postgres via:
+
+* `hazard_type` enum
+* `hazard_resolutions` table
+* a family of `*_hazards` views, plus the federated `v_lesson_hazards` view.
+
+#### 2.5.1 `hazard_type` enum (canonical list)
+
+All hazard rows use the `hazard_type` enum. This is the **single source of truth** for hazard categories.
+
+Current values (some already wired, others reserved for future views):
+
+* `delivery_f2f_on_online`
+  * **Red** – lesson delivered F2F, but allocated against **online-only** credit.
+  * Operationally: either raise a mini “adjustment invoice” or reduce online credit.
+
+* `delivery_online_on_f2f`
+  * **Yellow** – lesson delivered online, but allocated against **F2F-only** credit.
+  * Operationally: student is getting “too generous” credit; may require compensating award or internal note.
+
+* `length_too_short`
+  * **Amber** – confirmed lesson is shorter than its own `length_cat` threshold.
+  * Driven by `fn_is_length_too_short(length_cat, duration_min)` and `fn_length_threshold(length_cat)`.
+
+* `length_restriction_mismatch`
+  * **Amber** – allocation uses a credit lot with a `length_restriction` (e.g. 90 or 120 minutes), but the logged `duration_min` is **below** the threshold.
+  * This covers restricted lesson-length packages where the logged lesson is ≥ 15 minutes under the contracted length.
+
+* `overdraft_allocation`
+  * **Amber** – allocation into an overdraft lot (i.e. student goes negative).
+  * Allowed (business rule says overdraft is last resort), but must be flagged so admin can decide whether to regularise it.
+
+* `expiry_mandatory_breached`
+  * **Amber** – allocation into a lot where `expiry_policy = 'mandatory'` and the allocation occurs **after** `expiry_date`.
+  * Allocations are allowed but flagged; admin can then decide whether to write off / adjust.
+
+* `snc_overuse`
+  * **Amber (soft)** – SNC overuse hazard, e.g. when a student uses **more than three** SNCs in a given calendar month.
+  * Implemented as a monthly hazard; exact view wiring follows the same pattern as other hazard families.
+
+> Any new hazard family must add a value to `hazard_type` and follow the same “raw + filtered + union” pattern described below.
+
+#### 2.5.2 `hazard_resolutions` table
+
+Table: `hazard_resolutions`
+
+* Purpose: record that a **specific hazard instance** has been reviewed and “resolved” by an admin (after they’ve fixed the underlying issue or chosen to accept it).
+* Key columns (simplified):
+
+  * `id uuid` – PK.
+  * `lesson_id uuid NULL`
+  * `allocation_id uuid NULL`
+  * `hazard_type hazard_type NOT NULL`
+  * `resolved_by uuid NULL` – FK → `profiles.id`.
+  * `resolved_at timestamptz NOT NULL DEFAULT now()`
+  * `note text NULL` – optional explanation.
+
+* Constraints:
+
+  * Exactly one of `(lesson_id, allocation_id)` must be non-null:
+
+    * `CHECK ((lesson_id IS NOT NULL AND allocation_id IS NULL) OR (lesson_id IS NULL AND allocation_id IS NOT NULL))`
+  * One resolution per target + hazard type:
+
+    * `UNIQUE (lesson_id, hazard_type)` for lesson-level hazards.
+    * `UNIQUE (allocation_id, hazard_type)` for allocation-level hazards.
+
+* Pattern:
+
+  * Each `*_hazards` view is a **raw** view (no resolutions) plus a filtered view that LEFT JOINs `hazard_resolutions` on `(lesson_id OR allocation_id, hazard_type)` and returns only unresolved rows (`WHERE h.id IS NULL`).
+
+* Future helper RPC (planned):
+
+  * `rpc_resolve_hazard(lesson_id, allocation_id, hazard_type, note)`
+    * Enforces the “one target only” rule.
+    * Inserts into `hazard_resolutions`.
+    * Used by Admin UI to one-click resolve hazards from the lesson review / hazards panels.
+
+
+
+---
+
+## 3. Key Tables & Views (high-level)
+
+### 3.1 Tables
+
+* `students`
+* `teachers`
+* `lessons`
+* `credit_lots`
+* `allocations`
+* `student_teacher`
+* `profiles`
+* `credit_write_offs`
+* `teacher_rates`
+* `teacher_student_f2f_overrides`
+* `teacher_expenses` – Implemented (Phase 2)
+
+  * Per expense claim from a teacher.
+  * Key columns:
+    * `id` (bigserial)
+    * `teacher_id` (FK → `teachers.id`)
+    * `incurred_at` (timestamptz, UTC; UI shows London)
+    * `amount_pennies` (integer)
+    * `status` (`'pending' | 'approved' | 'rejected'`)
+    * `category` (`'drinks' | 'teaching_resources' | 'other'`)
+    * `description` (optional free text – required for non-trivial categories)
+    * `created_at`, `updated_at`
+  * Default status is `pending`; only **approved** rows are included in invoice totals.
+
+* `teacher_invoices` – Implemented (Phase 2)
+
+  * One row per `(teacher_id, month_start)` “invoice month”.
+  * Columns:
+    * `id` (bigserial)
+    * `teacher_id` (FK → `teachers.id`)
+    * `month_start` (date, always the 1st of the month in London)
+    * `status` (`'generated' | 'paid'`)
+    * `invoice_ref` (optional external invoice identifier)
+    * `created_at` (timestamptz, when the row was generated/opened)
+    * `paid_at` (timestamptz, nullable)
+  * Unique constraint on `(teacher_id, month_start)`.
+  * Represents the **pay period**, not necessarily a finalised invoice – `status = 'generated'` just means “open invoice row exists”.
+
+* `hazard_resolutions`
+
+  * One row per **resolved hazard** instance.
+  * Targets exactly one of `(lesson_id, allocation_id)` and references a specific `hazard_type`.
+  * Enforced uniqueness so you can’t resolve the same `(lesson, hazard_type)` or `(allocation, hazard_type)` twice.
+  * All `*_hazards` views LEFT JOIN this table and drop resolved rows, so the UI naturally only shows outstanding hazards.
+
+### 3.2 Views (student-side, canonical)
+
+* `v_credit_lot_remaining`
+
+  * Per credit lot:
+
+    * `minutes_granted`, `minutes_allocated`, `minutes_remaining`, `is_overdrawn`,
+      `delivery_restriction`, `expiry_policy`, `expiry_date`,
+      `days_to_expiry`, `expiry_within_30d`, `state`
+      (state auto-closes when remaining ≤ 0).
+
+* `v_student_credit_summary`
+
+  * Per student:
+
+    * `total_granted_min`, `total_allocated_min`, `total_remaining_min`.
+    * `low_credit` (generic 6h rule).
+    * `next_expiry_date`, `days_to_next_expiry`, `expiry_within_30d`.
+
+* `v_student_snc_status_current_month`
+
+  * Per student (current month):
+
+    * `free_sncs`, `charged_sncs`, `has_free_snc_used`.
+
+* `v_student_snc_lessons`
+
+  * Per SNC lesson (student view):
+
+    * `lesson_id`, `student_id`, `teacher_id`, `occurred_at`,
+      `duration_min`, `delivery`, `is_snc`, `snc_mode`, `is_charged`.
+
+* `v_student_last_activity`
+
+  * Per student:
+
+    * Most recent lesson or other activity timestamp.
+
+* `v_student_credit_delivery_summary`
+
+  * Per student, **invoice credit only**:
+
+    * `purchased_min`, `used_min`, `remaining_min`.
+    * Split by delivery:
+
+      * `purchased_online_min`, `purchased_f2f_min`
+      * `used_online_min`, `used_f2f_min`
+      * `remaining_online_min`, `remaining_f2f_min`.
+
+* `v_student_award_reason_summary`
+
+  * Per student & `award_reason_code`:
+
+    * `granted_award_min`, `used_award_min`, `remaining_award_min`.
+
+* `v_student_dynamic_credit_alerts` (overall)
+
+  * Per student:
+
+    * Dynamic “low credit” alerts based on last 3 months usage and buffer vs remaining.
+
+* `v_student_dynamic_credit_alerts_by_delivery`
+
+  * Per student + delivery (`online` / `f2f`):
+
+    * Same dynamic low-credit logic per delivery.
+
+* `v_student_lessons`
+
+  * Per-student lesson list for the student portal:
+
+    * Date, delivery, duration, SNC flags, teacher name.
+
+* `v_student_names`
+
+  * Canonical “display name” for students:
+
+    * Used by other views for consistent naming.
+
+* `v_student_usage_last_3m`
+
+  * Per student:
+
+    * Monthly minutes and average usage over the last 3 calendar months.
+    * Feeds dynamic low-credit alerts.
+
+* `v_student_teacher_rate_summary`
+
+  * Per `(student_id, teacher_id)`:
+
+    * `student_tier`
+    * `effective_online_rate_pennies`
+    * `effective_f2f_rate_pennies`
+    * `has_override`
+    * `f2f_source` (e.g. `override | tier_basic | tier_premium | no_rate`).
+  * Used for pricing snapshots in Student 360.
+
+### 3.3 Hazard views (admin operational)
+
+> All hazard views are **read-only** and used by admin UIs (lesson review, hazards panels).  
+> Each hazard family follows the pattern: `*_raw` (all hazards) → filtered view (unresolved only) → union in `v_lesson_hazards` with severity.
+
+* `v_lesson_length_hazards_raw`
+
+  * Source: `lessons`.
+  * Includes **confirmed** lessons where `fn_is_length_too_short(length_cat, duration_min)` is true.
+  * Fields (simplified):
+
+    * `lesson_id`, `student_id`, `teacher_id`, `duration_min`, `length_cat`,
+      `threshold_min = fn_length_threshold(length_cat)`,
+      `hazard_type = 'length_too_short'::hazard_type`.
+
+* `v_lesson_length_hazards`
+
+  * Filters out resolved lesson-level length hazards.
+  * Implementation: `v_lesson_length_hazards_raw` LEFT JOIN `hazard_resolutions` ON `(lesson_id, hazard_type)` with `WHERE h.id IS NULL`.
+
+* `v_allocation_delivery_hazards_raw`
+
+  * Source: `allocations` + `lessons` + `credit_lots`.
+  * Rows where `fn_is_delivery_mismatch(l.delivery, cl.delivery_restriction)` is true.
+  * Fields include:
+
+    * `allocation_id`, `lesson_id`, `credit_lot_id`,
+      `lesson_delivery = l.delivery`,
+      `lot_delivery_restriction = cl.delivery_restriction`,
+      `hazard_type = fn_delivery_hazard_type(l.delivery, cl.delivery_restriction)`  
+      (returns `delivery_f2f_on_online` or `delivery_online_on_f2f`).
+
+* `v_allocation_delivery_hazards`
+
+  * Filters out resolved allocation-level delivery hazards via `hazard_resolutions` on `(allocation_id, hazard_type)`.
+
+* `v_allocation_length_restriction_hazards_raw`
+
+  * Source: `allocations` + `lessons` + `credit_lots`.
+  * Focuses on lots with `length_restriction` (e.g. 90 or 120 minutes).
+  * Fields:
+
+    * `allocation_id`, `lesson_id`, `credit_lot_id`,
+      `duration_min`, `length_restriction`,
+      `threshold_min = fn_length_threshold(length_restriction)`,
+      `hazard_type = 'length_restriction_mismatch'::hazard_type`.
+  * Condition: `threshold_min IS NOT NULL AND duration_min < threshold_min`.
+
+* `v_allocation_length_restriction_hazards`
+
+  * Filters out resolved allocation-level length restriction hazards via `hazard_resolutions`.
+
+* `v_lesson_hazards`
+
+  * Federated view that flattens hazard families to “per-lesson” rows with a `severity`:
+
+    * Union of:
+      * `v_lesson_length_hazards` (lesson-level)
+      * `v_allocation_delivery_hazards` (allocation-level)
+      * `v_allocation_length_restriction_hazards` (allocation-level)
+      * future hazard families (`overdraft_allocation`, `expiry_mandatory_breached`, `snc_overuse`), once wired.
+  * Output columns (simplified):
+
+    * `lesson_id`
+    * `allocation_id` (nullable for lesson-only hazards)
+    * `hazard_type` (`hazard_type` enum)
+    * `severity` (`'red' | 'amber' | 'yellow' | 'unknown'`)
+
+  * Existing severity mapping:
+
+    * `delivery_f2f_on_online` → `'red'`
+    * `delivery_online_on_f2f` → `'yellow'`
+    * `length_too_short` → `'amber'`
+    * `length_restriction_mismatch` → `'amber'`
+    * all others → `'unknown'` until explicitly mapped.
+
+* Future hazard families (pattern only; actual view names TBD):
+
+  * **Overdraft allocations** (`overdraft_allocation`)
+
+    * Raw view over `allocations` pointing at overdraft lots.
+    * Filtered view excludes resolved rows.
+    * Unioned into `v_lesson_hazards` with severity = `'amber'` (soft but important).
+
+  * **Mandatory-expiry breaches** (`expiry_mandatory_breached`)
+
+    * Raw view over `allocations` + `credit_lots` where `expiry_policy = 'mandatory'` and `allocation` occurs after `expiry_date`.
+    * Filtered via `hazard_resolutions`.
+    * Unioned into `v_lesson_hazards` with severity = `'amber'`.
+
+  * **SNC overuse** (`snc_overuse`)
+
+    * Monthly view over SNC counts per student (and possibly per teacher).
+    * Threshold currently: more than **3 SNCs** in a calendar month.
+    * Respects `hazard_resolutions` so individual months can be marked as reviewed.
+
+
+---
+
+## 4. Student 360 & Student Portal (summary)
+
+### 4.1 Admin – Student 360 (`/admin/students/[studentId]`)
+
+**Uses**
+
+* `students`, `profiles` → core record, name, `created_at`, tier, lifecycle status.
+* `v_student_last_activity` → “Last activity” timestamp.
+* `v_student_usage_last_3m` → avg usage (hours / month) + `is_heavy_user`.
+* `student_teacher`, `teachers`, `profiles` → assigned teachers list.
+* `v_student_teacher_rate_summary` → per-(student, teacher) pricing snapshot
+  (driven by `teacher_rates` + `teacher_student_f2f_overrides`).
+* `v_student_credit_summary` → total granted / used / remaining minutes.
+* `v_student_credit_delivery_summary` → purchased/used/remaining split by online / F2F (invoice credit only).
+* `v_credit_lot_remaining` + `allocations` → per-lot table + `LotAllocations` detail.
+* `v_student_award_reason_summary` → goodwill/trial/promo/free_cancellation, etc.
+* `v_student_dynamic_credit_alerts` / `v_student_dynamic_credit_alerts_by_delivery` → low-credit & per-delivery warnings.
+* `v_student_snc_status_current_month` + `v_student_snc_lessons` → SNC band + full SNC history.
+
+**Shows**
+
+* Header band with:
+
+  * Tier badge + selector.
+  * Student status toggle.
+  * “Last activity” date/time.
+  * Avg usage last 3 months (with “Heavy user” badge).
+  * Optional per-delivery usage (online vs F2F) when both exist.
+
+* Teacher assignments section:
+
+  * Add/remove teachers.
+  * **Pricing snapshot table** (per assigned teacher):
+
+    * Online rate (`£/h`), F2F rate (`£/h`).
+    * Basis label:
+
+      * “Student-specific F2F override”
+      * “Premium/elite tier baseline”
+      * “Legacy/basic tier baseline”
+      * “No rate configured”.
+
+* Summary cards for **Purchased / Awarded / Used / Remaining** hours:
+
+  * Per-delivery invoice breakdown (online vs F2F) when both exist.
+  * Award breakdown lines (granted / used / remaining) by award reason.
+
+* Warnings strip:
+
+  * Generic low credit (≤ 6h).
+  * Dynamic low credit (buffer vs usage).
+  * Per-delivery low online/F2F.
+  * Expiring lots (≤ 30 days).
+  * Or an “All good — no warnings” badge.
+
+* SNC status band for **this month**:
+
+  * `freeSncs` / `chargedSncs` counts.
+  * Text explains **legacy vs tiered rules**:
+
+    * Legacy (no tier): one lifetime free SNC, no monthly reset.
+    * Tiered: free SNC per calendar month according to tier.
+  * Important nuance:
+
+    * “free/charged” is **student-facing** (credit deduction).
+    * Teacher is still paid for all SNC lessons.
+
+* Write-off buttons when student is **dormant**:
+
+  * Write-off remaining positive credit.
+  * Write-off overdraft (negative balance).
+
+* Credit lots table:
+
+  * Each lot’s source, delivery restriction, granted/used/remaining (hours).
+  * Expiry (with expiring lots highlighted).
+  * Embedded `LotAllocations` rows.
+
+* SNC history table:
+
+  * All SNC lessons for this student:
+
+    * When, delivery, duration, and whether it was charged (minutes deducted) or free (no deduction).
+
+### 4.2 Student Portal – Dashboard & Credit
+
+#### Dashboard (`/student/dashboard`)
+
+**Uses**
+
+* `students` → map logged-in profile → `student_id`.
+* `v_student_credit_summary` → canonical totals:
+
+  * `total_granted_min`, `total_allocated_min`, `total_remaining_min`.
+* `v_student_credit_delivery_summary` → invoice-only split:
+
+  * `purchased_*_min`, `used_*_min`, `remaining_*_min` for online / F2F.
+* `v_student_award_reason_summary` → award breakdown:
+
+  * goodwill / trial / promo / free_cancellation, etc.
+* `v_student_dynamic_credit_alerts_by_delivery` → per-delivery dynamic low-credit alerts.
+* `v_credit_lot_remaining` → **student-side expiry banner**:
+
+  * Only where `state = 'open'`
+  * AND `expiry_policy = 'mandatory'`
+  * AND `expiry_within_30d = true`.
+* `v_student_snc_status_current_month` → SNC counts:
+
+  * Loaded now, reserved for a future SNC widget.
+
+**Behaviour / UI**
+
+* Computes `generatedAtLabel` (London time) and passes it into low-credit banners so students see “last updated”.
+
+* Low credit banners:
+
+  * **Uni-delivery students** (only online *or* only F2F purchased):
+
+    * Show overall:
+
+      * `<LowCreditBanner remainingMin=… generatedAtLabel=… />`
+      * (generic 6h rule inside the component).
+  * **Bi-delivery students** (both online & F2F purchased):
+
+    * Suppress the overall banner.
+    * Show:
+
+      * `<LowCreditByDeliveryBanner alerts=… generatedAtLabel=… />`
+      * using `v_student_dynamic_credit_alerts_by_delivery`.
+
+* Expiry banner:
+
+  * `<ExpirySoonBanner expiryDateUtc={nextMandatoryExpiry} />` uses the **earliest mandatory** expiry within 30 days.
+  * Advisory expiries do **not** trigger this banner.
+
+* Summary cards (all in hours via `formatMinutesAsHours`):
+
+  * Purchased / Awarded / Used / Remaining.
+  * For bi-delivery invoice students, each card shows an online / F2F split in brackets.
+  * Awarded / Used / Remaining cards show `award_reason` breakdown lines.
+
+* `CreditMeter`:
+
+  * Props:
+
+    * `grantedMin`, `usedMin`
+    * `remainingOnlineMin`, `remainingF2fMin`
+    * `purchasedOnlineMin`, `purchasedF2fMin`.
+  * Visual overview of total vs used, with delivery split when relevant.
+
+#### Credit page (`/student/credit`)
+
+**Uses**
+
+* `v_credit_lot_remaining` (filtered by `student_id`) → one row per open lot.
+
+**Shows per lot**
+
+* Source:
+
+  * “Invoice X”, “Awarded credit”, “Overdraft”, etc. (based on `source_type` + `external_ref`).
+* Delivery restriction:
+
+  * Online / F2F / “—”.
+* Granted / Used / Remaining (hours).
+* Expiry:
+
+  * `expiry_policy = 'none'` or `expiry_date IS NULL` → **“No expiry”**.
+  * `expiry_policy = 'advisory'` → **“(Advisory) dd.mm.yyyy”** (purely informational).
+  * `expiry_policy = 'mandatory'` → **“dd.mm.yyyy”** (real cut-off date).
+
+---
+
+## 5. Teacher 360 – Overview
+
+**Route:** `/admin/teachers/[teacherId]` (Admin view).
+
+**Job:** Give admin a hub for one teacher:
+
+* Are they active and how busy?
+* How are they paid (rates, overrides)?
+* What work have they done recently (lessons, SNC pattern)?
+* What do we owe them (earnings) and what expenses exist? *(Phase 2)*
+* Any teacher-level operational hazards?
+
+Teacher 360 is the **hub** with links to:
+
+* `/admin/teachers/[teacherId]/rates`
+* `/admin/teachers/[teacherId]/lessons`
+* `/admin/teachers/[teacherId]/invoices`
+* `/admin/teachers/[teacherId]/expenses`
+
+All heavy lifting (minutes, money, counts) is done in views; React only reads and formats.
+
+---
+
+## 6. Teacher Views & Rates (canonical)
+
+### 6.1 Status legend
+
+* **Implemented** – exists in DB and used in UI.
+* **Existing (not yet wired)** – exists in DB, UI still TODO.
+* **Planned** – design only, not yet created in DB.
+
+### 6.2 Core teacher usage views
+
+* `v_teacher_lessons` – **Implemented**
+
+  * Per lesson; used for the “Recent lessons” table.
+  * Key fields:
+
+    * `id`, `teacher_id`, `student_id`, `start_at`, `duration_minutes`, `state`, `student_name`.
+
+* `v_teacher_last_activity` – **Implemented**
+
+  * Per teacher:
+
+    * `teacher_id`
+    * `last_activity_at` = max `occurred_at` of **confirmed** lessons.
+  * Used by Teacher 360 header as the canonical “Last activity” timestamp, with fallback to `teachers.created_at` if needed.
+
+* `v_teacher_usage_last_3m` – **Implemented**
+
+  * Per teacher:
+
+    * `teacher_id`
+    * `avg_month_hours` – average confirmed teaching hours per month over the last 3 calendar months.
+    * `is_heavy_user` – boolean “heavy workload” flag (threshold defined in SQL).
+  * Used by Teacher 360 “Avg usage (last 3 months)” band.
+
+* `v_teacher_lesson_stats_by_month` – **Implemented**
+
+  * Per `(teacher_id, month_start)`:
+
+    * `teacher_id`
+    * `month_start` (first day of calendar month)
+    * `lesson_count_total`
+    * `confirmed_minutes_total`
+    * `confirmed_minutes_online`
+    * `confirmed_minutes_f2f`
+    * `snc_free_count` – `is_snc = true AND snc_mode = 'free'`
+    * `snc_charged_count` – `is_snc = true AND snc_mode = 'charged'`
+  * **Invariant:** SNC counts are for analytics; teacher is paid for all SNC lessons, regardless of free/charged status for the student.
+  * Teacher 360 queries the **previous calendar month** row to show:
+
+    * “Last month: X.XX h across N lessons · SNCs: A free / B charged (teacher paid for all).”
+
+### 6.3 Teacher rates – tables & views
+
+> All rates stored in **pennies**; UI shows **£/hour**.
+> No rate maths in React beyond pennies → pounds.
+
+* `teacher_rates` (table) – **Implemented**
+
+  * Per-teacher base rate configuration:
+
+    * `teacher_id` (FK to `teachers`)
+    * `online_rate_pennies` – default online hourly rate.
+    * `f2f_basic_rate_pennies` – F2F rate for legacy/basic tier students.
+    * `f2f_premium_rate_pennies` – F2F rate for premium/elite students.
+  * Edited via `/admin/teachers/[teacherId]/rates`.
+  * Teacher 360 consumes these indirectly via `v_teacher_rate_summary`.
+
+* `teacher_student_f2f_overrides` (table) – **Implemented**
+
+  * Per `(teacher_id, student_id)` special F2F rate:
+
+    * `teacher_id`
+    * `student_id`
+    * `f2f_override_rate_pennies`
+  * Used when a particular student+teacher pair has a special F2F rate.
+  * Edited and listed on `/admin/teachers/[teacherId]/rates`.
+  * Teacher 360 sees only the aggregate count via `v_teacher_rate_summary`.
+
+* `v_teacher_rate_summary` – **Implemented (Teacher 360 + Rates page)**
+
+  * Per teacher:
+
+    * `teacher_id`
+    * `default_online_rate_pennies`
+    * `f2f_basic_rate_pennies`
+    * `f2f_premium_rate_pennies`
+    * `num_f2f_overrides`
+    * `min_override_rate_pennies`
+    * `max_override_rate_pennies`
+  * Teacher 360 Rates card shows:
+
+    * `Online: £X.XX/h`
+    * `F2F (legacy/basic): £Y.YY/h · F2F (premium/elite): £Z.ZZ/h`
+    * `N student-specific F2F overrides → [View details]`.
+  * The Rates page also uses this view to pre-populate the base-rate form.
+
+* `v_student_teacher_rate_summary` – **Implemented (for Student 360 / pricing)**
+
+  * Per `(student_id, teacher_id)`:
+
+    * `student_tier`
+    * `effective_online_rate_pennies`
+    * `effective_f2f_rate_pennies`
+    * `has_override`
+    * `f2f_source` enum:
+
+      * `override | tier_basic | tier_premium | no_rate`.
+  * Used by:
+
+    * Admin Student 360 pricing snapshot (“what does this student pay this teacher?”).
+    * Potential future Teacher 360 drill-down into override details.
+
+### 6.4 Teacher earnings, expenses & invoices (implemented)
+
+This section is now **implemented** and underpins both the Admin and Teacher invoice views.
+
+#### 6.4.1 Earnings views
+
+* `v_teacher_lesson_earnings_detail` – Implemented
+
+  * Per confirmed lesson that has an effective rate in `v_student_teacher_rate_summary`.
+  * Fields (simplified):
+    * `lesson_id`
+    * `teacher_id`
+    * `student_id`
+    * `start_at` (from `lessons.occurred_at`)
+    * `duration_min`
+    * `delivery`
+    * `state`
+    * `is_snc`, `snc_mode`
+    * `student_tier`
+    * `hourly_rate_pennies` (online or F2F rate, depending on `delivery`)
+    * `gross_pennies` (rounded: `duration_min * hourly_rate / 60`)
+  * **Only** includes lessons where an effective rate exists in
+    `v_student_teacher_rate_summary`. Lessons with missing rates are excluded
+    from pay and should be surfaced via a separate hazard view.
+
+* `v_teacher_lesson_earnings_by_month` – Implemented
+
+  * Per `(teacher_id, month_start)` aggregate over `v_teacher_lesson_earnings_detail`.
+  * Fields:
+    * `teacher_id`
+    * `month_start` (date, London month start)
+    * `lesson_minutes_total`
+    * `gross_pennies` – total pay owed for all confirmed lessons in that month
+      (including SNCs)
+    * `snc_free_minutes`
+    * `snc_charged_minutes`
+  * Used by both Admin & Teacher UIs as the canonical monthly earnings total.
+
+* `v_teacher_lesson_earnings_by_student_month` – Implemented
+
+  * Per `(teacher_id, month_start, student_id)` breakdown of the same earnings set.
+  * Fields:
+    * `teacher_id`
+    * `month_start`
+    * `student_id`
+    * `lesson_minutes_total`
+    * `gross_pennies`
+  * Used for per-student breakdown tables on invoice detail pages
+    (Admin + Teacher). Paired with `v_student_names` so UIs show **student
+    name**, not raw UUID.
+
+* `v_teacher_lesson_earnings_last_month` – Implemented
+
+  * Helper view for Teacher 360 / snapshot cards.
+  * Per teacher + **previous calendar month**:
+    * `lesson_minutes_total`
+    * `gross_pennies`
+    * SNC breakdown fields (where present).
+  * Used for “Last month earnings” style summaries.
+
+#### 6.4.2 Expense views
+
+* `v_teacher_expenses_summary` – Implemented
+
+  * Per `(teacher_id, month_start)` aggregation over `teacher_expenses`.
+  * Month boundaries use `timezone('Europe/London', incurred_at)` then
+    `date_trunc('month', ...)::date`.
+  * Fields:
+    * `teacher_id`
+    * `month_start`
+    * `approved_pennies`
+    * `pending_pennies`
+    * `rejected_pennies`
+  * Only **approved** pennies are included in invoice totals; pending and
+    rejected amounts are visible purely for review.
+
+* `v_teacher_expenses_detail_by_month` – Implemented
+
+  * Convenience view for displaying an itemised list on invoice detail pages.
+  * Fields:
+    * `id`
+    * `teacher_id`
+    * `month_start`
+    * `incurred_at`
+    * `amount_pennies`
+    * `status` (`pending | approved | rejected`)
+    * `description`
+    * `category` (`drinks | teaching_resources | other`)
+    * `created_at`
+    * `updated_at`
+  * Used on the Admin invoice detail page to show each claim with category +
+    free-text description and approve/reject controls.
+
+#### 6.4.3 Invoice summary view
+
+* `v_teacher_invoice_summary` – Implemented
+
+  * Canonical monthly totals that combine earnings, expenses and invoice status.
+  * Internally builds a union of all `(teacher_id, month_start)` keys from:
+    * `v_teacher_lesson_earnings_by_month`
+    * `v_teacher_expenses_summary`
+    * `teacher_invoices`
+  * For each `(teacher_id, month_start)`:
+    * `lesson_gross_pennies` (or `0` if no lessons)
+    * `expenses_pennies` – **approved** expenses only
+    * `total_pennies` = `lesson_gross_pennies + expenses_pennies`
+    * `status`:
+      * `'not_generated'` – no row in `teacher_invoices`
+      * `'generated'` – invoice row exists and `teacher_invoices.status = 'generated'`
+      * `'paid'` – invoice row exists and `teacher_invoices.status = 'paid'`
+  * Drives:
+    * Admin: `/admin/teachers/[teacherId]/invoices`
+    * Teacher: `/teacher/invoices` index and current invoice-month snapshot.
+
+#### 6.4.4 Teacher pay invariants
+
+* Only lessons with an effective rate in `v_student_teacher_rate_summary`
+  are included in **all** teacher earnings views.
+* “Effective rate” means: there is a row in
+  `v_student_teacher_rate_summary` for `(student_id, teacher_id)` that
+  matches the lesson’s delivery and date.
+* Confirmed lessons without a matching rate are **excluded from pay** and
+  should appear in a dedicated hazard view (e.g.
+  `v_teacher_pay_rate_anomalies`) so they can be fixed before payroll.
+* All earnings views must see the **same set of lessons**, so that:
+
+  * `sum(gross_pennies)` in `v_teacher_lesson_earnings_detail`
+    = `gross_pennies` in `v_teacher_lesson_earnings_by_month`
+    = `sum(gross_pennies)` in `v_teacher_lesson_earnings_by_student_month`
+    = `lesson_gross_pennies` in `v_teacher_invoice_summary`.
+
+#### 6.4.5 Invoice-month semantics (Admin + Teacher)
+
+* “Invoice month” is always the **previous calendar month** in London:
+
+  * Example: on 8 December, the active invoice month is **November**.
+  * Implemented as `month_start = date_trunc('month', timezone('Europe/London', ...))::date`
+    and in TS via a helper that builds a `Date.UTC(year, month-1, 1)`.
+
+* Admin invoice hub:
+  * `/admin/teachers/[teacherId]/invoices`
+    * “Previous month snapshot” card for the invoice month.
+    * Uses `v_teacher_invoice_summary` for totals.
+    * Shows a **Status pill** (`Not generated / Generated / Paid`).
+    * Button:
+      * If an invoice row exists: “Open invoice detail”.
+      * If not: “Review invoice month” which **creates or upserts**
+        `teacher_invoices` row via `/api/admin/teacher-invoices` and then
+        navigates to the detail page.
+
+  * `/admin/teachers/[teacherId]/invoices/[invoiceId]`
+    * Invoice meta (ID, status pill, invoice ref, created/paid timestamps).
+    * Top card:
+      * Hours total (from `lesson_minutes_total`)
+      * Lesson earnings total
+      * Expenses (approved)
+      * **Grand total** (lessons + approved expenses, emphasised).
+    * Lesson earnings panel:
+      * Overall hours + total.
+      * SNC breakdown (`snc_free_minutes`, `snc_charged_minutes`).
+      * Per-student breakdown (via `v_teacher_lesson_earnings_by_student_month`
+        + `v_student_names`).
+    * Expenses panel:
+      * Summary of approved / pending / rejected (from `v_teacher_expenses_summary`).
+      * Itemised table from `v_teacher_expenses_detail_by_month` with
+        category + description.
+      * Admin can change `status` of each row via
+        `/api/admin/teacher-expenses` (approve/reject/reset). Only **approved**
+        pennies flow into `total_pennies`.
+
+* Teacher-side invoices:
+  * `/teacher/invoices`
+    * Uses `v_teacher_invoice_summary` scoped to the logged-in teacher.
+    * Shows snapshot for the current **invoice month** (previous calendar month),
+      plus a history table of earlier months.
+  * `/teacher/invoices/current-month`
+    * “Invoice month snapshot” page:
+      * Same totals as admin side (lesson minutes, gross, SNC breakdown).
+      * Expenses summary: approved / pending / rejected.
+      * Per-student breakdown (earnings) but **read-only** – teachers cannot
+        change statuses.
+
+---
+
+## 7. Teacher 360 – View → UI Wiring Map (current state)
+
+This maps the live Teacher 360 page to the data sources, with status.
+
+### 7.1 Header / Identity – Implemented
+
+* Tables:
+
+  * `teachers`, `profiles`.
+* View:
+
+  * `v_teacher_last_activity`.
+* Shows:
+
+  * Teacher name (`preferred_name` → `full_name`).
+  * Status badge (“Current teacher” for now).
+  * Created date.
+  * Last activity (from view, falling back to `created_at`).
+
+### 7.2 Workload band (“Avg usage last 3 months”) – Implemented
+
+* View:
+
+  * `v_teacher_usage_last_3m`.
+* Fields:
+
+  * `avg_month_hours`, `is_heavy_user`.
+* UI:
+
+  * “Avg usage (last 3 months): X.XX h / month”.
+  * “Heavy workload” pill if `is_heavy_user = true`.
+
+### 7.3 Last-month summary (lessons + SNCs) – Implemented
+
+* View:
+
+  * `v_teacher_lesson_stats_by_month`.
+* Query:
+
+  * Previous calendar month row for this `teacher_id`.
+* UI:
+
+  * `lastMonthHours = confirmed_minutes_total / 60`
+  * `lastMonthLessonCount = lesson_count_total`
+  * `lastMonthSncFreeCount = snc_free_count`
+  * `lastMonthSncChargedCount = snc_charged_count`
+  * Text:
+
+    * “Last month: X.XX h across N lessons · SNCs: A free / B charged (teacher paid for all).”
+
+### 7.4 Rates snapshot card – Implemented
+
+* View:
+
+  * `v_teacher_rate_summary`.
+* UI behaviour:
+
+  * When a rate row exists (`hasRateSummary`):
+
+    * Shows:
+
+      * `Online: £X.XX/h`
+      * `F2F (legacy/basic): £Y.YY/h`
+      * `F2F (premium/elite): £Z.ZZ/h`
+    * Footer line:
+
+      * If `num_f2f_overrides > 0`:
+
+        * “N student-specific F2F overrides” with a link to `/admin/teachers/[teacherId]/rates`.
+      * Otherwise:
+
+        * “No student-specific F2F overrides.”
+  * When no rate row exists:
+
+    * Shows helper text:
+
+      * “No rate row found for this teacher yet. Configure rates on the Rates page.”
+      * With a link back to `/admin/teachers/[teacherId]/rates`.
+
+### 7.5 Money summary cards (earnings & expenses) – Partially implemented
+
+* Views (now implemented):
+  * `v_teacher_lesson_earnings_last_month`
+  * `v_teacher_expenses_summary`
+  * `v_teacher_invoice_summary`
+
+* Current Teacher 360 UI:
+  * Cards are still mostly placeholder; Teacher 360 does **not yet** show full
+    “what do we owe this teacher?” money summary.
+  * Real money views are currently surfaced via the dedicated invoice pages:
+
+    * Admin: `/admin/teachers/[teacherId]/invoices` + `/admin/teachers/[teacherId]/invoices/[invoiceId]`
+    * Teacher: `/teacher/invoices` + `/teacher/invoices/current-month`
+
+* Future Teacher 360 behaviour:
+  * Show last **invoice month** earnings & approved expenses directly on the
+    Teacher 360 page using the views above.
+  * Keep rules consistent with invoice pages:
+
+    * Minutes → hours in UI.
+    * Only **approved** expenses included.
+    * Totals must reconcile with `v_teacher_invoice_summary`.
+
+### 7.6 Warnings / Hazards strip – Not implemented
+
+* Proposed future views:
+
+  * `v_teacher_pending_lessons_count`
+  * `v_teacher_snc_anomalies_count`
+  * `v_teacher_logging_gaps`
+* Current UI:
+
+  * No hazard strip yet.
+* Future behaviour:
+
+  * Show small amber/red badges only when counts > 0.
+
+### 7.7 Assigned students table – Implemented
+
+* Tables:
+
+  * `student_teacher`, `students`, `profiles`.
+* Shows:
+
+  * Student name (`preferred_name` / `full_name`).
+  * Student lifecycle status (`current` / `dormant` / `past`).
+  * Link:
+
+    * `/admin/students/[studentId]` (“View Student 360”).
+
+### 7.8 Recent lessons table – Implemented
+
+* View:
+
+  * `v_teacher_lessons`.
+* Shows:
+
+  * Date/time (`start_at` → `formatDateTimeLondon`).
+  * Student name.
+  * Duration (minutes → hours via `formatMinutesAsHours`).
+  * State (`confirmed` vs others).
+* Currently limited to the **10 most recent** lessons.
+
+---
+
+## 8. Phasing
+
+### 8.1 Phase 1 – Already in progress / useful now
+
+* Student 360:
+
+  * Credit, SNC, warnings using student views above.
+* Student portal:
+
+  * Dashboard (summary + `CreditMeter`).
+  * Credit and Lessons pages (read-only views).
+* Admin Teacher 360:
+
+  * Header + last activity.
+  * Basic workload band.
+  * Assigned students.
+  * Recent lessons.
+  * Stub navigation to Rates / Lessons / Invoices / Expenses.
+
+### 8.2 Phase 2 – Teacher pay & analytics (current status)
+
+**Already implemented**
+
+* Schema:
+  * `teacher_rates`, `teacher_student_f2f_overrides`
+  * `teacher_expenses`, `teacher_invoices`
+* Views:
+  * `v_teacher_rate_summary`
+  * `v_student_teacher_rate_summary`
+  * `v_teacher_lesson_earnings_detail`
+  * `v_teacher_lesson_earnings_by_month`
+  * `v_teacher_lesson_earnings_by_student_month`
+  * `v_teacher_lesson_earnings_last_month`
+  * `v_teacher_expenses_summary`
+  * `v_teacher_expenses_detail_by_month`
+  * `v_teacher_invoice_summary`
+* UI flows:
+  * Admin Teacher Invoices hub + invoice detail pages.
+  * Teacher “My invoices” index + invoice-month snapshot page.
+  * Teacher expenses logging page (teacher portal) plus admin-side
+    approve/reject controls on invoice detail.
+
+**Still TODO**
+
+* Wire a concise “Money summary” card onto Teacher 360 using the invoice
+  month semantics and `v_teacher_invoice_summary`.
+* Hazard/ops views for teacher pay, e.g.:
+
+  * Pending lessons count
+  * SNC anomalies (lessons with unexpected `snc_mode`)
+  * Lessons with missing rates (pay anomalies)
+  * Logging gaps / late logging.
+
+**General rule**
+
+* All pay/earnings/expenses logic must continue to live in **SQL** (tables,
+  views, RPCs). React should only orchestrate API calls and format numbers for
+  display (minutes → hours, pennies → `£`).
+React.
