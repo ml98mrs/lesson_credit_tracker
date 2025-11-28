@@ -5,13 +5,13 @@ import { formatDateTimeUK } from "@/lib/formatters";
 import LessonTypeBadge from "@/components/lessons/LessonTypeBadge";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { pendingLessonsBaseQuery } from "@/lib/api/admin/lessons";
+import type { ProfilesEmbed } from "@/lib/types/profiles";
+import { readProfileFullName } from "@/lib/types/profiles";
+import type { Delivery, LengthCat, LessonState } from "@/lib/enums";
+
+export const dynamic = "force-dynamic";
 
 // ---- Types --------------------------------------------------------------
-
-type Delivery = "online" | "f2f";
-type LengthCat = "none" | "60" | "90" | "120";
-type LessonState = "pending" | "confirmed" | "declined";
-
 type Lesson = {
   id: string;
   student_id: string;
@@ -24,17 +24,6 @@ type Lesson = {
   notes: string | null;
   is_snc: boolean;
 };
-
-type ProfilesEmbed =
-  | { full_name: string }
-  | { full_name: string }[]
-  | null
-  | undefined;
-
-function readFullName(p: ProfilesEmbed): string | undefined {
-  if (!p) return undefined;
-  return Array.isArray(p) ? p[0]?.full_name : p.full_name;
-}
 
 type SearchParams = {
   studentName?: string;
@@ -52,7 +41,6 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
 
   // 🔹 Resolve searchParams (Next 16 passes a Promise)
   const sp = (searchParams ? await searchParams : {}) as SearchParams;
-
   const studentNameFilterRaw = (sp.studentName ?? "").trim();
   const teacherNameFilterRaw = (sp.teacherName ?? "").trim();
 
@@ -82,8 +70,12 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
       .in("id", studentIds);
 
     const srows = (sdata ?? []) as { id: string; profiles: ProfilesEmbed }[];
+
     for (const s of srows) {
-      studentNames.set(s.id, readFullName(s.profiles) ?? "(no name)");
+      studentNames.set(
+        s.id,
+        readProfileFullName(s.profiles) ?? "(no name)",
+      );
     }
   }
 
@@ -94,8 +86,12 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
       .in("id", teacherIds);
 
     const trows = (tdata ?? []) as { id: string; profiles: ProfilesEmbed }[];
+
     for (const t of trows) {
-      teacherNames.set(t.id, readFullName(t.profiles) ?? "(no name)");
+      teacherNames.set(
+        t.id,
+        readProfileFullName(t.profiles) ?? "(no name)",
+      );
     }
   }
 
@@ -109,14 +105,12 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
 
     if (studentNameFilter && !sName.includes(studentNameFilter)) return false;
     if (teacherNameFilter && !tName.includes(teacherNameFilter)) return false;
+
     return true;
   });
 
   return (
-    <Section
-      title="Lessons pending confirmation"
-    
-    >
+    <Section title="Lessons pending confirmation">
       <FilterForm
         studentName={studentNameFilterRaw}
         teacherName={teacherNameFilterRaw}
@@ -162,7 +156,9 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
                     {r.delivery === "f2f" ? "F2F" : "Online"}
                   </td>
                   <td className="py-2 pr-4">
-                    {r.length_cat === "none" ? "—" : `${r.length_cat} min`}
+                    {r.length_cat === "none"
+                      ? "—"
+                      : `${r.length_cat} min`}
                   </td>
                   <td className="py-2 pr-4">{r.duration_min} min</td>
                   <td className="py-2 pr-4">
@@ -206,9 +202,9 @@ function FilterForm(props: { studentName: string; teacherName: string }) {
           name="studentName"
           defaultValue={studentName}
           className="rounded-md border px-2 py-1"
-          
         />
       </div>
+
       <div className="flex flex-col">
         <label className="mb-1 font-medium">Teacher name</label>
         <input
@@ -216,9 +212,9 @@ function FilterForm(props: { studentName: string; teacherName: string }) {
           name="teacherName"
           defaultValue={teacherName}
           className="rounded-md border px-2 py-1"
-          
         />
       </div>
+
       <div className="flex items-end">
         <button
           type="submit"

@@ -7,8 +7,16 @@ export default function AdminSignOutButton() {
   const router = useRouter();
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push("/login"); // or "/" if that’s your public entry point
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("Supabase signOut error (admin):", error);
+      }
+    } catch (e) {
+      console.error("Supabase signOut threw (admin):", e);
+    } finally {
+      router.push("/login");
+    }
   };
 
   return (

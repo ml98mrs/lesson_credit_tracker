@@ -4,6 +4,7 @@ export type ImportInvoicePayload = {
   studentId: string;
   externalRef: string;
   minutesGranted: number; // minutes in DB
+  amountPennies: number;  // 🔴 NEW – total invoice amount in pennies
   startDate: string; // "YYYY-MM-DD"
   lengthRestriction?: "none" | "60" | "90" | "120";
   deliveryRestriction?: "online" | "f2f" | null;
@@ -14,6 +15,7 @@ export type ImportInvoicePayload = {
   durationPerLessonMins?: number | null;
   buffer?: number | null;
 };
+
 
 export type AwardMinutesPayload = {
   studentId: string;

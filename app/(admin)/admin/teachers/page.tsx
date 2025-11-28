@@ -1,13 +1,13 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import type { TeacherStatus } from "@/lib/types";
 
-type DerivedStatus = "current" | "potential";
 type StatusFilter = "current" | "potential" | "all";
 
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: "current", label: "Current" },
-  { key: "potential", label: "Potential" },
+  { key: "potential", label: "Potential / Inactive" },
   { key: "all", label: "All" },
 ];
 
@@ -34,10 +34,10 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
 
   const sb = getAdminSupabase();
 
-  // 1) Load teachers (no DB status yet; status is derived below)
+  // 1) Load teachers INCLUDING DB status (new)
   const { data: teachers, error: tErr } = await sb
     .from("teachers")
-    .select("id, profile_id, created_at")
+    .select("id, profile_id, created_at, status")
     .order("created_at", { ascending: false });
 
   if (tErr) {
@@ -53,7 +53,7 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
   if (!teachers || teachers.length === 0) {
     return (
       <Section title="Teachers">
-        <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="mb-4 flex items-center justify-between gap-3">
           <p className="text-sm text-gray-600">
             No teachers found. Create one to get started.
           </p>
@@ -101,7 +101,7 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
     ])
   );
 
-  // 3) Derive status from student_teacher + students.status
+  // 3) Load student-teacher links + student statuses to compute counts
   const teacherIds = teachers.map((t) => t.id);
 
   const { data: links, error: lErr } = await sb
@@ -146,20 +146,17 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
     );
   }
 
-  // Compute derived status per teacher
-  const derivedStatusByTeacher = new Map<
+  // 4) Compute counts (active/total) per teacher (status now comes from DB)
+  const countsByTeacher = new Map<
     string,
-    { status: DerivedStatus; activeCount: number; totalCount: number }
+    { activeCount: number; totalCount: number }
   >();
 
   for (const t of teachers) {
     const tid = t.id as string;
-    const teacherLinks = (links ?? []).filter(
-      (l) => l.teacher_id === tid
-    );
+    const teacherLinks = (links ?? []).filter((l) => l.teacher_id === tid);
 
     const totalCount = teacherLinks.length;
-
     let activeCount = 0;
 
     for (const link of teacherLinks) {
@@ -170,23 +167,27 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
       }
     }
 
-    const status: DerivedStatus =
-      activeCount > 0 ? "current" : "potential";
-
-    derivedStatusByTeacher.set(tid, { status, activeCount, totalCount });
+    countsByTeacher.set(tid, { activeCount, totalCount });
   }
 
-  // 4) Apply filter in-memory
+  // 5) Filter in-memory using DB status
   const filteredTeachers = teachers.filter((t) => {
-    const tid = t.id as string;
-    const derived = derivedStatusByTeacher.get(tid) ?? {
-      status: "potential" as DerivedStatus,
-      activeCount: 0,
-      totalCount: 0,
-    };
+    const status = (t.status as TeacherStatus) ?? "potential";
 
-    if (selectedStatus === "all") return true;
-    return derived.status === selectedStatus;
+    if (selectedStatus === "all") {
+      return true; // show all statuses for now, including 'past'
+    }
+
+    if (selectedStatus === "current") {
+      return status === "current";
+    }
+
+    // "potential" tab shows both 'potential' and 'inactive'
+    if (selectedStatus === "potential") {
+      return status === "potential" || status === "inactive";
+    }
+
+    return true;
   });
 
   return (
@@ -232,12 +233,12 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
             displayName: tid.slice(0, 8) + "…",
             fullName: "",
           };
-          const derived =
-            derivedStatusByTeacher.get(tid) ?? {
-              status: "potential" as DerivedStatus,
+          const counts =
+            countsByTeacher.get(tid) ?? {
               activeCount: 0,
               totalCount: 0,
             };
+          const status = (t.status as TeacherStatus) ?? "potential";
 
           return (
             <li
@@ -254,11 +255,11 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
                   )}
                 <div className="flex flex-wrap gap-2 text-xs text-gray-500">
                   <span className="inline-flex items-center rounded-full border px-2 py-0.5">
-                    Status: {derived.status}
+                    Status: {status}
                   </span>
                   <span className="inline-flex items-center rounded-full border px-2 py-0.5">
-                    Students: {derived.activeCount} active /{" "}
-                    {derived.totalCount} total
+                    Students: {counts.activeCount} active /{" "}
+                    {counts.totalCount} total
                   </span>
                 </div>
               </div>

@@ -1,0 +1,185 @@
+
+
+---
+
+# **Appendix: Deployment & Environment Roadmap**
+
+This appendix explains the **end-stage development → RLS v2 → production** workflow for the PS English Credit Portal.
+It exists to ensure future AI helpers follow the correct, safe process when preparing the system for multi-user use (teachers, students, admin).
+
+---
+
+## **Overview**
+
+The Credit Portal has a clear separation of concerns:
+
+* The **Next.js app** (UI + SSR + server actions)
+* The **Supabase database** (tables, views, RLS, functions)
+* The **deployment environments** (local dev, staging/dev Supabase, production Supabase)
+
+As the project nears feature-complete stage, we do **not** deploy directly from the current development Supabase environment.
+Instead, we follow a structured three-environment pipeline:
+
+1. **Local development** (localhost, unstable, freely breakable)
+2. **Dev/Staging Supabase project** (cleaned schema, safe for RLS v2 experiments)
+3. **Production Supabase project** (clean schema + final RLS policies)
+
+The final live site (Vercel) points only to **production**.
+
+---
+
+# **1. Finish the App Build (Current Stage)**
+
+Before any environment splitting:
+
+* Finish core features for the Admin, Teacher, and Student portals.
+* Refactor, debug, remove dead code, fix UI flows.
+* Keep all development pointed at the **existing** Supabase project.
+* No requirement for perfect RLS yet — app is only used by the developer.
+
+**Goal:**
+Reach a stable “feature-complete” version of the app.
+
+---
+
+# **2. Create a Fresh Supabase Dev Project (`ps-english-dev`)**
+
+Once the app is feature-complete, create a **new Supabase project** for RLS cleanup and schema hardening.
+
+This new project is used for:
+
+* Replaying the current schema (tables, enums, views)
+* Cleaning up duplicated or messy RLS policies
+* Writing a simplified **RLS v2** with helper functions
+* Testing teacher/student/admin flows **locally** without risking production data
+
+### Important rules for the dev project:
+
+* Treat it as a *sandbox* — break it as needed.
+* Never store real student/teacher data here.
+* Always point your **local `.env.local`** at this dev project.
+
+Example:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=<dev URL>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<dev anon>
+SUPABASE_SERVICE_ROLE_KEY=<dev service role>
+```
+
+The Dev Supabase is where:
+
+* RLS v2 is written
+* RLS is tested with mock data
+* Views are sanitized (no SECURITY DEFINER)
+* Performance warnings are resolved
+* Duplicate policies are removed
+* Helper functions (`current_teacher_id()`, etc.) are introduced
+
+**Goal:**
+Produce a clean, safe, predictable, minimal RLS model for all tables.
+
+---
+
+# **3. Create the Production Supabase (`ps-english-prod`)**
+
+When RLS v2 is thoroughly tested in `ps-english-dev`, create a **new production Supabase project**.
+
+This is the clean, empty production database.
+
+### Steps:
+
+1. Recreate the final schema (tables, enums, views, functions)
+2. Apply the final set of RLS v2 policies
+3. Seed with **real school data only**:
+
+   * Admin profile
+   * Real teachers
+   * Real students (either manual import or migration script)
+
+### Why a separate production project?
+
+* Gives a totally clean historical slate
+* No leftover views, temporary tables, abandoned RLS experiments, or test users
+* Auth users are real humans only
+* Data quality is high from day one
+* No risk of mixing test + prod behaviour
+
+**Goal:**
+A secure, clean database ready for real teachers and students.
+
+---
+
+# **4. Deploy Next.js to Vercel (Production Stage)**
+
+Once production Supabase is ready:
+
+* Connect the Vercel project to the GitHub repo (or manual deployment)
+* Set all Vercel Production Environment Variables to the **production** Supabase project:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=<prod URL>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<prod anon>
+SUPABASE_SERVICE_ROLE_KEY=<prod service role>
+```
+
+From this point forward:
+
+* `localhost:3000` always points to **ps-english-dev**
+* `yourdomain.com` (Vercel) always points to **ps-english-prod**
+
+**Goal:**
+Launch the live multi-user version of the app with stable RLS, clean data, and a safe dev environment for future iterations.
+
+---
+
+# **5. Ongoing Development Workflow**
+
+After going live:
+
+### Day-to-day development:
+
+* Developer runs the app locally (`localhost`)
+* Local env points to `ps-english-dev`
+* Experiments, changes, and new features happen on dev DB first
+
+### When changes are stable:
+
+1. Create an SQL migration
+2. Apply migration to `ps-english-dev`
+3. Test
+4. Apply migration to `ps-english-prod`
+5. Deploy to Vercel
+
+This ensures production remains stable even while new features evolve.
+
+---
+
+# **Summary: Environment Architecture**
+
+```
+LOCALHOST  →  ps-english-dev  →  ps-english-prod  →  Vercel Production
+(unsafe)       (sandbox)          (clean prod)         (live app)
+```
+
+* **Localhost** — break anything, fast feedback
+* **Dev Supabase** — stable test environment for RLS v2 and schema work
+* **Prod Supabase** — real data, read/write via admin APIs
+* **Vercel** — serves the real app to real teachers/students
+
+---
+
+# **Purpose of this Appendix**
+
+This document ensures that any future AI helper:
+
+* understands the deployment model
+* never modifies production directly
+* knows which environment is used for what
+* follows the correct RLS v2 workflow
+* preserves system stability and data integrity
+
+This roadmap must be followed for all future major backend or RLS changes.
+
+---
+

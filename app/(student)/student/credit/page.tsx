@@ -3,22 +3,24 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { formatMinutesAsHours, formatDateTimeLondon } from "@/lib/formatters";
+
+import type { Delivery, DeliveryRestriction, ExpiryPolicy } from "@/lib/enums";
+import { formatLotLabel, CreditLotSource } from "@/lib/creditLots/labels";
+import { formatMinutesAsHours, formatDateTimeLondon, formatDeliveryLabel } from "@/lib/formatters";
+
 
 export const dynamic = "force-dynamic";
 
-type Delivery = "online" | "f2f" | "hybrid";
-
 type CreditLotRow = {
   credit_lot_id: string;
-  source_type: string;
+  source_type: CreditLotSource;
   external_ref: string | null;
   minutes_granted: number;
   minutes_allocated: number;
   minutes_remaining: number;
   expiry_date: string | null;
-  expiry_policy: string;
-  delivery_restriction: Delivery | null;
+  expiry_policy: ExpiryPolicy;
+  delivery_restriction: DeliveryRestriction;
 };
 
 type SearchParams = {
@@ -26,19 +28,7 @@ type SearchParams = {
   delivery?: string;
 };
 
-const formatDelivery = (d: Delivery | null) => {
-  if (!d) return "—";
-  switch (d) {
-    case "online":
-      return "Online";
-    case "f2f":
-      return "Face to face";
-    case "hybrid":
-      return "Hybrid";
-    default:
-      return d;
-  }
-};
+
 
 export default async function StudentCreditPage({
   searchParams,
@@ -151,10 +141,7 @@ export default async function StudentCreditPage({
       subtitle="Purchased and awarded hours, plus any expiry information."
     >
       {/* Filters */}
-      <form
-        className="mb-4 flex flex-wrap gap-3 text-xs"
-        method="GET"
-      >
+      <form className="mb-4 flex flex-wrap gap-3 text-xs" method="GET">
         {/* Credit type */}
         <div className="flex flex-col gap-1">
           <label htmlFor="creditType" className="text-gray-600">
@@ -206,14 +193,6 @@ export default async function StudentCreditPage({
         </div>
       </form>
 
-      {/* Total */}
-      <div className="mb-4 rounded-2xl border p-4">
-        <div className="text-xs text-gray-500">Total remaining</div>
-        <div className="text-2xl font-semibold">
-          {formatMinutesAsHours(totalRemaining)} h
-        </div>
-      </div>
-
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -227,42 +206,41 @@ export default async function StudentCreditPage({
               <th className="py-2 pr-4">Expiry</th>
             </tr>
           </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.credit_lot_id} className="border-b">
-                <td className="py-2 pr-4">
-                  {r.source_type === "invoice"
-                    ? `Invoice ${r.external_ref ?? ""}`.trim()
-                    : r.source_type === "award"
-                    ? "Awarded credit"
-                    : r.source_type === "overdraft"
-                    ? "Overdraft"
-                    : r.source_type}
-                </td>
-                <td className="py-2 pr-4">
-                  {formatDelivery(r.delivery_restriction)}
-                </td>
-                <td className="py-2 pr-4">
-                  {formatMinutesAsHours(r.minutes_granted)} h
-                </td>
-                <td className="py-2 pr-4">
-                  {formatMinutesAsHours(r.minutes_allocated)} h
-                </td>
-                <td className="py-2 pr-4">
-                  {formatMinutesAsHours(r.minutes_remaining)} h
-                </td>
-                <td className="py-2 pr-4">
-  {r.expiry_policy === "none" || !r.expiry_date ? (
-    "No expiry"
-  ) : r.expiry_policy === "advisory" ? (
-    <>({formatDateTimeLondon(r.expiry_date)} – purely advisory)</>
-  ) : (
-    formatDateTimeLondon(r.expiry_date)
-  )}
-</td>
-              </tr>
-            ))}
-          </tbody>
+         <tbody>
+  {rows.map((r) => (
+    <tr key={r.credit_lot_id} className="border-b">
+      <td className="py-2 pr-4">
+        {formatLotLabel(r.source_type, r.external_ref, null)}
+      </td>
+
+      <td className="py-2 pr-4">
+        {formatDeliveryLabel(r.delivery_restriction)}
+      </td>
+
+      <td className="py-2 pr-4">
+        {formatMinutesAsHours(r.minutes_granted)} h
+      </td>
+      <td className="py-2 pr-4">
+        {formatMinutesAsHours(r.minutes_allocated)} h
+      </td>
+      <td className="py-2 pr-4">
+        {formatMinutesAsHours(r.minutes_remaining)} h
+      </td>
+      <td className="py-2 pr-4">
+        {r.expiry_policy === "none" || !r.expiry_date ? (
+          "No expiry"
+        ) : r.expiry_policy === "advisory" ? (
+          <>
+            {formatDateTimeLondon(r.expiry_date)} – purely advisory
+          </>
+        ) : (
+          formatDateTimeLondon(r.expiry_date)
+        )}
+      </td>
+    </tr>
+  ))}
+</tbody>
+
         </table>
       </div>
     </Section>

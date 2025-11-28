@@ -2,32 +2,35 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
+import {
+  formatPenniesAsPounds,
+  formatDateLondon,
+} from "@/lib/formatters";
+import DeleteExpenseButton from "@/components/teacher/DeleteExpenseButton";
 
 type ExpenseSummaryRow = {
-  month_start: string; // date
+  month_start: string; // date (YYYY-MM-01)
   approved_pennies: number | null;
   pending_pennies: number | null;
   rejected_pennies: number | null;
 };
 
+type ExpenseStatus = "pending" | "approved" | "rejected" | string;
+
 type ExpenseRow = {
   id: number;
   incurred_at: string;
   amount_pennies: number;
-  status: string;
+  status: ExpenseStatus;
   description: string | null;
+  category: "drinks" | "teaching_resources" | "other";
+  student_id: string | null;
 };
 
-function formatPounds(pennies: number | null | undefined): string {
-  if (!pennies) return "£0.00";
-  return `£${(pennies / 100).toFixed(2)}`;
-}
-
-function formatDate(dateString: string): string {
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return dateString;
-  return d.toLocaleDateString("en-GB");
-}
+type StudentNameRow = {
+  student_id: string;
+  full_name: string;
+};
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +45,38 @@ export default async function TeacherExpensesPage() {
 
   const { data: expenses, error: expensesError } = await supabase
     .from("teacher_expenses")
-    .select("id, incurred_at, amount_pennies, status, description")
+    .select(
+      "id, incurred_at, amount_pennies, status, description, category, student_id",
+    )
     .order("incurred_at", { ascending: false })
     .limit(20);
 
   const summaryRows = (summaries ?? []) as ExpenseSummaryRow[];
   const expenseRows = (expenses ?? []) as ExpenseRow[];
+
+  // Look up student names for any rows linked to a student
+  const studentIds = Array.from(
+    new Set(expenseRows.map((e) => e.student_id).filter(Boolean)),
+  ) as string[];
+
+  const studentNameById = new Map<string, string>();
+
+  if (studentIds.length > 0) {
+    const { data: studentNames } = await supabase
+      .from("v_student_names")
+      .select("student_id, full_name")
+      .in("student_id", studentIds);
+
+    for (const sn of (studentNames ?? []) as StudentNameRow[]) {
+      studentNameById.set(sn.student_id, sn.full_name);
+    }
+  }
+
+  function formatCategory(cat: ExpenseRow["category"]) {
+    if (cat === "drinks") return "Drinks";
+    if (cat === "teaching_resources") return "Teaching resources";
+    return "Other";
+  }
 
   return (
     <Section
@@ -117,13 +146,13 @@ export default async function TeacherExpensesPage() {
                           {monthLabel}
                         </td>
                         <td className="px-3 py-2 text-right text-sm text-gray-900">
-                          {formatPounds(row.approved_pennies)}
+                          {formatPenniesAsPounds(row.approved_pennies)}
                         </td>
                         <td className="px-3 py-2 text-right text-sm text-gray-900">
-                          {formatPounds(row.pending_pennies)}
+                          {formatPenniesAsPounds(row.pending_pennies)}
                         </td>
                         <td className="px-3 py-2 text-right text-sm text-gray-900">
-                          {formatPounds(row.rejected_pennies)}
+                          {formatPenniesAsPounds(row.rejected_pennies)}
                         </td>
                       </tr>
                     );
@@ -141,7 +170,7 @@ export default async function TeacherExpensesPage() {
           </h2>
           <p className="mt-1 text-xs text-gray-500">
             New expenses start as <strong>pending</strong>. Admin will review
-            and mark them as approved or rejected.
+            and mark them as approved or rejected. Pending items can be deleted.
           </p>
 
           <div className="mt-3 overflow-hidden rounded-lg border border-gray-200">
@@ -152,7 +181,10 @@ export default async function TeacherExpensesPage() {
                     Incurred
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Description
+                    Student
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Category
                   </th>
                   <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">
                     Amount
@@ -160,13 +192,16 @@ export default async function TeacherExpensesPage() {
                   <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                     Status
                   </th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    {/* Actions */}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
                 {expenseRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={6}
                       className="px-3 py-4 text-center text-xs text-gray-500"
                     >
                       No expenses logged yet.
@@ -176,13 +211,18 @@ export default async function TeacherExpensesPage() {
                   expenseRows.map((e) => (
                     <tr key={e.id}>
                       <td className="px-3 py-2 text-sm text-gray-800">
-                        {formatDate(e.incurred_at)}
+                        {formatDateLondon(e.incurred_at)}
                       </td>
-                      <td className="px-3 py-2 text-sm text-gray-700">
-                        {e.description || "—"}
+                      <td className="px-3 py-2 text-sm text-gray-800">
+                        {e.student_id
+                          ? studentNameById.get(e.student_id) ?? "Unknown student"
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-gray-800">
+                        {formatCategory(e.category)}
                       </td>
                       <td className="px-3 py-2 text-right text-sm text-gray-900">
-                        {formatPounds(e.amount_pennies)}
+                        {formatPenniesAsPounds(e.amount_pennies)}
                       </td>
                       <td className="px-3 py-2 text-sm">
                         <span
@@ -197,6 +237,11 @@ export default async function TeacherExpensesPage() {
                         >
                           {e.status}
                         </span>
+                      </td>
+                      <td className="px-3 py-2 text-right text-sm">
+                        {e.status === "pending" && (
+                          <DeleteExpenseButton expenseId={e.id} />
+                        )}
                       </td>
                     </tr>
                   ))

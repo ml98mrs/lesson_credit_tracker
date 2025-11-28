@@ -1,3 +1,5 @@
+//app\api\admin\hazards\by-lesson\route.ts//
+
 import { NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 

@@ -1,7 +1,15 @@
+// app/(admin)/admin/lessons/confirmed/page.tsx
+
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { formatDateTimeUK } from "@/lib/formatters";
-import { formatLotLabel, type CreditLotSource } from "@/lib/credit-lot-labels";
+import { formatDateTimeLondon } from "@/lib/formatters";
+import { formatLotLabel, type CreditLotSource } from "@/lib/creditLots/labels";
+import { readProfileFullName, type ProfilesEmbed } from "@/lib/types/profiles";
+import type {
+  Delivery,
+  LengthCat,
+  LessonState,
+} from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
 
@@ -23,18 +31,40 @@ type LessonRow = {
   id: string;
   student_id: string;
   teacher_id: string;
-  occurred_at: string;
+  occurred_at: string; // UTC ISO string
   duration_min: number;
-  delivery: string;
-  length_cat: string;
-  state: string;
+  delivery: Delivery;
+  length_cat: LengthCat;
+  state: LessonState;
   notes: string | null;
 };
 
-export default async function ConfirmedLessonsPage({ searchParams }: PageProps) {
-  const sb = getAdminSupabase();
+type AllocRow = {
+  lesson_id: string;
+  credit_lot_id: string | null;
+};
 
-  // 🔹 Resolve searchParams (Next 16 passes a Promise)
+type LotMetaRow = {
+  id: string;
+  source_type: CreditLotSource;
+  external_ref: string | null;
+  award_reason_code: string | null;
+};
+
+type StudentRow = {
+  id: string;
+  profiles: ProfilesEmbed;
+};
+
+type TeacherRow = {
+  id: string;
+  profiles: ProfilesEmbed;
+};
+
+export default async function ConfirmedLessonsPage({ searchParams }: PageProps) {
+  const sb = await getAdminSupabase();
+
+  // Next 16: searchParams arrives as a Promise
   const sp = (searchParams ? await searchParams : {}) as SearchParams;
 
   const monthParam = (sp.month ?? "").trim();
@@ -45,7 +75,9 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
   const fromDateParam = (sp.fromDate ?? "").trim();
   const toDateParam = (sp.toDate ?? "").trim();
 
-  // ---- Build lessons query with SQL-friendly filters ----
+  // --------------------------
+  // Build lessons query
+  // --------------------------
   let query = sb
     .from("lessons")
     .select(
@@ -53,9 +85,9 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     )
     .eq("state", "confirmed");
 
-  // Date range logic:
-  //  • If fromDate + toDate are valid -> use them.
-  //  • Else if month is given -> use that month.
+  // Date range:
+  //  • If both fromDate & toDate valid → use inclusive range.
+  //  • Else if month specified → use that calendar month.
   let fromDate: Date | null = null;
   let toDate: Date | null = null;
 
@@ -66,10 +98,11 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     if (
       !Number.isNaN(fromCandidate.getTime()) &&
       !Number.isNaN(toCandidate.getTime()) &&
-      fromCandidate < toCandidate
+      fromCandidate <= toCandidate
     ) {
       fromDate = fromCandidate;
-      toDate = toCandidate;
+      // Inclusive end date: add 1 day to the "to" date
+      toDate = new Date(toCandidate.getTime() + 24 * 60 * 60 * 1000);
     }
   }
 
@@ -80,7 +113,7 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
 
     if (!Number.isNaN(year) && !Number.isNaN(month) && month >= 1 && month <= 12) {
       fromDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-      toDate = new Date(Date.UTC(year, month, 1, 0, 0, 0)); // next month
+      toDate = new Date(Date.UTC(year, month, 1, 0, 0, 0)); // first day of next month
     }
   }
 
@@ -90,7 +123,7 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
       .lt("occurred_at", toDate.toISOString());
   }
 
-  // Exact lesson ID (UUID) filter
+  // Exact lesson ID filter
   if (lessonIdFilter) {
     query = query.eq("id", lessonIdFilter);
   }
@@ -100,44 +133,42 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     query = query.eq("delivery", deliveryFilter);
   }
 
-  query = query.order("occurred_at", { ascending: false }).limit(200);
+  const { data: lessonData, error: lessonErr } = await query
+    .order("occurred_at", { ascending: false })
+    .limit(200);
 
-  const { data, error } = await query;
-
-  if (error) {
-    throw new Error(error.message);
+  if (lessonErr) {
+    throw new Error(lessonErr.message);
   }
 
-  const rows: LessonRow[] = (data ?? []) as LessonRow[];
+  const lessons: LessonRow[] = (lessonData ?? []) as LessonRow[];
 
-  // ---- Allocations → credit lots (read-only) ----
-  const lessonIds = rows.map((r) => r.id);
+  // --------------------------
+  // Allocations → credit lot labels (read-only)
+  // --------------------------
+  const lessonIds = lessons.map((l) => l.id);
 
-  type AllocRow = { lesson_id: string; credit_lot_id: string | null };
+  let allocRows: AllocRow[] = [];
+  if (lessonIds.length > 0) {
+    const { data, error } = await sb
+      .from("allocations")
+      .select("lesson_id, credit_lot_id")
+      .in("lesson_id", lessonIds);
 
-  const { data: allocRows, error: allocErr } = await sb
-    .from("allocations")
-    .select("lesson_id, credit_lot_id")
-    .in("lesson_id", lessonIds);
+    if (error) {
+      throw new Error(error.message);
+    }
 
-  if (allocErr) {
-    throw new Error(allocErr.message);
+    allocRows = (data ?? []) as AllocRow[];
   }
 
   const creditLotIds = Array.from(
     new Set(
-      (allocRows ?? [])
+      allocRows
         .map((a) => a.credit_lot_id)
         .filter((id): id is string => !!id),
     ),
   );
-
-  type LotMetaRow = {
-    id: string;
-    source_type: CreditLotSource;
-    external_ref: string | null;
-    award_reason_code: string | null;
-  };
 
   const lotLabelById = new Map<string, string>();
 
@@ -161,10 +192,9 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     }
   }
 
-  // lesson_id → "label · label2"
+  // lesson_id → "Invoice X · Award Y" labels
   const lessonLotsLabel = new Map<string, string>();
-
-  for (const a of (allocRows ?? []) as AllocRow[]) {
+  for (const a of allocRows) {
     if (!a.credit_lot_id) continue;
     const label = lotLabelById.get(a.credit_lot_id);
     if (!label) continue;
@@ -177,79 +207,68 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     }
   }
 
-  // ---- Look up student + teacher names via students/teachers → profiles ----
-  const studentIds = Array.from(new Set(rows.map((r) => r.student_id)));
-  const teacherIds = Array.from(new Set(rows.map((r) => r.teacher_id)));
+  // --------------------------
+  // Student / teacher names via embeds + Profiles helpers
+  // --------------------------
+  const studentIds = Array.from(new Set(lessons.map((l) => l.student_id)));
+  const teacherIds = Array.from(new Set(lessons.map((l) => l.teacher_id)));
 
-  const [{ data: studentRows, error: sErr }, { data: teacherRows, error: tErr }] =
-    await Promise.all([
-      sb.from("students").select("id, profile_id").in("id", studentIds),
-      sb.from("teachers").select("id, profile_id").in("id", teacherIds),
-    ]);
+  let studentRows: StudentRow[] = [];
+  let teacherRows: TeacherRow[] = [];
 
-  if (sErr) throw new Error(sErr.message);
-  if (tErr) throw new Error(tErr.message);
+  if (studentIds.length > 0) {
+    const { data, error } = await sb
+      .from("students")
+      .select("id, profiles(full_name)")
+      .in("id", studentIds);
 
-  const studentProfileByStudent = new Map<string, string>();
-  for (const s of studentRows ?? []) {
-    studentProfileByStudent.set(s.id as string, s.profile_id as string);
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    studentRows = (data ?? []) as StudentRow[];
   }
 
-  const teacherProfileByTeacher = new Map<string, string>();
-  for (const t of teacherRows ?? []) {
-    teacherProfileByTeacher.set(t.id as string, t.profile_id as string);
-  }
+  if (teacherIds.length > 0) {
+    const { data, error } = await sb
+      .from("teachers")
+      .select("id, profiles(full_name)")
+      .in("id", teacherIds);
 
-  const profileIds = Array.from(
-    new Set([
-      ...Array.from(studentProfileByStudent.values()),
-      ...Array.from(teacherProfileByTeacher.values()),
-    ]),
-  );
+    if (error) {
+      throw new Error(error.message);
+    }
 
-  const { data: profiles, error: pErr } = await sb
-    .from("profiles")
-    .select("id, preferred_name, full_name")
-    .in("id", profileIds);
-
-  if (pErr) throw new Error(pErr.message);
-
-  const nameByProfile = new Map<string, string>();
-  for (const p of profiles ?? []) {
-    const display =
-      (p.preferred_name as string | null) ||
-      (p.full_name as string) ||
-      "—";
-    nameByProfile.set(p.id as string, display);
+    teacherRows = (data ?? []) as TeacherRow[];
   }
 
   const studentNameById = new Map<string, string>();
-  for (const [studentId, profileId] of studentProfileByStudent.entries()) {
-    studentNameById.set(
-      studentId,
-      nameByProfile.get(profileId) ?? studentId.slice(0, 8) + "…",
-    );
+  for (const s of studentRows) {
+    const displayName =
+      readProfileFullName(s.profiles) ?? `${s.id.slice(0, 8)}…`;
+    studentNameById.set(s.id, displayName);
   }
 
   const teacherNameById = new Map<string, string>();
-  for (const [teacherId, profileId] of teacherProfileByTeacher.entries()) {
-    teacherNameById.set(
-      teacherId,
-      nameByProfile.get(profileId) ?? teacherId.slice(0, 8) + "…",
-    );
+  for (const t of teacherRows) {
+    const displayName =
+      readProfileFullName(t.profiles) ?? `${t.id.slice(0, 8)}…`;
+    teacherNameById.set(t.id, displayName);
   }
 
-  // Options for datalist autocomplete
+  // Datalist options for autocomplete
   const studentOptions = Array.from(new Set(studentNameById.values())).sort();
   const teacherOptions = Array.from(new Set(teacherNameById.values())).sort();
 
-  // ---- In-memory filters by *name* (human-friendly) ----
+  // --------------------------
+  // In-memory filters by *name* (human-friendly)
+  // --------------------------
   const studentNameFilter = studentNameFilterRaw.toLowerCase();
   const teacherNameFilter = teacherNameFilterRaw.toLowerCase();
 
-  const filteredRows = rows.filter((r) => {
-    const sName = (studentNameById.get(r.student_id) ?? "").toLowerCase();
-    const tName = (teacherNameById.get(r.teacher_id) ?? "").toLowerCase();
+  const filteredLessons = lessons.filter((l) => {
+    const sName = (studentNameById.get(l.student_id) ?? "").toLowerCase();
+    const tName = (teacherNameById.get(l.teacher_id) ?? "").toLowerCase();
 
     if (studentNameFilter && !sName.includes(studentNameFilter)) {
       return false;
@@ -260,11 +279,11 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     return true;
   });
 
+  // --------------------------
+  // Render
+  // --------------------------
   return (
-    <Section
-      title="Confirmed Lessons"
-      
-    >
+    <Section title="Confirmed Lessons">
       <FilterForm
         month={monthParam}
         lessonId={lessonIdFilter}
@@ -277,7 +296,7 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
         teacherOptions={teacherOptions}
       />
 
-      {filteredRows.length === 0 ? (
+      {filteredLessons.length === 0 ? (
         <p className="mt-4 text-sm text-gray-600">
           No confirmed lessons match the current filters.
         </p>
@@ -286,7 +305,7 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b text-left">
-                <th className="py-2 pr-4">Date of Lesson</th>
+                <th className="py-2 pr-4">Date of lesson</th>
                 <th className="py-2 pr-4">Lesson ID</th>
                 <th className="py-2 pr-4">Student</th>
                 <th className="py-2 pr-4">Teacher</th>
@@ -297,28 +316,28 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((r) => (
-                <tr key={r.id} className="border-b">
+              {filteredLessons.map((l) => (
+                <tr key={l.id} className="border-b">
                   <td className="py-2 pr-4">
-                    {formatDateTimeUK(r.occurred_at)}
+                    {formatDateTimeLondon(l.occurred_at)}
                   </td>
-                  <td className="py-2 pr-4 font-mono text-xs">{r.id}</td>
+                  <td className="py-2 pr-4 font-mono text-xs">{l.id}</td>
                   <td className="py-2 pr-4">
-                    {studentNameById.get(r.student_id) ??
-                      r.student_id.slice(0, 8) + "…"}
-                  </td>
-                  <td className="py-2 pr-4">
-                    {teacherNameById.get(r.teacher_id) ??
-                      r.teacher_id.slice(0, 8) + "…"}
+                    {studentNameById.get(l.student_id) ??
+                      `${l.student_id.slice(0, 8)}…`}
                   </td>
                   <td className="py-2 pr-4">
-                    {r.delivery === "f2f" ? "F2F" : "Online"}
+                    {teacherNameById.get(l.teacher_id) ??
+                      `${l.teacher_id.slice(0, 8)}…`}
                   </td>
-                  <td className="py-2 pr-4">{r.duration_min} min</td>
+                  <td className="py-2 pr-4">
+                    {l.delivery === "f2f" ? "F2F" : "Online"}
+                  </td>
+                  <td className="py-2 pr-4">{l.duration_min} min</td>
                   <td className="py-2 pr-4 text-xs">
-                    {lessonLotsLabel.get(r.id) ?? "—"}
+                    {lessonLotsLabel.get(l.id) ?? "—"}
                   </td>
-                  <td className="py-2 pr-4">{r.notes ?? ""}</td>
+                  <td className="py-2 pr-4">{l.notes ?? ""}</td>
                 </tr>
               ))}
             </tbody>
@@ -329,7 +348,9 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
   );
 }
 
-// --- Filter form (GET, name-based) ---
+// --------------------------
+// Filter form (GET)
+// --------------------------
 
 type FilterFormProps = {
   month: string;
@@ -406,7 +427,6 @@ function FilterForm(props: FilterFormProps) {
             name="lessonId"
             defaultValue={lessonId}
             className="rounded-md border px-2 py-1"
-            
           />
         </div>
 
@@ -419,7 +439,6 @@ function FilterForm(props: FilterFormProps) {
             defaultValue={studentName}
             list="studentNames"
             className="rounded-md border px-2 py-1"
-            
           />
         </div>
 
@@ -432,7 +451,6 @@ function FilterForm(props: FilterFormProps) {
             defaultValue={teacherName}
             list="teacherNames"
             className="rounded-md border px-2 py-1"
-            
           />
         </div>
 

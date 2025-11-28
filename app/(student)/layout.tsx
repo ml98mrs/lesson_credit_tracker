@@ -9,8 +9,8 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         <div className="max-w-6xl mx-auto flex items-center justify-between p-4 text-sm">
           <div className="flex gap-4">
             <Link href="/student/dashboard">Student Dashboard</Link>
-            <Link href="/student/credit">Credit</Link>
-            <Link href="/student/lessons">Lessons</Link>
+            <Link href="/student/credit">Credit lots</Link>
+            <Link href="/student/lessons">Lessons confirmed</Link>
             <Link href="/student/uptake">Uptake</Link>
           
           </div>

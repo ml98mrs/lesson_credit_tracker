@@ -12,14 +12,25 @@ function SignOutButton() {
   const sb = getBrowserSupabase();
 
   async function handleSignOut() {
-    await sb.auth.signOut();
+    try {
+      const { error } = await sb.auth.signOut();
+      if (error) {
+        console.error("Supabase signOut error (teacher):", error);
+      }
+    } catch (e) {
+      console.error("Supabase signOut threw (teacher):", e);
+    }
 
-    // clear cookies on the server too
-    await fetch("/api/auth/callback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ event: "SIGNED_OUT" }),
-    });
+    try {
+      // Always tell the server to clear cookies, even if signOut errored.
+      await fetch("/api/auth/callback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "SIGNED_OUT" }),
+      });
+    } catch (e) {
+      console.error("POST /api/auth/callback SIGNED_OUT failed:", e);
+    }
 
     router.replace("/login");
   }
@@ -34,13 +45,14 @@ function SignOutButton() {
   );
 }
 
+
 const tabs = [
   { href: "/teacher/dashboard", label: "Teacher Dashboard" },
-  { href: "/teacher/lessons", label: "Lessons" },
+  { href: "/teacher/lessons/new", label: "Log a lesson" },
   { href: "/teacher/students", label: "Students" },
   { href: "/teacher/expenses", label: "Expenses" },
   { href: "/teacher/invoices", label: "Invoices" },
-  { href: "/teacher/profile", label: "Profile" },
+  
 ];
 
 export default function TeacherLayout({ children }: { children: ReactNode }) {

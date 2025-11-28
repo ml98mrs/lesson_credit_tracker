@@ -5,6 +5,12 @@ import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { formatPenniesAsPounds } from "@/lib/formatters";
 import GenerateInvoiceButton from "@/components/admin/GenerateInvoiceButton";
+import {
+  getInvoiceMonthKey,
+  formatInvoiceMonthLabel,
+  TeacherInvoiceStatusPill,
+  type InvoiceStatus,
+} from "@/lib/teacherInvoices";
 
 export const dynamic = "force-dynamic";
 
@@ -14,53 +20,18 @@ type InvoiceSummaryRow = {
   lesson_gross_pennies: number | null;
   expenses_pennies: number | null;
   total_pennies: number | null;
-  status: "not_generated" | "generated" | "paid";
+  status: InvoiceStatus;
 };
 
 type TeacherInvoiceRow = {
   id: number;
   teacher_id: string;
-  month_start: string;
+  month_start: string; // 'YYYY-MM-DD'
   status: "generated" | "paid";
   invoice_ref: string | null;
   created_at: string;
   paid_at: string | null;
 };
-
-// We treat the "invoice month" as the previous calendar month.
-// Example: on 8th December we are finalising November invoices.
-function getInvoiceMonthKey(): string {
-  const now = new Date();
-  const invoiceMonthStart = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
-  );
-  return invoiceMonthStart.toISOString().slice(0, 10); // 'YYYY-MM-01'
-}
-
-function formatMonthLabel(monthStart: string): string {
-  const d = new Date(`${monthStart}T00:00:00Z`);
-  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-}
-
-function StatusPill({
-  status,
-}: {
-  status: "not_generated" | "generated" | "paid";
-}) {
-  const base =
-    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium";
-  if (status === "paid") {
-    return <span className={`${base} bg-green-100 text-green-800`}>Paid</span>;
-  }
-  if (status === "generated") {
-    return (
-      <span className={`${base} bg-amber-100 text-amber-800`}>Generated</span>
-    );
-  }
-  return (
-    <span className={`${base} bg-gray-100 text-gray-800`}>Not generated</span>
-  );
-}
 
 export default async function TeacherInvoicesAdmin({
   params,
@@ -127,8 +98,8 @@ export default async function TeacherInvoicesAdmin({
     );
   }
 
-  const summaryRows: InvoiceSummaryRow[] = (summaries ?? []) as any;
-  const invoiceRows: TeacherInvoiceRow[] = (invoices ?? []) as any;
+  const summaryRows: InvoiceSummaryRow[] = summaries ?? [];
+  const invoiceRows: TeacherInvoiceRow[] = invoices ?? [];
 
   const invoiceByMonth = new Map<string, TeacherInvoiceRow>();
   for (const inv of invoiceRows) {
@@ -137,18 +108,17 @@ export default async function TeacherInvoicesAdmin({
 
   // "Invoice month" = previous calendar month (last full month)
   const invoiceMonthKey = getInvoiceMonthKey();
-  const invoiceMonthLabel = formatMonthLabel(invoiceMonthKey);
+  const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
 
   const invoiceMonthSummary = summaryRows.find(
     (row) => row.month_start === invoiceMonthKey,
   );
 
-  // History = all months strictly before the invoice month
-  const invoiceMonthDate = new Date(`${invoiceMonthKey}T00:00:00Z`).getTime();
-  const historyRows = summaryRows.filter((row) => {
-    const rowDate = new Date(`${row.month_start}T00:00:00Z`).getTime();
-    return rowDate < invoiceMonthDate;
-  });
+  // History = all other months (older and, if present, any newer months)
+  // This matches the teacher invoice index semantics.
+  const historyRows = summaryRows.filter(
+    (row) => row.month_start !== invoiceMonthKey,
+  );
 
   const invoiceLessonGross = invoiceMonthSummary?.lesson_gross_pennies ?? 0;
   const invoiceExpenses = invoiceMonthSummary?.expenses_pennies ?? 0;
@@ -159,21 +129,32 @@ export default async function TeacherInvoicesAdmin({
       title="Teacher invoices"
       subtitle="Monthly snapshot of lessons, approved expenses, and invoice status."
     >
+<div className="mb-4 text-xs">
+        <Link
+          href={`/admin/teachers/${teacherId}`}
+          className="text-blue-700 underline"
+        >
+          ← Back to Teacher 360
+        </Link>
+      </div>
+
+
       <p className="mb-4 text-xs text-gray-600">Teacher: {teacherLabel}</p>
 
       <div className="space-y-8">
-        {/* Previous (invoice) month card */}
+        {/* Latest invoice-month card (aligned with teacher portal wording) */}
         <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-gray-900">
-                Previous month snapshot
+                Latest invoice month
               </h2>
               <p className="mt-1 text-xs text-gray-600">
-                View of confirmed lesson earnings and approved expenses for{" "}
+                Confirmed lesson earnings and approved expenses for{" "}
                 <span className="font-medium">{invoiceMonthLabel}</span>. This
-                is the invoice month you&apos;re currently working on.
+                is the month the teacher&apos;s next invoice is based on.
               </p>
+
               {invoiceMonthSummary ? (
                 <div className="mt-3 space-y-1 text-sm">
                   <div className="flex items-baseline justify-between">
@@ -206,16 +187,19 @@ export default async function TeacherInvoicesAdmin({
                 </div>
               ) : (
                 <p className="mt-2 text-xs text-gray-500">
-                  No activity for this teacher in the previous month yet.
+                  No confirmed lessons or approved expenses recorded for{" "}
+                  {invoiceMonthLabel} yet.
                 </p>
               )}
             </div>
 
+            {/* ⬇ status pill + admin actions wrapper */}
             <div className="flex flex-col items-start gap-2 sm:items-end">
-              <StatusPill
+              <TeacherInvoiceStatusPill
                 status={invoiceMonthSummary?.status ?? "not_generated"}
               />
 
+              {/* Admin actions: open existing invoice or generate new one */}
               {invoiceMonthSummary && (() => {
                 const inv = invoiceByMonth.get(invoiceMonthKey);
                 if (inv) {
@@ -239,20 +223,21 @@ export default async function TeacherInvoicesAdmin({
           </div>
         </div>
 
-        {/* History table (months before the invoice month) */}
+        {/* History table (all other months) */}
         <div>
           <h2 className="mb-2 text-sm font-semibold text-gray-900">
-            Monthly history
+            Invoice history
           </h2>
           <p className="mb-3 text-xs text-gray-600">
-            Each row is a London calendar month for this teacher before{" "}
-            {invoiceMonthLabel}. Lesson earnings come from confirmed lessons;
-            expenses reflect approved claims only.
+            All other months for this teacher. Lesson earnings come from
+            confirmed lessons; expenses reflect approved claims only. Once an
+            invoice is generated, it appears here with a link to its detail
+            page.
           </p>
 
           {historyRows.length === 0 ? (
             <p className="text-xs text-gray-500">
-              No earlier months to show yet.
+              No other months to show yet.
             </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -289,7 +274,7 @@ export default async function TeacherInvoicesAdmin({
                     return (
                       <tr key={row.teacher_id + row.month_start}>
                         <td className="whitespace-nowrap px-4 py-2 text-gray-900">
-                          {formatMonthLabel(row.month_start)}
+                          {formatInvoiceMonthLabel(row.month_start)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right">
                           {formatPenniesAsPounds(lessonGross)}
@@ -301,7 +286,7 @@ export default async function TeacherInvoicesAdmin({
                           {formatPenniesAsPounds(total)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2">
-                          <StatusPill status={row.status} />
+                          <TeacherInvoiceStatusPill status={row.status} />
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right">
                           {inv ? (

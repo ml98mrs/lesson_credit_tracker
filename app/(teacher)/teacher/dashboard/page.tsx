@@ -3,7 +3,11 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { formatPenniesAsPounds } from "@/lib/formatters";
+import {
+  formatPenniesAsPounds,
+  formatDateTimeLondon,
+} from "@/lib/formatters";
+import type { StudentStatus } from "@/lib/enums";
 
 type InvoiceStatus = "not_generated" | "generated" | "paid";
 
@@ -17,7 +21,7 @@ type InvoiceSummaryRow = {
 
 type StudentStatusRow = {
   id: string;
-  status: "current" | "dormant" | "past";
+  status: StudentStatus;
 };
 
 // Invoice month = previous London calendar month
@@ -56,10 +60,15 @@ export default async function TeacherDashboardPage() {
   const sb = await getServerSupabase();
 
   // 0) Map logged-in user → teacher_id
-  const { data: u } = await sb.auth.getUser();
+  const { data: u, error: userErr } = await sb.auth.getUser();
   const user = u?.user;
-  if (!user) {
-    return <p className="text-red-600">Please sign in.</p>;
+
+  if (userErr || !user) {
+    return (
+      <Section title="Teacher dashboard">
+        <p className="text-sm text-red-600">Please sign in.</p>
+      </Section>
+    );
   }
 
   const { data: t, error: teacherError } = await sb
@@ -70,9 +79,11 @@ export default async function TeacherDashboardPage() {
 
   if (teacherError || !t?.id) {
     return (
-      <p className="text-red-600">
-        Error: teacher record not found for this login.
-      </p>
+      <Section title="Teacher dashboard">
+        <p className="text-sm text-red-600">
+          Error: teacher record not found for this login.
+        </p>
+      </Section>
     );
   }
 
@@ -80,6 +91,7 @@ export default async function TeacherDashboardPage() {
 
   const invoiceMonthKey = getInvoiceMonthKey();
   const invoiceMonthLabel = formatMonthLabel(invoiceMonthKey);
+  const generatedAtLabel = formatDateTimeLondon(new Date().toISOString());
 
   // 1) Pending lessons + invoice summary + assigned-student links
   const [
@@ -98,11 +110,8 @@ export default async function TeacherDashboardPage() {
         "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
       )
       .eq("month_start", invoiceMonthKey)
-      .maybeSingle(),
-    sb
-      .from("student_teacher")
-      .select("student_id")
-      .eq("teacher_id", teacherId),
+      .maybeSingle<InvoiceSummaryRow>(),
+    sb.from("student_teacher").select("student_id").eq("teacher_id", teacherId),
   ]);
 
   const pendingCount = pendingCountRaw ?? 0;
@@ -147,10 +156,18 @@ export default async function TeacherDashboardPage() {
       title="Teacher dashboard"
       subtitle="At-a-glance view of your lessons, students, and invoice month."
     >
+      {/* Last-updated / admin-maintained panel */}
+      <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900">
+        <p className="font-medium">Teacher portal updates</p>
+        <p className="mt-1">
+          This dashboard snapshot was last generated on{" "}
+          <span className="font-semibold">{generatedAtLabel}</span>.
+        </p>
+      </div>
+
       <div className="space-y-6">
         {/* Intro + primary action */}
         <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
-          
           <Link
             href="/teacher/lessons/new"
             className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
@@ -186,7 +203,7 @@ export default async function TeacherDashboardPage() {
             )}
 
             <Link
-              href="/teacher/lessons"
+              href="/teacher/lessons/new"
               className="mt-3 inline-flex text-xs font-medium text-blue-600 hover:text-blue-800"
             >
               View logged lessons
@@ -198,7 +215,6 @@ export default async function TeacherDashboardPage() {
             <h2 className="text-sm font-semibold text-gray-900">
               Your students
             </h2>
-           
 
             {linksError ? (
               <p className="mt-3 text-xs text-red-600">
@@ -258,7 +274,7 @@ export default async function TeacherDashboardPage() {
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-gray-600">Expenses </span>
+                  <span className="text-gray-600">Expenses</span>
                   <span className="font-semibold text-gray-900">
                     {formatPenniesAsPounds(expensesPennies)}
                   </span>

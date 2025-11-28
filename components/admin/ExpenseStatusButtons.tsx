@@ -1,70 +1,75 @@
 // components/admin/ExpenseStatusButtons.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 type Props = {
   expenseId: number;
   currentStatus: "pending" | "approved" | "rejected";
 };
 
-export default function ExpenseStatusButtons({ expenseId, currentStatus }: Props) {
-  const [status, setStatus] = useState(currentStatus);
-  const [loading, setLoading] = useState<null | "approve" | "reject" | "reset">(null);
+export default function ExpenseStatusButtons({
+  expenseId,
+  currentStatus,
+}: Props) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
 
-  async function updateStatus(nextStatus: "pending" | "approved" | "rejected") {
-    setLoading(
-      nextStatus === "approved" ? "approve" :
-      nextStatus === "rejected" ? "reject" :
-      "reset",
-    );
+  async function updateStatus(targetStatus: "approved" | "rejected") {
     setError(null);
-    try {
-      const res = await fetch("/api/admin/teacher-expenses", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expenseId, status: nextStatus }),
-      });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(body?.error || "Failed to update");
-      setStatus(nextStatus);
-    } catch (e: any) {
-      setError(e.message || "Error updating status");
-    } finally {
-      setLoading(null);
-    }
+
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/admin/teacher-expenses", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expenseId, status: targetStatus }),
+        });
+
+        const body = await res.json().catch(() => null);
+
+        if (!res.ok || !body?.ok) {
+          throw new Error(body?.error || "Failed to update");
+        }
+
+        // 🔁 Re-run the current route's server components,
+        // which will re-query all the Supabase views.
+        router.refresh();
+      } catch (e: any) {
+        setError(e?.message || "Failed to update");
+      }
+    });
   }
 
+  const approving = isPending && currentStatus !== "approved";
+  const rejecting = isPending && currentStatus !== "rejected";
+
+  const isApproveDisabled =
+    isPending || currentStatus === "approved" || currentStatus === "rejected";
+  const isRejectDisabled =
+    isPending || currentStatus === "rejected" || currentStatus === "approved";
+
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="inline-flex gap-1">
+    <div className="flex flex-col items-end gap-1 text-xs">
+      <div className="flex gap-2">
         <button
           type="button"
+          disabled={isApproveDisabled}
           onClick={() => updateStatus("approved")}
-          disabled={loading !== null}
-          className="rounded border border-green-600 px-2 py-0.5 text-[11px] font-medium text-green-700 hover:bg-green-50 disabled:opacity-60"
+          className="rounded-md bg-green-600 px-2 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-60"
         >
-          {loading === "approve" ? "Saving…" : "Approve"}
+          {approving ? "Approving…" : "Approve"}
         </button>
         <button
           type="button"
+          disabled={isRejectDisabled}
           onClick={() => updateStatus("rejected")}
-          disabled={loading !== null}
-          className="rounded border border-red-600 px-2 py-0.5 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+          className="rounded-md bg-red-600 px-2 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-red-700 disabled:opacity-60"
         >
-          {loading === "reject" ? "Saving…" : "Reject"}
+          {rejecting ? "Rejecting…" : "Reject"}
         </button>
-        {status !== "pending" && (
-          <button
-            type="button"
-            onClick={() => updateStatus("pending")}
-            disabled={loading !== null}
-            className="rounded border border-gray-400 px-2 py-0.5 text-[11px] text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-          >
-            {loading === "reset" ? "Saving…" : "Reset"}
-          </button>
-        )}
       </div>
       {error && <span className="text-[10px] text-red-600">{error}</span>}
     </div>

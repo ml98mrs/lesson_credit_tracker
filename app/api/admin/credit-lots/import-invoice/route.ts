@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import { DELIVERY, TIER, LENGTH_CAT, EXPIRY_POLICY } from "@/lib/enums";
 
 // Simple YYYY-MM-DD check
 const ISO_DATE = z
@@ -12,28 +13,21 @@ const InvoiceSchema = z.object({
   externalRef: z.string().min(1),
   minutesGranted: z.number().int().positive(),
   startDate: ISO_DATE,
+  amountPennies: z.number().int().positive(),
 
-  // delivery is enum ('online','f2f')
-  deliveryRestriction: z.enum(["online", "f2f"]).nullable().optional(),
-  tierRestriction: z.string().min(1).nullable().optional(),
-  lengthRestriction: z
-    .enum(["none", "60", "90", "120"])
-    .optional()
-    .default("none"),
+  // delivery restriction: 'online' | 'f2f' | null
+  deliveryRestriction: z.enum(DELIVERY).nullable().optional(),
+
+  // tier restriction: 'basic' | 'premium' | 'elite' | null
+  tierRestriction: z.enum(TIER).nullable().optional(),
+
+  lengthRestriction: z.enum(LENGTH_CAT).optional().default("none"),
 
   expiryDate: ISO_DATE.nullable().optional(),
-  expiryPolicy: z
-    .enum(["none", "advisory", "mandatory"])
-    .optional()
-    .default("none"),
+  expiryPolicy: z.enum(EXPIRY_POLICY).optional().default("none"),
 
   lessonsPerMonth: z.number().int().positive().nullable().optional(),
-  durationPerLessonMins: z
-    .number()
-    .int()
-    .positive()
-    .nullable()
-    .optional(),
+  durationPerLessonMins: z.number().int().positive().nullable().optional(),
   buffer: z.number().nonnegative().nullable().optional(),
 });
 
@@ -60,6 +54,7 @@ export async function POST(req: NextRequest) {
       p_student_id: p.studentId,
       p_external_ref: p.externalRef,
       p_minutes_granted: p.minutesGranted,
+      p_amount_pennies: p.amountPennies, 
       p_start_date: p.startDate,
 
       p_delivery_restriction: p.deliveryRestriction ?? null,

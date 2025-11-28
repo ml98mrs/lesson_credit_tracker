@@ -18,15 +18,23 @@ type Props = {
 function labelForHazard(h: LessonHazard): string {
   switch (h.hazard_type) {
     case "delivery_f2f_on_online":
-      return "F2F lesson charged to ONLINE invoice";
+      return "F2F lesson charged to ONLINE-only credit";
     case "delivery_online_on_f2f":
-      return "Online lesson charged to F2F invoice";
+      return "Online lesson charged to F2F-only credit";
     case "length_too_short":
       return "Lesson shorter than package length";
+    case "length_restriction_mismatch":
+      return "Lesson shorter than this credit lot’s minimum length";
+    case "overdraft_allocation":
+      return "Lesson confirmed using overdraft (negative balance)";
+    case "snc_overuse":
+      return "Too many SNCs this month";
     default:
       return h.hazard_type;
   }
 }
+
+
 
 function pillClasses(severity: string): string {
   switch (severity) {

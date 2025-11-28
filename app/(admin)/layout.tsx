@@ -1,3 +1,5 @@
+// app/(admin)/admin/layout.tsx
+
 import type { ReactNode } from "react";
 import Link from "next/link";
 import AdminSignOutButton from "@/components/admin/AdminSignOutButton";
@@ -12,13 +14,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           {/* LEFT LINKS */}
           <div className="flex flex-wrap gap-4">
             <Link href="/admin/dashboard">Admin Dashboard</Link>
-            <Link href="/admin/lessons/queue">Review queue</Link>
-            <Link href="/admin/lessons/confirmed">Confirmed lessons</Link>
+            <Link href="/admin/lessons/queue">Pending L</Link>
+            <Link href="/admin/lessons/confirmed">Confirmed L</Link>
             <Link href="/admin/students">Students</Link>
             <Link href="/admin/teachers">Teachers</Link>
-            <Link href="/admin/credit-invoices/import">Credit import</Link>
-            <Link href="/admin/reports/credit-usage">Reports</Link>
-            <Link href="/admin/settings/pricing-tiers">Settings</Link>
+            <Link href="/admin/warnings">Warnings</Link>
+            <Link href="/admin/maintenance">Maintenance</Link>
+            <Link href="/admin/credit-invoices">Invoices</Link>
+            <Link href="/admin/analytics">Analytics</Link>
           </div>
 
           {/* RIGHT SIDE: SEARCH + SIGN OUT */}

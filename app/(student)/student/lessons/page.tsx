@@ -3,21 +3,28 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { formatDateTimeLondon } from "@/lib/formatters";
+import {
+  formatDeliveryLabel,
+  formatStudentDateTime,
+} from "@/lib/formatters";
+import type { Delivery, SncMode } from "@/lib/enums";
+import type { ProfileRow } from "@/lib/types/profiles";
 
 export const dynamic = "force-dynamic";
 
-type Delivery = "online" | "f2f" | "hybrid";
+// DB delivery enum is 'online' | 'f2f'; we keep "hybrid" as a local UI-only extension.
+type LessonDelivery = Delivery | "hybrid";
 
 type LessonRow = {
   lesson_id: string;
   occurred_at: string;
   duration_min: number;
-  delivery: Delivery;
+  delivery: LessonDelivery;
   is_snc: boolean;
-  snc_mode: "free" | "charged" | "none" | string;
+  snc_mode: SncMode | string;
   state: string;
   teacher_full_name: string;
+  allocation_summary: string | null;
 };
 
 type SearchParams = {
@@ -25,22 +32,15 @@ type SearchParams = {
   to?: string;
   teacher?: string;
   delivery?: string;
-  minDuration?: string;
-  maxDuration?: string;
   snc?: string;
+  month?: string;
+  year?: string;
+  invoice?: string;
 };
 
-const formatDelivery = (d: Delivery) => {
-  switch (d) {
-    case "online":
-      return "Online";
-    case "f2f":
-      return "Face to face";
-    case "hybrid":
-      return "Hybrid";
-    default:
-      return d;
-  }
+const formatLessonDelivery = (d: LessonDelivery) => {
+  if (d === "hybrid") return "Hybrid";
+  return formatDeliveryLabel(d);
 };
 
 const renderSncBadge = (lesson: LessonRow) => {
@@ -114,34 +114,71 @@ export default async function StudentLessons({
 
   const studentId = studentRow.id as string;
 
-  // 3) Normalise filters from searchParams
+  // 3) Profile timezone (student's local time zone)
+  const { data: profileRow, error: profileErr } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .single<Pick<ProfileRow, "timezone">>();
+
+  if (profileErr) {
+    throw new Error(profileErr.message);
+  }
+
+  const studentTimeZone = profileRow?.timezone ?? "Europe/London";
+
+  // 4) Normalise filters from searchParams
+  const monthParam = sp.month || undefined; // "1".."12"
+  const yearParam = sp.year || undefined; // "2024" etc.
+
   const dateFrom = sp.from || undefined;
   const dateTo = sp.to || undefined;
   const teacherFilter = sp.teacher || undefined;
   const deliveryFilter = sp.delivery as Delivery | undefined;
-  const minDuration = sp.minDuration ? Number(sp.minDuration) : undefined;
-  const maxDuration = sp.maxDuration ? Number(sp.maxDuration) : undefined;
   const sncFilter = sp.snc || undefined;
+  const invoiceFilter = sp.invoice || undefined;
 
-  // 4) Build filtered query
+  // Build date bounds (month/year takes precedence over from/to)
+  let fromIso: string | undefined;
+  let toIso: string | undefined;
+
+  if (monthParam && yearParam) {
+    const month = Number(monthParam) - 1; // JS months 0–11
+    const year = Number(yearParam);
+
+    if (!Number.isNaN(month) && !Number.isNaN(year)) {
+      const start = new Date(Date.UTC(year, month, 1, 0, 0, 0));
+      const end = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0)); // exclusive
+      fromIso = start.toISOString();
+      toIso = end.toISOString();
+    }
+  } else {
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom);
+      fromIso = fromDate.toISOString();
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setDate(to.getDate() + 1); // inclusive end of "to" day
+      toIso = to.toISOString();
+    }
+  }
+
+  // 5) Build filtered query
   let query = supabase
     .from("v_student_lessons")
     .select(
-      "lesson_id,occurred_at,duration_min,delivery,is_snc,snc_mode,state,teacher_full_name",
+      "lesson_id,occurred_at,duration_min,delivery,is_snc,snc_mode,state,teacher_full_name,allocation_summary",
     )
     .eq("student_id", studentId)
     .eq("state", "confirmed");
 
-  // Date range (inclusive)
-  if (dateFrom) {
-    // occurred_at >= from (treated as start of that day in UTC)
-    query = query.gte("occurred_at", dateFrom);
+  // Date range using derived bounds
+  if (fromIso) {
+    query = query.gte("occurred_at", fromIso);
   }
-  if (dateTo) {
-    // inclusive "to": occurred_at < next day
-    const to = new Date(dateTo);
-    to.setDate(to.getDate() + 1);
-    query = query.lt("occurred_at", to.toISOString());
+  if (toIso) {
+    query = query.lt("occurred_at", toIso);
   }
 
   if (teacherFilter) {
@@ -152,12 +189,9 @@ export default async function StudentLessons({
     query = query.eq("delivery", deliveryFilter);
   }
 
-  if (minDuration != null && !Number.isNaN(minDuration)) {
-    query = query.gte("duration_min", minDuration);
-  }
-
-  if (maxDuration != null && !Number.isNaN(maxDuration)) {
-    query = query.lte("duration_min", maxDuration);
+  if (invoiceFilter) {
+    // Uses allocation_summary, which typically includes invoice details
+    query = query.ilike("allocation_summary", `%${invoiceFilter}%`);
   }
 
   if (sncFilter === "snc") {
@@ -179,13 +213,73 @@ export default async function StudentLessons({
 
   const lessons = (data ?? []) as unknown as LessonRow[];
 
+  const lessonCount = lessons.length;
+  const hasFilters =
+    !!(
+      monthParam ||
+      yearParam ||
+      dateFrom ||
+      dateTo ||
+      teacherFilter ||
+      deliveryFilter ||
+      sncFilter ||
+      invoiceFilter
+    );
+
   return (
-    <Section title="Lessons" subtitle="Confirmed lessons for your account.">
+    <Section
+      title="Lessons"
+      subtitle="Confirmed lessons for your account. It is likely to exclude lessons taken this month. "
+    >
       {/* Filters */}
       <form
         className="mb-4 grid gap-3 text-xs md:grid-cols-4 lg:grid-cols-6"
         method="GET"
       >
+        {/* Month */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="month" className="text-gray-600">
+            Month
+          </label>
+          <select
+            id="month"
+            name="month"
+            defaultValue={monthParam ?? ""}
+            className="rounded border px-2 py-1"
+          >
+            <option value="">Any</option>
+            <option value="1">Jan</option>
+            <option value="2">Feb</option>
+            <option value="3">Mar</option>
+            <option value="4">Apr</option>
+            <option value="5">May</option>
+            <option value="6">Jun</option>
+            <option value="7">Jul</option>
+            <option value="8">Aug</option>
+            <option value="9">Sep</option>
+            <option value="10">Oct</option>
+            <option value="11">Nov</option>
+            <option value="12">Dec</option>
+          </select>
+        </div>
+
+        {/* Year */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="year" className="text-gray-600">
+            Year
+          </label>
+          <input
+            id="year"
+            name="year"
+            type="number"
+            min="2000"
+            max="2100"
+            defaultValue={yearParam ?? ""}
+            className="rounded border px-2 py-1"
+            placeholder="YYYY"
+          />
+        </div>
+
         {/* Date from */}
         <div className="flex flex-col gap-1">
           <label htmlFor="from" className="text-gray-600">
@@ -246,36 +340,6 @@ export default async function StudentLessons({
           </select>
         </div>
 
-        {/* Duration min */}
-        <div className="flex flex-col gap-1">
-          <label htmlFor="minDuration" className="text-gray-600">
-            Min duration (min)
-          </label>
-          <input
-            id="minDuration"
-            name="minDuration"
-            type="number"
-            min={0}
-            defaultValue={sp.minDuration}
-            className="rounded border px-2 py-1"
-          />
-        </div>
-
-        {/* Duration max */}
-        <div className="flex flex-col gap-1">
-          <label htmlFor="maxDuration" className="text-gray-600">
-            Max duration (min)
-          </label>
-          <input
-            id="maxDuration"
-            name="maxDuration"
-            type="number"
-            min={0}
-            defaultValue={sp.maxDuration}
-            className="rounded border px-2 py-1"
-          />
-        </div>
-
         {/* SNC filter */}
         <div className="flex flex-col gap-1">
           <label htmlFor="snc" className="text-gray-600">
@@ -295,8 +359,23 @@ export default async function StudentLessons({
           </select>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-end gap-2">
+        {/* Invoice filter */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="invoice" className="text-gray-600">
+            Invoice #
+          </label>
+          <input
+            id="invoice"
+            name="invoice"
+            type="text"
+            placeholder="Matches invoice text…"
+            defaultValue={invoiceFilter}
+            className="rounded border px-2 py-1"
+          />
+        </div>
+
+        {/* Actions + count */}
+        <div className="flex items-end gap-2 md:col-span-2 lg:col-span-2">
           <button
             type="submit"
             className="rounded border bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800"
@@ -309,8 +388,18 @@ export default async function StudentLessons({
           >
             Clear
           </Link>
+          <span className="ml-auto text-[11px] text-gray-500">
+            Showing <span className="font-semibold">{lessonCount}</span>{" "}
+            lesson{lessonCount === 1 ? "" : "s"}
+            {hasFilters ? " (filtered)" : ""}
+          </span>
         </div>
       </form>
+
+      <p className="mb-2 text-[10px] text-gray-500">
+        If both month/year and a date range are set, the month/year filter takes
+        precedence.
+      </p>
 
       {/* Results */}
       {lessons.length === 0 ? (
@@ -326,6 +415,7 @@ export default async function StudentLessons({
                 <th className="py-2 pr-4">Teacher</th>
                 <th className="py-2 pr-4">Delivery</th>
                 <th className="py-2 pr-4">Duration (min)</th>
+                <th className="py-2 pr-4">Credit</th>
                 <th className="py-2 pr-4">SNC</th>
               </tr>
             </thead>
@@ -333,13 +423,23 @@ export default async function StudentLessons({
               {lessons.map((lesson) => (
                 <tr key={lesson.lesson_id} className="border-b">
                   <td className="py-2 pr-4">
-                    {formatDateTimeLondon(lesson.occurred_at)}
+                    {formatStudentDateTime(
+                      lesson.occurred_at,
+                      studentTimeZone,
+                    )}
                   </td>
                   <td className="py-2 pr-4">{lesson.teacher_full_name}</td>
                   <td className="py-2 pr-4">
-                    {formatDelivery(lesson.delivery)}
+                    {formatLessonDelivery(lesson.delivery)}
                   </td>
                   <td className="py-2 pr-4">{lesson.duration_min}</td>
+                  <td className="py-2 pr-4">
+                    {lesson.allocation_summary
+                      ? lesson.allocation_summary
+                      : lesson.is_snc && lesson.snc_mode === "free"
+                      ? "Free SNC (no credit used)"
+                      : "—"}
+                  </td>
                   <td className="py-2 pr-4">{renderSncBadge(lesson)}</td>
                 </tr>
               ))}

@@ -6,77 +6,10 @@ import ExpirySoonBanner from "@/components/banners/ExpirySoonBanner";
 import LowCreditByDeliveryBanner from "@/components/banners/LowCreditByDeliveryBanner";
 import CreditMeter from "@/components/misc/CreditMeter";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { formatMinutesAsHours, formatDateTimeLondon } from "@/lib/formatters";
-
-type StudentCreditDeliverySummary = {
-  student_id: string;
-  purchased_min: number;
-  awarded_min: number;
-  used_min: number;
-  remaining_min: number;
-  purchased_online_min: number;
-  purchased_f2f_min: number;
-  used_online_min: number;
-  used_f2f_min: number;
-  remaining_online_min: number;
-  remaining_f2f_min: number;
-};
-
-type AwardReasonRow = {
-  award_reason_code: string;
-  granted_award_min: number;
-  used_award_min: number;
-  remaining_award_min: number;
-};
-
-type StudentSncStatus = {
-  free_sncs: number;
-  charged_sncs: number;
-  has_free_snc_used: boolean;
-};
-
-type RawDeliveryAlertRow = {
-  student_id: string;
-  delivery: string;
-  remaining_minutes: number;
-  avg_month_hours: number | null;
-  buffer_hours: number | null;
-  is_generic_low: boolean;
-  is_dynamic_low: boolean;
-  is_low_any: boolean;
-};
-
-const awardReasonLabels: Record<string, string> = {
-  goodwill: "Goodwill",
-  trial: "Trial",
-  promo: "Promo",
-  free_cancellation: "Free cancellation",
-};
-
-function buildAwardLine(
-  awardRows: AwardReasonRow[],
-  kind: "granted" | "used" | "remaining",
-): string | null {
-  const parts = awardRows
-    .map((r) => {
-      const label = awardReasonLabels[r.award_reason_code] ?? r.award_reason_code;
-      const minutes =
-        kind === "granted"
-          ? r.granted_award_min
-          : kind === "used"
-          ? r.used_award_min
-          : r.remaining_award_min;
-
-      if (!minutes || minutes <= 0) return null;
-
-      const hours = formatMinutesAsHours(minutes);
-      return `${label}: ${hours} h`;
-    })
-    .filter(Boolean) as string[];
-
-  if (parts.length === 0) return null;
-  return `(${parts.join(" • ")})`;
-}
+import { formatMinutesAsHours, formatStudentDateTime } from "@/lib/formatters";
+import { buildAwardLine } from "@/lib/awardReasons";
+import { loadStudentDashboard } from "@/lib/api/student/dashboard";
+import type { ProfileRow } from "@/lib/types/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -115,124 +48,91 @@ export default async function StudentDashboard() {
 
   const studentId = studentRow.id as string;
 
-  // Overall summary (canonical totals)
-  const { data: summary, error: sumErr } = await supabase
-    .from("v_student_credit_summary")
-    .select(
-      "student_id,total_granted_min,total_allocated_min,total_remaining_min,next_expiry_date",
-    )
-    .eq("student_id", studentId)
-    .maybeSingle();
+  // Profile timezone (student's local time zone)
+  const { data: profileRow, error: profileErr } = await supabase
+  .from("profiles")
+  .select("timezone")
+  .eq("id", user.id)
+  .single<Pick<ProfileRow, "timezone">>();
 
-  if (sumErr) throw new Error(sumErr.message);
-
-  const granted = summary?.total_granted_min ?? 0;
-  const used = summary?.total_allocated_min ?? 0;
-  const remaining = summary?.total_remaining_min ?? 0;
- 
-
-  const generatedAtIso = new Date().toISOString();
-  const generatedAtLabel = formatDateTimeLondon(generatedAtIso);
-
-  // Earliest mandatory expiry within 30 days (for student banner)
-const { data: mandatoryExpiryRows, error: mandatoryExpiryErr } =
-  await supabase
-    .from("v_credit_lot_remaining")
-    .select("expiry_date")
-    .eq("student_id", studentId)
-    .eq("state", "open")
-    .eq("expiry_policy", "mandatory")
-    .eq("expiry_within_30d", true)
-    .order("expiry_date", { ascending: true })
-    .limit(1);
-
-if (mandatoryExpiryErr) {
-  throw new Error(mandatoryExpiryErr.message);
-}
-
-const nextMandatoryExpiry =
-  mandatoryExpiryRows && mandatoryExpiryRows.length > 0
-    ? (mandatoryExpiryRows[0].expiry_date as string)
-    : undefined;
-
-  // SNC status (this calendar month)
-  const { data: sncStatusRow, error: sncErr } = await supabase
-    .from("v_student_snc_status_current_month")
-    .select("free_sncs,charged_sncs,has_free_snc_used")
-    .eq("student_id", studentId)
-    .maybeSingle();
-
-  if (sncErr) {
-    throw new Error(sncErr.message);
+  if (profileErr) {
+    throw new Error(profileErr.message);
   }
 
-  const sncStatus = (sncStatusRow ?? null) as StudentSncStatus | null;
-  const freeSncs = sncStatus?.free_sncs ?? 0;
-  const chargedSncs = sncStatus?.charged_sncs ?? 0;
-  const hasFreeSncUsed = sncStatus?.has_free_snc_used ?? false;
-  // (currently not rendered; kept for future SNC widget)
+  const studentTimeZone = profileRow?.timezone ?? "Europe/London";
 
-  // Delivery split (from invoice credit lots)
-  const { data: deliveryRow, error: deliveryErr } = await supabase
-    .from("v_student_credit_delivery_summary")
-    .select(
-      [
-        "student_id",
-        "purchased_min",
-        "purchased_online_min",
-        "purchased_f2f_min",
-        "used_online_min",
-        "used_f2f_min",
-        "remaining_online_min",
-        "remaining_f2f_min",
-      ].join(","),
-    )
-    .eq("student_id", studentId)
-    .maybeSingle();
 
-  if (deliveryErr) throw new Error(deliveryErr.message);
+  // Load all dashboard data via shared API helper
+  const data = await loadStudentDashboard(studentId);
 
-  const breakdown = (deliveryRow ??
-    {}) as unknown as Partial<StudentCreditDeliverySummary>;
+  const {
+    grantedMin,
+    usedMin,
+    remainingMin,
+    deliverySummary,
+    awardReasons,
+    lowCreditAlertsByDelivery,
+    nextMandatoryExpiry,
+    generatedAtIso,
+    lastActivityAtUtc,
+  } = data;
 
-  const purchasedInvoiceMin = breakdown.purchased_min ?? 0;
+  const {
+    purchasedMin,
+    awardedMin,
+    usedMin: usedMinFromDelivery,
+    remainingMin: remainingMinFromDelivery,
+    purchasedOnlineMin,
+    purchasedF2fMin,
+    usedOnlineMin,
+    usedF2fMin,
+    remainingOnlineMin,
+    remainingF2fMin,
+  } = deliverySummary;
 
-  // Award reason breakdown
-  const { data: awardRows, error: awardErr } = await supabase
-    .from("v_student_award_reason_summary")
-    .select(
-      "award_reason_code,granted_award_min,used_award_min,remaining_award_min",
-    )
-    .eq("student_id", studentId);
+  // Sanity: totals from summary vs delivery summary should match; prefer canonical summary
+  const usedTotalMin = usedMin ?? usedMinFromDelivery ?? 0;
+  const remainingTotalMin = remainingMin ?? remainingMinFromDelivery ?? 0;
 
-  if (awardErr) throw new Error(awardErr.message);
+  const hasBothDeliveries = purchasedOnlineMin > 0 && purchasedF2fMin > 0;
 
-  const awardReasons = (awardRows ?? []) as unknown as AwardReasonRow[];
+  // Student-facing timestamps (in student's local time zone)
+  const generatedAtLabel = formatStudentDateTime(
+    generatedAtIso,
+    studentTimeZone,
+  );
+  const lastActivityLabel = lastActivityAtUtc
+    ? formatStudentDateTime(lastActivityAtUtc, studentTimeZone)
+    : null;
 
-  // Totals (in sync with Admin)
-  const purchasedMin = purchasedInvoiceMin;
-  const awardedMin = Math.max(granted - purchasedMin, 0);
-  const usedMin = used;
-  const remainingMin = remaining;
+  // Prepare award reason lines using shared helper
+  const awardRowsForLines = awardReasons.map((r) => ({
+    award_reason_code: r.awardReasonCode,
+    granted_award_min: r.grantedAwardMin,
+    used_award_min: r.usedAwardMin,
+    remaining_award_min: r.remainingAwardMin,
+  }));
 
-  // Delivery split for UI
-  const purchasedOnlineMin = breakdown.purchased_online_min ?? 0;
-  const purchasedF2fMin = breakdown.purchased_f2f_min ?? 0;
+  const awardedLine = buildAwardLine(awardRowsForLines, "granted");
+  const usedAwardLine = buildAwardLine(awardRowsForLines, "used");
+  const remainingAwardLine = buildAwardLine(awardRowsForLines, "remaining");
 
-  const usedOnlineMin = breakdown.used_online_min ?? 0;
-  const usedF2fMin = breakdown.used_f2f_min ?? 0;
-
-  const remainingOnlineMin = breakdown.remaining_online_min ?? 0;
-  const remainingF2fMin = breakdown.remaining_f2f_min ?? 0;
-
-  const hasBothDeliveries =
-    purchasedOnlineMin > 0 && purchasedF2fMin > 0;
+  // Per-delivery low-credit alerts for the banner
+  const perDeliveryAlerts = lowCreditAlertsByDelivery
+    .filter((r) => r.isLowAny)
+    .map((r) => ({
+      delivery: r.delivery,
+      remainingMinutes: r.remainingMinutes,
+      avgMonthHours: r.avgMonthHours,
+      isGenericLow: r.isGenericLow,
+      isDynamicLow: r.isDynamicLow,
+    }));
 
   // Hours for display
   const purchasedHours = formatMinutesAsHours(purchasedMin);
   const awardedHours = formatMinutesAsHours(awardedMin);
-  const usedHours = formatMinutesAsHours(usedMin);
-  const remainingHours = formatMinutesAsHours(remainingMin);
+  const usedHours = formatMinutesAsHours(usedTotalMin);
+  const remainingHours = formatMinutesAsHours(remainingTotalMin);
 
   const purchasedOnlineHours = formatMinutesAsHours(purchasedOnlineMin);
   const purchasedF2fHours = formatMinutesAsHours(purchasedF2fMin);
@@ -243,96 +143,130 @@ const nextMandatoryExpiry =
   const remainingOnlineHours = formatMinutesAsHours(remainingOnlineMin);
   const remainingF2fHours = formatMinutesAsHours(remainingF2fMin);
 
-  const awardedLine = buildAwardLine(awardReasons, "granted");
-  const usedAwardLine = buildAwardLine(awardReasons, "used");
-  const remainingAwardLine = buildAwardLine(awardReasons, "remaining");
-
-  // Per-delivery dynamic low-credit alerts
-  const { data: alertsRows, error: alertsErr } = await supabase
-    .from("v_student_dynamic_credit_alerts_by_delivery")
-    .select(
-      "student_id,delivery,remaining_minutes,avg_month_hours,buffer_hours,is_generic_low,is_dynamic_low,is_low_any",
-    )
-    .eq("student_id", studentId);
-
-  if (alertsErr) throw new Error(alertsErr.message);
-
-  const alertRowsTyped = (alertsRows ?? []) as unknown as RawDeliveryAlertRow[];
-
-  const lowAlerts = alertRowsTyped
-    .filter((r) => r.is_low_any)
-    .map((r) => ({
-      delivery: r.delivery,
-      remainingMinutes: r.remaining_minutes,
-      avgMonthHours: r.avg_month_hours,
-      isGenericLow: r.is_generic_low,
-      isDynamicLow: r.is_dynamic_low,
-    }));
+  const hasAnyLowCreditBanner =
+    (!hasBothDeliveries && remainingTotalMin <= 0) ||
+    (hasBothDeliveries && perDeliveryAlerts.length > 0);
 
   return (
     <>
-   {/* Uni-delivery: overall banner only */}
-{!hasBothDeliveries && (
-  <LowCreditBanner
-    remainingMin={remaining}
-    generatedAtLabel={generatedAtLabel}
-  />
-)}
+      {/* Top status + banners */}
+      <Section
+        title="Overview"
+        subtitle="A quick snapshot of your current credit."
+      >
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          {/* Brand-ish status card */}
+          <div className="flex-1 rounded-2xl bg-blue-900 px-4 py-3 text-sm text-white shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-blue-100">
+                  PS English · Credit portal
+                </div>
+                <div className="mt-1 text-base font-semibold">
+                  Your lesson credit at a glance
+                </div>
+              </div>
+              <div className="rounded-full bg-blue-800 px-3 py-1 text-[11px] font-medium text-blue-100">
+                Snapshot as of{" "}
+                <span className="font-semibold">{generatedAtLabel}</span>
+              </div>
+            </div>
+            {lastActivityLabel && (
+              <div className="mt-2 text-[11px] text-blue-100/90">
+                Your most recent confirmed lesson was on{" "}
+                <span className="font-semibold">{lastActivityLabel}</span>. Any
+                lessons taken since then may not yet be reflected here.
+              </div>
+            )}
+          </div>
+        </div>
 
-{/* Bi-delivery: per-delivery banner only */}
-{hasBothDeliveries && lowAlerts.length > 0 && (
-  <LowCreditByDeliveryBanner
-    alerts={lowAlerts}
-    generatedAtLabel={generatedAtLabel}
-  />
-)}
+        {/* Low-credit banners */}
+        {!hasBothDeliveries && (
+          <LowCreditBanner
+            remainingMin={remainingTotalMin}
+            generatedAtLabel={generatedAtLabel}
+          />
+        )}
 
-{/* Only show for mandatory lots with expiry_within_30d = true */}
-<ExpirySoonBanner expiryDateUtc={nextMandatoryExpiry} />
+        {hasBothDeliveries && perDeliveryAlerts.length > 0 && (
+          <LowCreditByDeliveryBanner
+            alerts={perDeliveryAlerts}
+            generatedAtLabel={generatedAtLabel}
+          />
+        )}
 
-      <Section title="Your credit">
+        {/* Only show for mandatory lots with expiry_within_30d = true */}
+        <ExpirySoonBanner expiryDateUtc={nextMandatoryExpiry} />
+      </Section>
+
+      {/* Snapshot cards */}
+      <Section
+        title="Credit snapshot"
+        subtitle="How many hours you’ve purchased, used, and have remaining."
+      >
         <div className="grid gap-4 md:grid-cols-4">
           {/* Purchased */}
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-gray-500">Purchased</div>
-            <div className="text-2xl font-semibold">{purchasedHours} h</div>
+          <div className="rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Purchased
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-gray-900">
+              {purchasedHours} h
+            </div>
             {hasBothDeliveries && (
               <div className="mt-1 text-xs text-gray-500">
-                (Online: {purchasedOnlineHours} h • F2F: {purchasedF2fHours} h)
+                Online: {purchasedOnlineHours} h · F2F: {purchasedF2fHours} h
               </div>
             )}
           </div>
 
           {/* Awarded */}
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-gray-500">Awarded</div>
-            <div className="text-2xl font-semibold">{awardedHours} h</div>
+          <div className="rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Awarded / bonus
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-gray-900">
+              {awardedHours} h
+            </div>
             {awardedLine && (
               <div className="mt-1 text-xs text-gray-500">{awardedLine}</div>
             )}
           </div>
 
           {/* Used */}
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-gray-500">Used</div>
-            <div className="text-2xl font-semibold">{usedHours} h</div>
+          <div className="rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Used
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-gray-900">
+              {usedHours} h
+            </div>
             {hasBothDeliveries && (
               <div className="mt-1 text-xs text-gray-500">
-                (Online: {usedOnlineHours} h • F2F: {usedF2fHours} h)
+                Online: {usedOnlineHours} h · F2F: {usedF2fHours} h
               </div>
             )}
             {usedAwardLine && (
-              <div className="mt-1 text-xs text-gray-500">{usedAwardLine}</div>
+              <div className="mt-1 text-xs text-gray-500">
+                {usedAwardLine}
+              </div>
             )}
           </div>
 
           {/* Remaining */}
-          <div className="rounded-2xl border p-4">
-            <div className="text-xs text-gray-500">Remaining</div>
-            <div className="text-2xl font-semibold">{remainingHours} h</div>
+          <div className="rounded-2xl border bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="text-xs uppercase tracking-wide text-gray-500">
+                Remaining
+              </div>
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-gray-900">
+              {remainingHours} h
+            </div>
             {hasBothDeliveries && (
               <div className="mt-1 text-xs text-gray-500">
-                (Online: {remainingOnlineHours} h • F2F: {remainingF2fHours} h)
+                Online: {remainingOnlineHours} h · F2F: {remainingF2fHours} h
               </div>
             )}
             {remainingAwardLine && (
@@ -344,10 +278,11 @@ const nextMandatoryExpiry =
         </div>
       </Section>
 
+      {/* Visual meter */}
       <Section title="Visual overview">
         <CreditMeter
-          grantedMin={granted}
-          usedMin={used}
+          grantedMin={grantedMin}
+          usedMin={usedTotalMin}
           remainingOnlineMin={remainingOnlineMin}
           remainingF2fMin={remainingF2fMin}
           purchasedOnlineMin={purchasedOnlineMin}

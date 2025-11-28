@@ -3,8 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Section from "@/components/ui/Section";
 import { supabase } from "@/lib/supabase/client";
-import { formatDateTimeUK } from "@/lib/formatters";
+import { formatDateLondon } from "@/lib/formatters";
 import LessonTypeBadge from "@/components/lessons/LessonTypeBadge";
+import type { Delivery, LessonState } from "@/lib/enums";
+import {
+  readProfileFullName,
+  type ProfilesEmbed,
+} from "@/lib/types/profiles";
 
 type User = { id: string; email?: string | null };
 
@@ -18,8 +23,8 @@ type LessonRow = {
   student_id: string;
   occurred_at: string;
   duration_min: number;
-  delivery: "online" | "f2f";
-  state: "pending" | "confirmed" | "declined";
+  delivery: Delivery;
+  state: LessonState;
   is_snc: boolean;
 };
 
@@ -27,9 +32,18 @@ type LogLessonPayload = {
   studentId: string;
   occurredAt: string; // ISO string
   durationMin: number;
-  delivery: "online" | "f2f";
+  delivery: Delivery;
   isSnc: boolean;
   notes?: string;
+};
+
+// Shape of rows from student_teacher query
+type StudentTeacherRow = {
+  student_id: string;
+  students:
+    | { id: string; profiles: ProfilesEmbed }
+    | { id: string; profiles: ProfilesEmbed }[]
+    | null;
 };
 
 async function logLesson(payload: LogLessonPayload) {
@@ -48,7 +62,6 @@ async function logLesson(payload: LogLessonPayload) {
   return data; // { ok: true, lessonId: ... } per your API
 }
 
-
 export default function NewLesson() {
   const [user, setUser] = useState<User | null>(null);
   const [teacherId, setTeacherId] = useState<string | null>(null);
@@ -61,13 +74,76 @@ export default function NewLesson() {
   const [studentId, setStudentId] = useState<string>("");
   const [date, setDate] = useState<string>(""); // yyyy-mm-dd
   const [time, setTime] = useState<string>(""); // HH:mm (local)
-  const [delivery, setDelivery] = useState<"online" | "f2f">("online");
+  const [delivery, setDelivery] = useState<Delivery>("online");
   const [durationMin, setDurationMin] = useState<number>(60); // 60 online, 90 f2f
   const [isSNC, setIsSNC] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>("");
 
   const [recent, setRecent] = useState<LessonRow[]>([]);
   const [recentLoading, setRecentLoading] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+  async function refreshRecent(tId: string) {
+    setRecentLoading(true);
+
+    const { data, error } = await supabase
+      .from("lessons")
+      .select(
+        "id, student_id, occurred_at, duration_min, delivery, state, is_snc",
+      )
+      .eq("teacher_id", tId)
+      .eq("state", "pending") // pending only
+      .order("occurred_at", { ascending: false })
+      .limit(10);
+
+    if (!error && data) {
+      setRecent(data as LessonRow[]);
+    } else if (error) {
+      console.error("refreshRecent error", error);
+      setMsg(error.message);
+    }
+
+    setRecentLoading(false);
+  }
+
+  const occurredAtISO = useMemo(() => {
+    if (!date || !time) return null;
+    const [y, m, d] = date.split("-").map(Number);
+    const [hh, mm] = time.split(":").map(Number);
+    const local = new Date(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0);
+    return local.toISOString(); // store UTC
+  }, [date, time]);
+
+  async function handleDelete(lessonId: string) {
+    if (!teacherId) return;
+
+    setMsg(null);
+
+    // Optimistically remove from UI
+    setRecent((prev) => prev.filter((r) => r.id !== lessonId));
+
+    // Mark as declined in DB
+    const { error } = await supabase
+      .from("lessons")
+      .update({ state: "declined" })
+      .eq("id", lessonId)
+      .eq("teacher_id", teacherId);
+
+    if (error) {
+      console.error("Failed to delete lesson", error);
+      setMsg(error.message);
+
+      // Restore by reloading if something went wrong
+      await refreshRecent(teacherId);
+    }
+  }
+
+  function getStudentName(studentId: string) {
+    const s = students.find((s) => s.id === studentId);
+    return s?.name ?? "(unknown)";
+  }
 
   // ---------------------------------------------------------------------------
   // Bootstrap teacher + assigned students
@@ -105,7 +181,7 @@ export default function NewLesson() {
       const tId = tRows[0].id as string;
       setTeacherId(tId);
 
-      // Assigned students
+      // Assigned students (via student_teacher → students → profiles)
       const { data: stRows, error: stErr } = await supabase
         .from("student_teacher")
         .select(
@@ -113,7 +189,6 @@ export default function NewLesson() {
           student_id,
           students (
             id,
-            profile_id,
             profiles ( full_name )
           )
         `,
@@ -126,11 +201,21 @@ export default function NewLesson() {
         return;
       }
 
+      // Supabase may return `students` as an array relationship.
+      const typedRows = (stRows ?? []) as unknown as StudentTeacherRow[];
+
       const assigned: AssignedStudent[] =
-        (stRows ?? []).map((r: any) => ({
-          id: r.students?.id,
-          name: r.students?.profiles?.full_name ?? "(no name)",
-        })) || [];
+        typedRows.map((r) => {
+          const student = Array.isArray(r.students)
+            ? r.students[0]
+            : r.students;
+
+          const id = student?.id ?? r.student_id;
+          const name =
+            readProfileFullName(student?.profiles) ?? "(no name)";
+
+          return { id, name };
+        }) || [];
 
       setStudents(assigned);
       if (assigned[0]?.id) setStudentId(assigned[0].id);
@@ -138,132 +223,57 @@ export default function NewLesson() {
       setLoading(false);
       await refreshRecent(tId);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-async function refreshRecent(tId: string) {
-  setRecentLoading(true);
-
-const { data, error } = await supabase
-  .from("lessons")
-  .select(
-    "id, student_id, occurred_at, duration_min, delivery, state, is_snc"
-  )
-  .eq("teacher_id", tId)
-  .eq("state", "pending")           // ⬅ pending only
-  .order("occurred_at", { ascending: false })
-  .limit(10);
-
-  if (!error && data) {
-    setRecent(data as LessonRow[]);
-  } else if (error) {
-    console.error("refreshRecent error", error);
-    setMsg(error.message);
-  }
-
-  setRecentLoading(false);
-}
-
-
-
-  const occurredAtISO = useMemo(() => {
-    if (!date || !time) return null;
-    const [y, m, d] = date.split("-").map(Number);
-    const [hh, mm] = time.split(":").map(Number);
-    const local = new Date(y, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0);
-    return local.toISOString(); // store UTC
-  }, [date, time]);
-
-async function handleDelete(lessonId: string) {
-  if (!teacherId) return;
-
-  setMsg(null);
-
-  // Optimistically remove from UI
-  setRecent((prev) => prev.filter((r) => r.id !== lessonId));
-
-  // Mark as declined in DB
-  const { error } = await supabase
-    .from("lessons")
-    .update({ state: "declined" })
-    .eq("id", lessonId)
-    .eq("teacher_id", teacherId);
-
-  if (error) {
-    console.error("Failed to delete lesson", error);
-    setMsg(error.message);
-
-    // Restore by reloading if something went wrong
-    await refreshRecent(teacherId);
-  }
-}
-
-
-
-  function formatDateUTC(iso: string): string {
-  const d = new Date(iso);
-  const dd = String(d.getUTCDate()).padStart(2, "0");
-  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const yyyy = d.getUTCFullYear();
-  return `${dd}.${mm}.${yyyy}`;
-}
 
   // ---------------------------------------------------------------------------
   // Submit
   // ---------------------------------------------------------------------------
-async function onSubmit(e: React.FormEvent) {
-  e.preventDefault();
-  setMsg(null);
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
 
-  // 🔒 hard guard against double-clicks / spam
-  if (submitting) return;
+    // 🔒 hard guard against double-clicks / spam
+    if (submitting) return;
 
-  if (!teacherId) return;
-  if (!studentId) return setMsg("Please select a student.");
-  if (!occurredAtISO) return setMsg("Please choose date and time.");
-  if (durationMin <= 0) return setMsg("Duration must be greater than 0.");
-  if (durationMin < 10) {
-    return setMsg("Duration must be at least 10 minutes.");
+    if (!teacherId) return;
+    if (!studentId) return setMsg("Please select a student.");
+    if (!occurredAtISO) return setMsg("Please choose date and time.");
+    if (durationMin <= 0) return setMsg("Duration must be greater than 0.");
+    if (durationMin < 10) {
+      return setMsg("Duration must be at least 10 minutes.");
+    }
+
+    setSubmitting(true);
+    try {
+      await logLesson({
+        studentId,
+        occurredAt: occurredAtISO,
+        durationMin,
+        delivery,
+        isSnc: isSNC,
+        notes: notes.trim() || undefined,
+      });
+
+      setMsg(isSNC ? "SNC logged." : "Lesson logged (pending).");
+
+      // Reset SNC checkbox + notes (keep other fields for speed)
+      setIsSNC(false);
+      setNotes("");
+
+      await refreshRecent(teacherId);
+    } catch (err: any) {
+      setMsg(err?.message || "Failed to log lesson.");
+    } finally {
+      setSubmitting(false);
+    }
   }
-
-  setSubmitting(true);
-  try {
-    await logLesson({
-      studentId,
-      occurredAt: occurredAtISO,
-      durationMin,
-      delivery,
-      isSnc: isSNC,
-      notes: notes.trim() || undefined,
-    });
-
-    setMsg(isSNC ? "SNC logged." : "Lesson logged (pending).");
-
-    // Reset SNC checkbox + notes (keep other fields for speed)
-    setIsSNC(false);
-    setNotes("");
-
-    await refreshRecent(teacherId);
-  } catch (err: any) {
-    setMsg(err?.message || "Failed to log lesson.");
-  } finally {
-    setSubmitting(false);
-  }
-}
-
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <Section
-      title="Log lesson"
-      
-    >
+    <Section title="Log lesson">
       {loading ? (
         <p className="text-sm text-gray-600">Loading…</p>
       ) : (
@@ -318,7 +328,7 @@ async function onSubmit(e: React.FormEvent) {
                 className="border rounded px-3 py-2"
                 value={delivery}
                 onChange={(e) => {
-                  const value = e.target.value as "online" | "f2f";
+                  const value = e.target.value as Delivery;
                   setDelivery(value);
                   // Auto-default minutes: 60 for online, 90 for F2F
                   setDurationMin(value === "f2f" ? 90 : 60);
@@ -332,16 +342,14 @@ async function onSubmit(e: React.FormEvent) {
             <div className="flex flex-col gap-1">
               <label className="text-sm">Duration (minutes)</label>
               <input
-  className="border rounded px-3 py-2"
-  type="number"
-  min={10}                // ⬅ minimum 10 minutes
-  value={durationMin}
-  onChange={(e) =>
-    setDurationMin(parseInt(e.target.value, 10) || 0)
-  }
-/>
-
-              
+                className="border rounded px-3 py-2"
+                type="number"
+                min={10} // minimum 10 minutes
+                value={durationMin}
+                onChange={(e) =>
+                  setDurationMin(parseInt(e.target.value, 10) || 0)
+                }
+              />
             </div>
           </div>
 
@@ -370,79 +378,75 @@ async function onSubmit(e: React.FormEvent) {
           </div>
 
           <button
-  type="submit"
-  disabled={submitting}
-  className={`rounded bg-black px-4 py-2 text-sm font-medium text-white ${
-    submitting ? "opacity-60 cursor-not-allowed" : ""
-  }`}
->
-  {submitting ? "Saving…" : "Save lesson"}
-</button>
+            type="submit"
+            disabled={submitting}
+            className={`rounded bg-black px-4 py-2 text-sm font-medium text-white ${
+              submitting ? "opacity-60 cursor-not-allowed" : ""
+            }`}
+          >
+            {submitting ? "Saving…" : "Save lesson"}
+          </button>
         </form>
       )}
 
-{/* ------------------------------------------------------------------- */}
-{/* Recent lessons                                                     */}
-{/* ------------------------------------------------------------------- */}
-<div className="mt-10">
-  <h2 className="text-lg font-semibold">My recent lessons</h2>
-  {recentLoading ? (
-    <p className="text-sm text-gray-600 mt-2">Loading…</p>
-  ) : recent.length === 0 ? (
-    <p className="text-sm text-gray-600 mt-2">No lessons yet.</p>
-  ) : (
-    <div className="mt-2 overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr className="text-left border-b">
-            <th className="py-2 pr-4">Date of Lesson (UTC)</th>
-            <th className="py-2 pr-4">Delivery</th>
-            <th className="py-2 pr-4">Duration</th>
-            <th className="py-2 pr-4">State</th>
-            <th className="py-2 pr-4">SNC</th>
-            <th className="py-2 pr-4">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {recent.map((r) => (
-            <tr key={r.id} className="border-b">
-              <td className="py-2 pr-4">
-                {formatDateUTC(r.occurred_at)}
-              </td>
-              <td className="py-2 pr-4">
-                {r.delivery === "f2f" ? "F2F" : "Online"}
-              </td>
-              <td className="py-2 pr-4">{r.duration_min} min</td>
-
-              {/* State text, e.g. Pending */}
-              <td className="py-2 pr-4 capitalize">
-                {r.state.replace("_", " ")}
-              </td>
-
-              {/* SNC badge */}
-              <td className="py-2 pr-4">
-                <LessonTypeBadge isSnc={r.is_snc} />
-              </td>
-
-              {/* Delete action */}
-              <td className="py-2 pr-4">
-                <button
-                  type="button"
-                  className="text-rose-600 hover:underline text-xs"
-                  onClick={() => handleDelete(r.id)}
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
-
-
+      {/* ------------------------------------------------------------------- */}
+      {/* Recent lessons                                                     */}
+      {/* ------------------------------------------------------------------- */}
+      <div className="mt-10">
+        <h2 className="text-lg font-semibold">My recent lessons now pending</h2>
+        {recentLoading ? (
+          <p className="mt-2 text-sm text-gray-600">Loading…</p>
+        ) : recent.length === 0 ? (
+          <p className="mt-2 text-sm text-gray-600">No lessons yet.</p>
+        ) : (
+          <div className="mt-2 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b text-left">
+                  <th className="py-2 pr-4">Date of Lesson</th>
+                  <th className="py-2 pr-4">Student</th>
+                  <th className="py-2 pr-4">Delivery</th>
+                  <th className="py-2 pr-4">Duration</th>
+                  <th className="py-2 pr-4">State</th>
+                  <th className="py-2 pr-4">SNC</th>
+                  <th className="py-2 pr-4">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((r) => (
+                  <tr key={r.id} className="border-b">
+                    <td className="py-2 pr-4">
+                      {formatDateLondon(r.occurred_at)}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {getStudentName(r.student_id)}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {r.delivery === "f2f" ? "F2F" : "Online"}
+                    </td>
+                    <td className="py-2 pr-4">{r.duration_min} min</td>
+                    <td className="py-2 pr-4 capitalize">
+                      {r.state.replace("_", " ")}
+                    </td>
+                    <td className="py-2 pr-4">
+                      <LessonTypeBadge isSnc={r.is_snc} />
+                    </td>
+                    <td className="py-2 pr-4">
+                      <button
+                        type="button"
+                        className="text-xs text-rose-600 hover:underline"
+                        onClick={() => handleDelete(r.id)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </Section>
   );
 }

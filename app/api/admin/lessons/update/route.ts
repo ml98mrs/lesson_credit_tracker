@@ -3,13 +3,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getAdminSupabase } from '@/lib/supabase/admin';
+import { Delivery, LENGTH_CAT, DELIVERY, LengthCat } from "@/lib/enums";
 
 const Body = z.object({
   lessonId: z.string().uuid(),
-  delivery: z.enum(['online', 'f2f']),
-  length_cat: z.enum(['none', '60', '90', '120']),
+  delivery: z.enum(DELIVERY),      // uses the shared const
+  length_cat: z.enum(LENGTH_CAT),  // ditto
   duration_min: z.number().int().positive(),
 });
+
+type BodyInput = z.infer<typeof Body>;
 
 export async function POST(req: NextRequest) {
   try {

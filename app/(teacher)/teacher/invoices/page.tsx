@@ -1,18 +1,24 @@
+// app/(teacher)/teacher/invoices/page.tsx
+
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { formatPenniesAsPounds } from "@/lib/formatters";
+import {
+  getInvoiceMonthKey,
+  formatInvoiceMonthLabel,
+  TeacherInvoiceStatusPill,
+  type InvoiceStatus,
+} from "@/lib/teacherInvoices";
 
 export const dynamic = "force-dynamic";
-
-type InvoiceSummaryStatus = "not_generated" | "generated" | "paid";
 
 type InvoiceSummaryRow = {
   month_start: string; // 'YYYY-MM-DD'
   lesson_gross_pennies: number | null;
   expenses_pennies: number | null;
   total_pennies: number | null;
-  status: InvoiceSummaryStatus;
+  status: InvoiceStatus;
 };
 
 type TeacherInvoiceRow = {
@@ -22,55 +28,63 @@ type TeacherInvoiceRow = {
   status: "generated" | "paid";
 };
 
-// For teachers, treat the "invoice month" as the previous calendar month.
-// Example: on 8th December we are preparing invoices for November.
-function getInvoiceMonthKey(): string {
-  const now = new Date();
-  const invoiceMonthStart = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
-  );
-  return invoiceMonthStart.toISOString().slice(0, 10); // 'YYYY-MM-01'
-}
-
-function formatMonthLabel(monthStart: string): string {
-  const d = new Date(`${monthStart}T00:00:00Z`);
-  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-}
-
-function StatusPill({ status }: { status: InvoiceSummaryStatus }) {
-  const common =
-    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium";
-  if (status === "paid") {
-    return <span className={`${common} bg-green-100 text-green-800`}>Paid</span>;
-  }
-  if (status === "generated") {
-    return (
-      <span className={`${common} bg-amber-100 text-amber-800`}>Generated</span>
-    );
-  }
-  return (
-    <span className={`${common} bg-gray-100 text-gray-800`}>Not generated</span>
-  );
-}
-
 export default async function TeacherInvoicesIndex() {
   const supabase = await getServerSupabase();
 
-  const [{ data: summaries, error: summaryError }, { data: invoices, error: invoiceError }] =
-    await Promise.all([
-      supabase
-        .from("v_teacher_invoice_summary")
-        .select(
-          "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
-        )
-        .order("month_start", { ascending: false })
-        .limit(12),
-      supabase
-        .from("teacher_invoices")
-        .select("id, month_start, invoice_ref, status")
-        .order("month_start", { ascending: false })
-        .limit(12),
-    ]);
+  // Map logged-in user → teacher_id (match other teacher pages)
+  const { data: u } = await supabase.auth.getUser();
+  const user = u?.user;
+  if (!user) {
+    return (
+      <Section
+        title="My invoices"
+        subtitle="Monthly earnings and expenses summary."
+      >
+        <p className="text-sm text-gray-600">Please sign in as a teacher.</p>
+      </Section>
+    );
+  }
+
+  const { data: t, error: teacherError } = await supabase
+    .from("teachers")
+    .select("id")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  if (teacherError || !t?.id) {
+    return (
+      <Section
+        title="My invoices"
+        subtitle="Monthly earnings and expenses summary."
+      >
+        <p className="text-sm text-red-600">
+          Error: teacher record not found for this login.
+        </p>
+      </Section>
+    );
+  }
+
+  const teacherId = t.id as string;
+
+  const [
+    { data: summaries, error: summaryError },
+    { data: invoices, error: invoiceError },
+  ] = await Promise.all([
+    supabase
+      .from("v_teacher_invoice_summary")
+      .select(
+        "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
+      )
+      .eq("teacher_id", teacherId)
+      .order("month_start", { ascending: false })
+      .limit(12),
+    supabase
+      .from("teacher_invoices")
+      .select("id, month_start, invoice_ref, status")
+      .eq("teacher_id", teacherId)
+      .order("month_start", { ascending: false })
+      .limit(12),
+  ]);
 
   if (summaryError || invoiceError) {
     return (
@@ -99,9 +113,9 @@ export default async function TeacherInvoicesIndex() {
     invoiceByMonth.set(inv.month_start, inv);
   }
 
-  // Latest invoice month = previous calendar month
+  // Latest invoice month = previous calendar month (shared helper)
   const invoiceMonthKey = getInvoiceMonthKey();
-  const invoiceMonthLabel = formatMonthLabel(invoiceMonthKey);
+  const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
 
   const invoiceSummary = summaryRows.find(
     (row) => row.month_start === invoiceMonthKey,
@@ -137,7 +151,9 @@ export default async function TeacherInvoicesIndex() {
             </div>
 
             <div className="flex flex-col items-start gap-2 sm:items-end">
-              <StatusPill status={invoiceSummary?.status ?? "not_generated"} />
+              <TeacherInvoiceStatusPill
+                status={invoiceSummary?.status ?? "not_generated"}
+              />
               <div className="text-right text-xs text-gray-600">
                 <div>
                   Total:{" "}
@@ -211,7 +227,7 @@ export default async function TeacherInvoicesIndex() {
                     return (
                       <tr key={row.month_start}>
                         <td className="whitespace-nowrap px-4 py-2 text-gray-900">
-                          {formatMonthLabel(row.month_start)}
+                          {formatInvoiceMonthLabel(row.month_start)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right text-gray-900">
                           {formatPenniesAsPounds(lessonGross)}
@@ -223,10 +239,11 @@ export default async function TeacherInvoicesIndex() {
                           {formatPenniesAsPounds(total)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2">
-                          <StatusPill status={row.status} />
+                          <TeacherInvoiceStatusPill status={row.status} />
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right">
-                          {inv && (row.status === "generated" || row.status === "paid") ? (
+                          {inv &&
+                          (row.status === "generated" || row.status === "paid") ? (
                             <Link
                               href={`/teacher/invoices/${inv.id}`}
                               className="text-xs font-medium text-blue-600 hover:text-blue-800"

@@ -12,9 +12,9 @@ import {
 import {
   formatLotLabel,
   CreditLotSource,
-} from "@/lib/credit-lot-labels";
+} from "@/lib/creditLots/labels";
 
-import SettleOverdraftButton from "./SettleOverdraftButton";
+import OverdraftActionButtons from "./OverdraftActionButtons";
 import LotAllocations, {
   AllocationRow,
 } from "@/components/admin/LotAllocations";
@@ -29,12 +29,19 @@ import {
   getLowCreditAlertsByDeliveryForStudent,
   type LowCreditByDeliveryRow,
 } from "@/lib/api/admin/lowCredit";
+import {
+  Delivery,
+  ExpiryPolicy,
+  StudentStatus,
+  CreditLotState,
+} from "@/lib/enums";
+import type { StudentAwardReasonSummary } from "@/lib/types/students";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Delivery = "online" | "f2f" | "hybrid";
-type ExpiryPolicy = "none" | "fixed" | "rolling" | string;
+// DB-level delivery is "online" | "f2f"; UI also uses "hybrid" in some places
+type DeliveryUI = Delivery | "hybrid";
 
 type LotRow = {
   credit_lot_id: string;
@@ -46,8 +53,8 @@ type LotRow = {
   minutes_remaining: number;
   expiry_date: string | null;
   expiry_policy: ExpiryPolicy;
-  state: "open" | "closed" | "expired";
-  delivery_restriction: Delivery | null;
+  state: CreditLotState;
+  delivery_restriction: DeliveryUI | null;
   days_to_expiry: number | null;
   expiry_within_30d: boolean | null;
 };
@@ -56,7 +63,7 @@ type SncRow = {
   id: string;
   occurred_at: string;
   duration_min: number;
-  delivery: Delivery;
+  delivery: Delivery; // SNC view uses DB enum only
   charged: boolean;
 };
 
@@ -80,11 +87,13 @@ type StudentCreditDeliverySummary = {
   remaining_f2f_min: number;
 };
 
-type AwardReasonRow = {
+type AwardReasonRow = StudentAwardReasonSummary;
+
+type AwardReasonDbRow = {
   award_reason_code: string;
-  granted_award_min: number;
-  used_award_min: number;
-  remaining_award_min: number;
+  granted_award_min: number | null;
+  used_award_min: number | null;
+  remaining_award_min: number | null;
 };
 
 type StudentTeacherRateRow = {
@@ -97,10 +106,9 @@ type StudentTeacherRateRow = {
   f2f_source: string; // 'override' | 'tier_basic' | 'tier_premium' | 'no_rate'
 };
 
-
 const LOW_THRESHOLD_MIN = 360; // 6 hours generic rule for per-lot highlighting
 
-const formatDelivery = (d?: Delivery | null) => {
+const formatDelivery = (d?: DeliveryUI | null) => {
   if (!d) return "—";
   switch (d) {
     case "online":
@@ -130,14 +138,14 @@ const buildAwardLine = (
     .map((r) => {
       const minutes =
         kind === "granted"
-          ? r.granted_award_min
+          ? r.grantedAwardMin
           : kind === "used"
-          ? r.used_award_min
-          : r.remaining_award_min;
+          ? r.usedAwardMin
+          : r.remainingAwardMin;
 
       if (!minutes || minutes <= 0) return null; // don’t show 0 h
 
-      return `${formatAwardReason(r.award_reason_code)}: ${formatMinutesAsHours(
+      return `${formatAwardReason(r.awardReasonCode)}: ${formatMinutesAsHours(
         minutes,
       )} h`;
     })
@@ -146,6 +154,10 @@ const buildAwardLine = (
   if (parts.length === 0) return null;
   return `(${parts.join(" • ")})`;
 };
+
+
+
+
 
 
 const formatHours = (h: number | null | undefined) =>
@@ -159,7 +171,7 @@ export default async function AdminStudentPage({
 }: {
   params: Promise<{ studentId: string }>;
 }) {
-  const { studentId } = await params;   // 👈 await the Promise
+  const { studentId } = await params;
   if (!studentId) notFound();
 
   const sb = getAdminSupabase();
@@ -174,13 +186,8 @@ export default async function AdminStudentPage({
   if (sErr || !student) notFound();
 
   const studentTier: Tier = (student.tier ?? null) as Tier;
-  const studentStatus = (student.status ?? "current") as
-    | "current"
-    | "dormant"
-    | "past";
-
-
-
+  const studentStatus: StudentStatus = (student.status ??
+    "current") as StudentStatus;
 
   // --- 2) Teacher assignments ------------------------------------------------
   const { data: teacherRows, error: tErr } = await sb
@@ -239,8 +246,7 @@ export default async function AdminStudentPage({
     assignedIds.has(t.id),
   );
 
-
-    // --- X) Pricing snapshot: per-teacher rates for this student ----------
+  // --- X) Pricing snapshot: per-teacher rates for this student --------------
   const { data: rateRows, error: rateErr } = await sb
     .from("v_student_teacher_rate_summary")
     .select(
@@ -269,7 +275,6 @@ export default async function AdminStudentPage({
 
   const formatRatePounds = (pennies: number | null | undefined): string =>
     pennies == null ? "—" : `£${(pennies / 100).toFixed(2)}/h`;
-
 
   // --- 3) Last activity (for lifecycle explanations) ------------------------
   const { data: activityRow, error: activityErr } = await sb
@@ -300,7 +305,7 @@ export default async function AdminStudentPage({
   })();
 
   // --- 5) Usage over last 3 months ------------------------------------------
-    const { data: usageRow, error: usageErr } = await sb
+  const { data: usageRow, error: usageErr } = await sb
     .from("v_student_usage_last_3m")
     .select("avg_month_hours, is_heavy_user")
     .eq("student_id", studentId)
@@ -317,9 +322,6 @@ export default async function AdminStudentPage({
 
   const isHeavyUser = usageRow?.is_heavy_user ?? false;
 
-
-  
-
   // --- 6) Low-credit alert row (generic + dynamic buffer) -------------------
   const lowCreditAlert = await getLowCreditAlertForStudent(studentId);
 
@@ -327,6 +329,7 @@ export default async function AdminStudentPage({
   const lowCreditDynamic = lowCreditAlert?.is_dynamic_low ?? false;
   const lowCreditAny =
     lowCreditAlert?.is_low_any ?? lowCreditGeneric;
+  const showGenericLow = lowCreditGeneric && !lowCreditDynamic;
 
   // Per-delivery low-credit alerts (online / F2F)
   const lowCreditByDelivery: LowCreditByDeliveryRow[] =
@@ -344,7 +347,7 @@ export default async function AdminStudentPage({
     (f2fAlert?.isLowAny ?? false);
 
   // --- 7) Credit lots & allocations -----------------------------------------
- const { data: lots, error: lotsErr } = await sb
+  const { data: lots, error: lotsErr } = await sb
     .from("v_credit_lot_remaining")
     .select(
       [
@@ -359,8 +362,8 @@ export default async function AdminStudentPage({
         "expiry_policy",
         "state",
         "delivery_restriction",
-        "days_to_expiry",        // 👈 add
-        "expiry_within_30d",     // 👈 add
+        "days_to_expiry",
+        "expiry_within_30d",
       ].join(","),
     )
     .eq("student_id", studentId)
@@ -371,6 +374,18 @@ export default async function AdminStudentPage({
   }
 
   const rows: LotRow[] = (lots ?? []) as unknown as LotRow[];
+
+  // Find the overdraft lot (if any) and its minutes
+const overdraftLots = rows.filter(
+  (r) => r.source_type === "overdraft" && r.minutes_remaining < 0,
+);
+
+const overdraftMinutesRemaining = overdraftLots.reduce(
+  (sum, r) => sum + r.minutes_remaining,
+  0,
+);
+
+const hasOverdraft = overdraftMinutesRemaining < 0;
 
   const lotIds = rows.map((r) => r.credit_lot_id);
   let allocationsByLot: Record<string, AllocationRow[]> = {};
@@ -398,18 +413,8 @@ export default async function AdminStudentPage({
       );
   }
 
-  // --- 8) SNC status (current month) & history ------------------------------
-  const { data: sncStatus } = await sb
-    .from("v_student_snc_status_current_month")
-    .select("free_sncs, charged_sncs, has_free_snc_used")
-    .eq("student_id", studentId)
-    .maybeSingle();
-
-  const freeSncs = sncStatus?.free_sncs ?? 0;
-  const chargedSncs = sncStatus?.charged_sncs ?? 0;
-  const hasFreeSncUsed = sncStatus?.has_free_snc_used ?? false;
-
-    type SncHistoryRow = {
+  // --- 8) SNC history -------------------------------------------------------
+  type SncHistoryRow = {
     lesson_id: string;
     occurred_at: string;
     duration_min: number;
@@ -419,9 +424,7 @@ export default async function AdminStudentPage({
 
   const { data: sncLessons, error: sncErr } = await sb
     .from("v_student_snc_lessons")
-    .select(
-      "lesson_id,occurred_at,duration_min,delivery,is_charged",
-    )
+    .select("lesson_id,occurred_at,duration_min,delivery,is_charged")
     .eq("student_id", studentId)
     .order("occurred_at", { ascending: true });
 
@@ -429,7 +432,7 @@ export default async function AdminStudentPage({
     throw new Error(sncErr.message);
   }
 
-  const sncRows: SncRow[] = (sncLessons ?? []).map((l: any) => ({
+  const sncRows: SncRow[] = (sncLessons ?? []).map((l: SncHistoryRow) => ({
     id: l.lesson_id as string,
     occurred_at: l.occurred_at as string,
     duration_min: l.duration_min as number,
@@ -437,11 +440,14 @@ export default async function AdminStudentPage({
     charged: Boolean(l.is_charged),
   }));
 
-  // 🆕 Legacy vs tiered + lifetime free SNC flag
+  // Legacy vs tiered + lifetime free SNC flag (lifetime view only now)
   const isLegacyTier = !studentTier; // Tier is null for "No package (legacy rules)"
   const hasLifetimeFreeSnc = sncRows.some((s) => !s.charged);
-  
-// --- 9) Totals & breakdowns (via views, to stay in sync with student portal) ---
+
+  const lifetimeFreeSncs = sncRows.filter((s) => !s.charged).length;
+  const lifetimeChargedSncs = sncRows.filter((s) => s.charged).length;
+
+  // --- 9) Totals & breakdowns (via views, to stay in sync with student portal) ---
 
   // 9a) Overall totals
   const { data: summary, error: sumErr } = await sb
@@ -486,21 +492,21 @@ export default async function AdminStudentPage({
     throw new Error(deliveryErr.message);
   }
 
-  const delivery = (deliveryRow ??
+  const deliverySummary = (deliveryRow ??
     null) as StudentCreditDeliverySummary | null;
 
-  const purchasedMin = delivery?.purchased_min ?? 0;
+  const purchasedMin = deliverySummary?.purchased_min ?? 0;
 
-  const purchasedOnlineMin = delivery?.purchased_online_min ?? 0;
-  const purchasedF2FMin = delivery?.purchased_f2f_min ?? 0;
+  const purchasedOnlineMin = deliverySummary?.purchased_online_min ?? 0;
+  const purchasedF2FMin = deliverySummary?.purchased_f2f_min ?? 0;
 
-  const usedOnlineInvoiceMin = delivery?.used_online_min ?? 0;
-  const usedF2FInvoiceMin = delivery?.used_f2f_min ?? 0;
+  const usedOnlineInvoiceMin = deliverySummary?.used_online_min ?? 0;
+  const usedF2FInvoiceMin = deliverySummary?.used_f2f_min ?? 0;
 
   const remainingOnlineInvoiceMin =
-    delivery?.remaining_online_min ?? 0;
+    deliverySummary?.remaining_online_min ?? 0;
   const remainingF2FInvoiceMin =
-    delivery?.remaining_f2f_min ?? 0;
+    deliverySummary?.remaining_f2f_min ?? 0;
 
   const hasBothInvoiceModes =
     purchasedOnlineMin > 0 && purchasedF2FMin > 0;
@@ -511,33 +517,35 @@ export default async function AdminStudentPage({
       f2fAlert?.avgMonthHours != null);
 
   // 9c) Award breakdown by reason (granted minutes)
-  const { data: awardRows, error: awardErr } = await sb
-    .from("v_student_award_reason_summary")
-    .select(
-      "award_reason_code,granted_award_min,used_award_min,remaining_award_min",
-    )
-    .eq("student_id", studentId);
+ const { data: awardRows, error: awardErr } = await sb
+  .from("v_student_award_reason_summary")
+  .select(
+    "award_reason_code,granted_award_min,used_award_min,remaining_award_min",
+  )
+  .eq("student_id", studentId);
 
-  if (awardErr) {
-    throw new Error(awardErr.message);
-  }
+if (awardErr) {
+  throw new Error(awardErr.message);
+}
 
-  const awardReasons = (awardRows ?? []) as AwardReasonRow[];
+const awardReasons: AwardReasonRow[] = ((awardRows ?? []) as AwardReasonDbRow[]).map(
+  (row) => ({
+    awardReasonCode: row.award_reason_code,
+    grantedAwardMin: row.granted_award_min ?? 0,
+    usedAwardMin: row.used_award_min ?? 0,
+    remainingAwardMin: row.remaining_award_min ?? 0,
+  }),
+);
 
-  // Awarded total = granted - purchased (same as student portal)
-  const awardedMin = Math.max(totalGrantedMin - purchasedMin, 0);
+// Awarded total = granted - purchased (same as student portal)
+const awardedMin = Math.max(totalGrantedMin - purchasedMin, 0);
 
-  const awardEntries = awardReasons.filter(
-    (r) => r.granted_award_min > 0,
-  );
-  const showAwardBreakdown =
-    awardEntries.length > 0 && awardedMin > 0;
+const awardLineAwarded = buildAwardLine(awardReasons, "granted");
+const awardLineUsed = buildAwardLine(awardReasons, "used");
+const awardLineRemaining = buildAwardLine(awardReasons, "remaining");
 
-  const awardLineAwarded = buildAwardLine(awardReasons, "granted");
-  const awardLineUsed = buildAwardLine(awardReasons, "used");
-  const awardLineRemaining = buildAwardLine(awardReasons, "remaining");   
 
- // --- 10) Expiry warnings (SQL-driven via v_credit_lot_remaining) ----------
+  // --- 10) Expiry warnings (SQL-driven via v_credit_lot_remaining) ----------
   const expiringLots = rows.filter(
     (r) =>
       r.state === "open" &&
@@ -548,13 +556,9 @@ export default async function AdminStudentPage({
   // ---------------------------------------------------------------------------
 
   return (
-    <Section
-      title={`Student 360 — ${studentName}`}
-      
-    >
+    <Section title={`Student 360 — ${studentName}`}>
       {/* Header + Add credit button */}
       <div className="mb-4 flex items-center justify-between">
-       
         <Link
           href={`/admin/students/${studentId}/credit-lots/new`}
           className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
@@ -598,29 +602,31 @@ export default async function AdminStudentPage({
           </div>
         </div>
 
-       <div className="text-[11px] text-gray-500">
-    Avg usage (last 3 months):{" "}
-    {avgMonthHours != null ? `${avgMonthHours.toFixed(2)} h / month` : "—"}
-    {isHeavyUser && (
-      <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
-        Heavy user
-      </span>
-    )}
+        <div className="text-[11px] text-gray-500">
+          Avg usage (last 3 months):{" "}
+          {avgMonthHours != null
+            ? `${avgMonthHours.toFixed(2)} h / month`
+            : "—"}
+          {isHeavyUser && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+              Heavy user
+            </span>
+          )}
 
-    {perDeliveryUsageAvailable && (
-      <div className="mt-0.5">
-        Online:{" "}
-        {onlineAlert?.avgMonthHours != null
-          ? `${onlineAlert.avgMonthHours.toFixed(2)} h`
-          : "—"}
-        {" · "}
-        F2F:{" "}
-        {f2fAlert?.avgMonthHours != null
-          ? `${f2fAlert.avgMonthHours.toFixed(2)} h`
-          : "—"}
-      </div>
-    )}
-  </div>
+          {perDeliveryUsageAvailable && (
+            <div className="mt-0.5">
+              Online:{" "}
+              {onlineAlert?.avgMonthHours != null
+                ? `${onlineAlert.avgMonthHours.toFixed(2)} h`
+                : "—"}
+              {" · "}
+              F2F:{" "}
+              {f2fAlert?.avgMonthHours != null
+                ? `${f2fAlert.avgMonthHours.toFixed(2)} h`
+                : "—"}
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center gap-3">
           <StudentTierSelector
@@ -643,7 +649,6 @@ export default async function AdminStudentPage({
           assignedTeachers={assignedTeachers}
         />
       </div>
-
 
       {/* Pricing snapshot – per-teacher rates for this student */}
       {assignedTeachers.length > 0 && (
@@ -715,14 +720,15 @@ export default async function AdminStudentPage({
         </div>
       )}
 
-      {studentStatus === "dormant" && remainingMin < 0 && (
-        <div className="mb-4 flex justify-end">
-          <WriteOffOverdraftButton
-            studentId={studentId}
-            overdraftMinutes={remainingMin}
-          />
-        </div>
-      )}
+      {studentStatus === "dormant" && hasOverdraft && (
+  <div className="mb-4 flex justify-end">
+    <WriteOffOverdraftButton
+      studentId={studentId}
+      overdraftMinutes={overdraftMinutesRemaining}
+    />
+  </div>
+)}
+
 
       {/* Summary cards */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -740,7 +746,7 @@ export default async function AdminStudentPage({
           )}
         </div>
 
-                       {/* Awarded */}
+        {/* Awarded */}
         <div className="rounded-2xl border p-4">
           <div className="text-xs text-gray-500">Awarded</div>
           <div className="text-2xl font-semibold">
@@ -753,9 +759,7 @@ export default async function AdminStudentPage({
           )}
         </div>
 
-
-
-         {/* Used */}
+        {/* Used */}
         <div className="rounded-2xl border p-4">
           <div className="text-xs text-gray-500">Used</div>
           <div className="text-2xl font-semibold">
@@ -798,17 +802,17 @@ export default async function AdminStudentPage({
         </div>
       </div>
 
-            {/* Warnings (single block) */}
-      <div className="flex flex-wrap gap-3 mb-6">
+      {/* Warnings (single block) */}
+      <div className="mb-6 flex flex-wrap gap-3">
         {/* Overall (per-student view) */}
-        {lowCreditGeneric && (
-          <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">
+        {showGenericLow && (
+          <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">
             Low credit overall (≤ 6h)
           </span>
         )}
 
         {lowCreditDynamic && (
-          <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">
+          <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">
             Buffer &lt; 4h overall — remaining{" "}
             {formatHours(lowCreditAlert?.remaining_hours)} h, avg{" "}
             {formatHours(lowCreditAlert?.avg_month_hours)} h, buffer{" "}
@@ -818,7 +822,7 @@ export default async function AdminStudentPage({
 
         {/* Per-delivery warnings (from v_student_dynamic_credit_alerts_by_delivery) */}
         {onlineAlert?.isLowAny && (
-          <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">
+          <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">
             Low online credit — remaining{" "}
             {formatHours(onlineAlert.remainingHours)} h, avg{" "}
             {formatHours(onlineAlert.avgMonthHours)} h, buffer{" "}
@@ -827,7 +831,7 @@ export default async function AdminStudentPage({
         )}
 
         {f2fAlert?.isLowAny && (
-          <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-800">
+          <span className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">
             Low F2F credit — remaining{" "}
             {formatHours(f2fAlert.remainingHours)} h, avg{" "}
             {formatHours(f2fAlert.avgMonthHours)} h, buffer{" "}
@@ -835,9 +839,18 @@ export default async function AdminStudentPage({
           </span>
         )}
 
-        {/* Expiring lots warning (unchanged) */}
+        {/* Negative balance / overdraft warning */}
+        {hasOverdraft && (
+          <span className="rounded bg-rose-100 px-2 py-1 text-xs text-rose-800">
+            Overdraft in use — student has{" "}
+            {formatMinutesAsHours(-overdraftMinutesRemaining)} h in negative
+            balance.
+          </span>
+        )}
+
+        {/* Expiring lots warning */}
         {expiringLots.length > 0 && (
-          <span className="text-xs px-2 py-1 rounded bg-rose-100 text-rose-800">
+          <span className="rounded bg-rose-100 px-2 py-1 text-xs text-rose-800">
             {expiringLots.length} lot
             {expiringLots.length > 1 ? "s" : ""} expiring ≤ 30 days
           </span>
@@ -846,58 +859,49 @@ export default async function AdminStudentPage({
         {/* All-clear state */}
         {!lowCreditAny &&
           !anyPerDeliveryLow &&
-          expiringLots.length === 0 && (
-            <span className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-800">
+          expiringLots.length === 0 &&
+          !hasOverdraft && (
+            <span className="rounded bg-emerald-100 px-2 py-1 text-xs text-emerald-800">
               All good — no warnings
             </span>
           )}
       </div>
 
-
-            {/* SNC status (current month) */}
+      {/* SNC status & rules (lifetime view, no "current month") */}
       <div className="mb-6 text-xs text-gray-700">
         <span className="font-medium">
-          Short-notice cancellations (this month):{" "}
+          Short-notice cancellations (to date):{" "}
         </span>
         <span>
-          {freeSncs} free · {chargedSncs} charged.{" "}
+          {lifetimeFreeSncs} free · {lifetimeChargedSncs} charged.{" "}
         </span>
 
         {isLegacyTier ? (
           hasLifetimeFreeSnc ? (
             <span className="ml-1 text-amber-700">
-              Free SNC already used under legacy rules. Any future SNCs will be
-              charged (no monthly reset).
+              Lifetime free SNC already used under legacy rules. Any future SNCs
+              will be charged (no monthly reset).
             </span>
           ) : (
             <span className="ml-1 text-emerald-700">
-              One free SNC is still available under legacy rules. The first SNC
-              will be free; later SNCs will be charged.
+              Under legacy rules, the first SNC is free; all later SNCs are
+              charged. This student has not yet used their free SNC.
             </span>
           )
-        ) : hasFreeSncUsed ? (
-          <span className="ml-1 text-amber-700">
-            Free SNC already used this month. Further SNCs this month will be
-            charged.
-          </span>
         ) : (
-          <span className="ml-1 text-emerald-700">
-            Free SNC still available this month.
+          <span className="ml-1 text-gray-700">
+            For tiered students (basic/premium/elite), the earliest SNC in each
+            calendar month is normally free and any additional SNCs in that
+            month are charged. The counts above show this student&apos;s SNC
+            history to date.
           </span>
         )}
       </div>
 
-
-      {/* Negative balance / overdraft */}
-      {remainingMin < 0 && (
-        <div className="mb-6 flex items-center gap-3">
-          <span className="rounded bg-rose-100 px-2 py-1 text-xs text-rose-800">
-            Negative balance — student owes {-remainingMin} minutes.
-          </span>
-          <SettleOverdraftButton
-            studentId={studentId}
-            hasOverdraft={remainingMin < 0}
-          />
+      {/* Negative balance / overdraft actions */}
+      {hasOverdraft && (
+        <div className="mb-6 flex justify-end">
+          <OverdraftActionButtons studentId={studentId} />
         </div>
       )}
 
@@ -923,10 +927,9 @@ export default async function AdminStudentPage({
               );
 
               const isExpiring =
-              r.state === "open" &&
-              r.expiry_policy !== "none" &&
-              (r.expiry_within_30d ?? false);
-
+                r.state === "open" &&
+                r.expiry_policy !== "none" &&
+                (r.expiry_within_30d ?? false);
 
               const lotAllocations =
                 allocationsByLot[r.credit_lot_id] ?? [];
@@ -939,16 +942,10 @@ export default async function AdminStudentPage({
                       {formatDelivery(r.delivery_restriction)}
                     </td>
                     <td className="py-2 pr-4">
-                      {formatMinutesAsHours(
-                        r.minutes_granted,
-                      )}{" "}
-                      h
+                      {formatMinutesAsHours(r.minutes_granted)} h
                     </td>
                     <td className="py-2 pr-4">
-                      {formatMinutesAsHours(
-                        r.minutes_allocated,
-                      )}{" "}
-                      h
+                      {formatMinutesAsHours(r.minutes_allocated)} h
                     </td>
                     <td
                       className={`py-2 pr-4 ${
@@ -957,19 +954,14 @@ export default async function AdminStudentPage({
                           : ""
                       }`}
                     >
-                      {formatMinutesAsHours(
-                        r.minutes_remaining,
-                      )}{" "}
-                      h
+                      {formatMinutesAsHours(r.minutes_remaining)} h
                     </td>
                     <td className="py-2 pr-4">
                       {r.expiry_policy === "none" || !r.expiry_date ? (
                         ""
                       ) : (
                         <span
-                          className={
-                            isExpiring ? "text-rose-700" : ""
-                          }
+                          className={isExpiring ? "text-rose-700" : ""}
                         >
                           {formatDateTimeLondon(r.expiry_date)}
                         </span>
@@ -978,10 +970,7 @@ export default async function AdminStudentPage({
                   </tr>
 
                   <tr className="border-b">
-                    <td
-                      colSpan={6}
-                      className="bg-gray-50 py-2 pr-4"
-                    >
+                    <td colSpan={6} className="bg-gray-50 py-2 pr-4">
                       <LotAllocations allocations={lotAllocations} />
                     </td>
                   </tr>

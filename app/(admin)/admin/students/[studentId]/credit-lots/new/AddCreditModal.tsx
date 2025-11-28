@@ -8,6 +8,11 @@ import {
   importInvoiceCredit,
   awardMinutesCredit,
 } from "@/lib/api/admin/creditLots";
+import type { Delivery, LengthCat, Tier, ExpiryPolicy } from "@/lib/enums";
+import type { AwardReasonCode, AWARD_REASON_CODES } from "@/lib/awardReasons";
+
+type DeliveryRestriction = Delivery | null; // online | f2f | (null = hybrid/unrestricted)
+type TierRestriction = Tier | null;
 
 type Props = {
   studentId: string;
@@ -86,19 +91,26 @@ export default function AddCreditModal({
     return Math.round(h * 60); // convert hours → minutes (integer)
   }, [hours]);
 
+  // Invoice amount (UI in £, DB in pennies)
+  const [invoiceAmount, setInvoiceAmount] = useState<string>("");
+
+  const amountPennies = useMemo(() => {
+    const v = parseFloat(invoiceAmount);
+    if (!Number.isFinite(v) || v <= 0) return 0;
+    return Math.round(v * 100); // £ → pennies
+  }, [invoiceAmount]);
+
   // Invoice tab state
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [lengthRestriction, setLengthRestriction] = useState<
-    "none" | "60" | "90" | "120"
-  >("none");
-  const [deliveryRestriction, setDeliveryRestriction] = useState<string | "">(
-    "",
-  );
-  const [tierRestriction, setTierRestriction] = useState<string | "">("");
-  const [expiryPolicy, setExpiryPolicy] = useState<
-    "none" | "advisory" | "mandatory"
-  >("none");
-  const [expiryDateOverride, setExpiryDateOverride] = useState<string | "">("");
+  const [lengthRestriction, setLengthRestriction] =
+    useState<LengthCat>("none");
+  const [deliveryRestriction, setDeliveryRestriction] =
+    useState<DeliveryRestriction>(null); // null = hybrid/unrestricted
+  const [tierRestriction, setTierRestriction] =
+    useState<TierRestriction>(null);
+  const [expiryPolicy, setExpiryPolicy] =
+    useState<ExpiryPolicy>("none");
+  const [expiryDateOverride, setExpiryDateOverride] = useState<string>("");
 
   // Expiry knobs S/L/D/M/B
   const [lessonsPerMonth, setLessonsPerMonth] = useState<number | "">("");
@@ -111,16 +123,18 @@ export default function AddCreditModal({
     return computeExpiryPreview({
       startDate,
       minutesGranted: minutesGranted || null,
-      lessonsPerMonth: (lessonsPerMonth || null) as number | null,
-      durationPerLessonMins: (durationPerLessonMins || null) as number | null,
+      lessonsPerMonth:
+        lessonsPerMonth === "" ? null : (lessonsPerMonth as number),
+      durationPerLessonMins:
+        durationPerLessonMins === ""
+          ? null
+          : (durationPerLessonMins as number),
       buffer: buffer === "" ? null : (buffer as number),
     });
   }, [startDate, minutesGranted, lessonsPerMonth, durationPerLessonMins, buffer]);
 
   // Award tab state
-  const [awardReasonCode, setAwardReasonCode] = useState<
-    "free_cancellation" | "goodwill" | "promo" | "trial"
-  >("goodwill");
+  const [awardReasonCode, setAwardReasonCode] = useState<AwardReasonCode>("goodwill");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -150,7 +164,7 @@ export default function AddCreditModal({
     setOkMsg(null);
     setLastCreditLotId(null);
 
-  try {
+    try {
       const digits = invoiceNumber.replace(/\D/g, "");
 
       if (digits.length < 4 || digits.length > 5) {
@@ -165,23 +179,21 @@ export default function AddCreditModal({
       }
       if (!startDate) throw new Error("Start date is required.");
 
-      // ✅ always send one of "60" | "90" | "120" | "none"
-      const cleanLengthRestriction: "60" | "90" | "120" | "none" =
-        !lengthRestriction || (lengthRestriction as any) === ""
-          ? "none"
-          : (lengthRestriction as "60" | "90" | "120" | "none");
+      if (!amountPennies || amountPennies <= 0) {
+        throw new Error("Invoice amount must be greater than 0.");
+      }
 
-     const result = await importInvoiceCredit({
+      // Always send a valid LengthCat
+      const cleanLengthRestriction: LengthCat = lengthRestriction ?? "none";
+
+      const result = await importInvoiceCredit({
         studentId,
-        externalRef, // now "INV-1234"
+        externalRef,
         minutesGranted,
         startDate,
         lengthRestriction: cleanLengthRestriction,
-        deliveryRestriction: (deliveryRestriction || null) as
-          | "online"
-          | "f2f"
-          | null,
-        tierRestriction: tierRestriction || null,
+        deliveryRestriction: deliveryRestriction,
+        tierRestriction: tierRestriction,
         expiryDate: expiryDateOverride || null,
         expiryPolicy,
         lessonsPerMonth:
@@ -189,6 +201,7 @@ export default function AddCreditModal({
         durationPerLessonMins:
           durationPerLessonMins === "" ? null : Number(durationPerLessonMins),
         buffer: buffer === "" ? null : Number(buffer),
+        amountPennies,
       });
 
       if (!result.ok) {
@@ -198,10 +211,10 @@ export default function AddCreditModal({
       setLastCreditLotId(result.creditLotId);
       setOkMsg("Invoice credit added successfully.");
 
-      // 🔄 Refresh host route (e.g. Student 360) so credit updates immediately
+      // Refresh host route (e.g. Student 360) so credit updates immediately
       router.refresh();
 
-      // ✅ Auto-close if parent controls the modal
+      // Auto-close if parent controls the modal
       if (onClose) {
         onClose();
       }
@@ -239,10 +252,10 @@ export default function AddCreditModal({
       setLastCreditLotId(result.creditLotId);
       setOkMsg("Award credit added successfully.");
 
-      // 🔄 Ensure any hosting server components refresh
+      // Ensure any hosting server components refresh
       router.refresh();
 
-      // ✅ Auto-close if parent controls the modal
+      // Auto-close if parent controls the modal
       if (onClose) {
         onClose();
       }
@@ -312,10 +325,9 @@ export default function AddCreditModal({
               value={hours}
               onChange={(e) => setHours(e.target.value)}
               className="rounded-md border p-2"
-              
             />
             <span className="text-xs text-gray-500">
-               {minutesGranted || 0} minutes.
+              {minutesGranted || 0} minutes.
             </span>
           </label>
         </div>
@@ -324,39 +336,48 @@ export default function AddCreditModal({
           <form onSubmit={submitInvoice} className="mt-6 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1">
-  <span className="text-sm text-gray-600">Xero #</span>
-  <div className="flex rounded-md border overflow-hidden">
-    <span className="flex items-center px-2 text-sm text-gray-500 bg-gray-50">
-      INV-
-    </span>
-    <input
-      type="text"
-      inputMode="numeric"
-      pattern="[0-9]{4,5}"
-      maxLength={5}
-      value={invoiceNumber}
-      onChange={(e) => {
-        const digits = e.target.value.replace(/\D/g, "");
-        setInvoiceNumber(digits.slice(0, 5));
-      }}
-      className="flex-1 border-0 p-2 outline-none"
-      
-    />
-  </div>
-  <span className="text-xs text-gray-500">
-   
-  </span>
-</label>
+                <span className="text-sm text-gray-600">Xero #</span>
+                <div className="flex overflow-hidden rounded-md border">
+                  <span className="flex items-center bg-gray-50 px-2 text-sm text-gray-500">
+                    INV-
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{4,5}"
+                    maxLength={5}
+                    value={invoiceNumber}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "");
+                      setInvoiceNumber(digits.slice(0, 5));
+                    }}
+                    className="flex-1 border-0 p-2 outline-none"
+                  />
+                </div>
+                <span className="text-xs text-gray-500"></span>
+              </label>
 
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-gray-600">Invoice total (£)</span>
+                <input
+                  type="number"
+                  min={0.01}
+                  step={0.01}
+                  value={invoiceAmount}
+                  onChange={(e) => setInvoiceAmount(e.target.value)}
+                  className="rounded-md border p-2"
+                />
+                <span className="text-xs text-gray-500">
+                  {amountPennies || 0} pennies
+                </span>
+              </label>
 
               <label className="flex flex-col gap-1">
                 <span className="text-sm text-gray-600">Expiry enforcement</span>
                 <select
                   value={expiryPolicy}
                   onChange={(e) =>
-                    setExpiryPolicy(
-                      e.target.value as "none" | "advisory" | "mandatory",
-                    )
+                    setExpiryPolicy(e.target.value as ExpiryPolicy)
                   }
                   className="rounded-md border p-2"
                 >
@@ -371,9 +392,7 @@ export default function AddCreditModal({
                 <select
                   value={lengthRestriction}
                   onChange={(e) =>
-                    setLengthRestriction(
-                      e.target.value as "none" | "60" | "90" | "120",
-                    )
+                    setLengthRestriction(e.target.value as LengthCat)
                   }
                   className="rounded-md border p-2"
                 >
@@ -389,29 +408,32 @@ export default function AddCreditModal({
                   Delivery restriction
                 </span>
                 <select
-                  value={deliveryRestriction}
-                  onChange={(e) => setDeliveryRestriction(e.target.value)}
+                  value={deliveryRestriction ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value as Delivery | "";
+                    setDeliveryRestriction(value === "" ? null : value);
+                  }}
                   className="rounded-md border p-2"
                 >
-                  <option value="online">online</option>
-                  <option value="">hybrid</option>
-                  
-                  <option value="f2f">f2f</option>
+                  <option value="">hybrid (online &amp; f2f)</option>
+                  <option value="online">online only</option>
+                  <option value="f2f">face to face only</option>
                 </select>
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">
-                  Tier restriction 
-                </span>
+                <span className="text-sm text-gray-600">Tier restriction</span>
                 <select
-                  value={tierRestriction}
-                  onChange={(e) => setTierRestriction(e.target.value)}
+                  value={tierRestriction ?? ""}
+                  onChange={(e) => {
+                    const value = e.target.value as Tier | "";
+                    setTierRestriction(value === "" ? null : value);
+                  }}
                   className="rounded-md border p-2"
                 >
                   <option value="">(none)</option>
                   <option value="basic">basic</option>
-                  <option value="standard">standard</option>
+                  <option value="premium">premium</option>
                   <option value="elite">elite</option>
                 </select>
               </label>
@@ -511,7 +533,7 @@ export default function AddCreditModal({
                 {lastCreditLotId && (
                   <div className="mt-1 text-xs text-green-800">
                     Credit lot ID:{" "}
-                    <code className="bg-green-100 px-1 py-[1px] rounded">
+                    <code className="rounded bg-green-100 px-1 py-[1px]">
                       {lastCreditLotId}
                     </code>
                   </div>
@@ -536,33 +558,28 @@ export default function AddCreditModal({
               </button>
             </div>
           </form>
-        ) : (
-          <form onSubmit={submitAward} className="mt-6 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">
-                  Award reason (required)
-                </span>
-                <select
-                  value={awardReasonCode}
-                  onChange={(e) =>
-                    setAwardReasonCode(
-                      e.target.value as
-                        | "free_cancellation"
-                        | "goodwill"
-                        | "promo"
-                        | "trial",
-                    )
-                  }
-                  className="rounded-md border p-2"
-                >
-                  <option value="free_cancellation">Free cancellation</option>
-                  <option value="goodwill">Goodwill</option>
-                  <option value="promo">Promo</option>
-                  <option value="trial">Trial</option>
-                </select>
-              </label>
-            </div>
+       ) : (
+  <form onSubmit={submitAward} className="mt-6 space-y-4">
+    <div className="grid grid-cols-2 gap-3">
+      <label className="flex flex-col gap-1">
+        <span className="text-sm text-gray-600">
+          Award reason (required)
+        </span>
+        <select
+          value={awardReasonCode}
+          onChange={(e) =>
+            setAwardReasonCode(e.target.value as AwardReasonCode)
+          }
+          className="rounded-md border p-2"
+        >
+          {/* simple explicit options, or map AWARD_REASON_CODES if you like */}
+          <option value="free_cancellation">Free cancellation</option>
+          <option value="goodwill">Goodwill</option>
+          <option value="promo">Promo</option>
+          <option value="trial">Trial</option>
+        </select>
+      </label>
+    </div>
 
             <div className="rounded-lg border p-3 text-sm text-gray-700">
               Awards <strong>never expire</strong>. They will be consumed{" "}
@@ -580,7 +597,7 @@ export default function AddCreditModal({
                 {lastCreditLotId && (
                   <div className="mt-1 text-xs text-green-800">
                     Credit lot ID:{" "}
-                    <code className="bg-green-100 px-1 py-[1px] rounded">
+                    <code className="rounded bg-green-100 px-1 py-[1px]">
                       {lastCreditLotId}
                     </code>
                   </div>

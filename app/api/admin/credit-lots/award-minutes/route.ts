@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import { AWARD_REASON_CODES } from "@/lib/awardReasons";
 
 const ISO_DATE = z
   .string()
@@ -10,12 +11,7 @@ const AwardSchema = z.object({
   studentId: z.string().uuid(),
   minutesGranted: z.number().int().positive(),
   startDate: ISO_DATE, // YYYY-MM-DD
-  awardReasonCode: z.enum([
-    "free_cancellation",
-    "goodwill",
-    "promo",
-    "trial",
-  ]),
+  awardReasonCode: z.enum(AWARD_REASON_CODES),
 });
 
 export async function POST(req: NextRequest) {
@@ -40,7 +36,7 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase.rpc("rpc_award_minutes", {
       p_student_id: p.studentId,
       p_minutes_granted: p.minutesGranted,
-      p_start_date: p.startDate, // YYYY-MM-DD string is fine for DATE
+      p_start_date: p.startDate,
       p_award_reason_code: p.awardReasonCode,
     });
 

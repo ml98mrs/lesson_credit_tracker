@@ -37,9 +37,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // SNC-aware status message
-    const isSnc = !!(data as any)?.is_snc;
-    const isFreeSnc = !!(data as any)?.is_free_snc;
+        // SNC-aware status message
+    const plan = data as any;
+
+    // Prefer camelCase from planner / rpc_confirm_lesson, but tolerate legacy snake_case
+    const isSnc = !!(plan.isSnc ?? plan.is_snc);
+    const isFreeSnc = !!(plan.isFreeSnc ?? plan.is_free_snc);
 
     let statusMessage = "Lesson confirmed.";
 
@@ -61,3 +64,4 @@ export async function POST(req: Request) {
     );
   }
 }
+

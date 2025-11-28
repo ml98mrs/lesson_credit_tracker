@@ -3,11 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { formatMinutesAsHours, formatDateTimeLondon } from "@/lib/formatters";
+
+import type { TeacherStatus } from "@/lib/types";   // 👈 NEW
+import { SetTeacherPastButton } from "./SetTeacherPastButton";
+import { formatMinutesAsHours, formatDateTimeLondon, formatPenniesAsPounds } from "@/lib/formatters";
 
 export const dynamic = "force-dynamic";
 
-type TeacherStatus = "current" | "potential" | "inactive" | string;
+
 
 type AssignedStudent = {
   id: string;
@@ -41,6 +44,17 @@ type TeacherRateSummaryRow = {
   max_override_rate_pennies: number | null;
 };
 
+type TeacherLessonEarningsLastMonthRow = {
+  teacher_id: string;
+  month_start: string;
+  gross_pennies: number | null;
+};
+
+type TeacherExpensesSummaryRow = {
+  teacher_id: string;
+  month_start: string;
+  approved_pennies: number | null;
+};
 
 
 export default async function AdminTeacherPage({
@@ -48,7 +62,7 @@ export default async function AdminTeacherPage({
 }: {
   params: Promise<{ teacherId: string }>;
 }) {
-  const { teacherId } = await params;
+  const { teacherId } = await params;   // 👈 MUST await params
   if (!teacherId) notFound();
 
   const sb = getAdminSupabase();
@@ -56,11 +70,11 @@ export default async function AdminTeacherPage({
   // ────────────────────────────────────────────────────────────────
   // 1) Core teacher + profile
   // ────────────────────────────────────────────────────────────────
-  const { data: teacherRow, error: teacherErr } = await sb
-    .from("teachers")
-    .select("id, profile_id, created_at")
-    .eq("id", teacherId)
-    .maybeSingle();
+ const { data: teacherRow, error: teacherErr } = await sb
+  .from("teachers")
+  .select("id, profile_id, created_at, status")  // 👈 added status
+  .eq("id", teacherId)
+  .maybeSingle();
 
   if (teacherErr || !teacherRow) {
     notFound();
@@ -79,8 +93,8 @@ export default async function AdminTeacherPage({
     (profileRow?.full_name as string | null) ||
     "(teacher)";
 
-  // Placeholder teacher status for now – later you may add a dedicated column.
-  const teacherStatus: TeacherStatus = "current";
+  
+ const teacherStatus = (teacherRow.status as TeacherStatus) ?? "potential";
 
   // ────────────────────────────────────────────────────────────────
   //2) Rate snapshot (via v_teacher_rate_summary)
@@ -208,6 +222,56 @@ export default async function AdminTeacherPage({
       ? Number(stats.snc_charged_count)
       : null;
 
+  // ────────────────────────────────────────────────────────────────
+  // 5b) Last-month money: lesson earnings + approved expenses
+  //     (via v_teacher_lesson_earnings_last_month + v_teacher_expenses_summary)
+  // ────────────────────────────────────────────────────────────────
+  const [
+    { data: earningsRow, error: earningsErr },
+    { data: expensesSummaryRow, error: expensesSummaryErr },
+  ] = await Promise.all([
+    sb
+      .from("v_teacher_lesson_earnings_last_month")
+      .select("teacher_id, month_start, gross_pennies")
+      .eq("teacher_id", teacherId)
+      .eq("month_start", prevMonthStartIso)
+      .maybeSingle(),
+    sb
+      .from("v_teacher_expenses_summary")
+      .select("teacher_id, month_start, approved_pennies")
+      .eq("teacher_id", teacherId)
+      .eq("month_start", prevMonthStartIso)
+      .maybeSingle(),
+  ]);
+
+  if (earningsErr) {
+    console.error("v_teacher_lesson_earnings_last_month error", earningsErr.message);
+  }
+  if (expensesSummaryErr) {
+    console.error("v_teacher_expenses_summary error", expensesSummaryErr.message);
+  }
+
+  const earnings = (earningsRow ?? null) as TeacherLessonEarningsLastMonthRow | null;
+  const expensesSummary = (expensesSummaryRow ?? null) as TeacherExpensesSummaryRow | null;
+
+  const lastMonthEarningsPennies =
+    earnings && earnings.gross_pennies != null ? Number(earnings.gross_pennies) : null;
+
+  const lastMonthExpensesPennies =
+    expensesSummary && expensesSummary.approved_pennies != null
+      ? Number(expensesSummary.approved_pennies)
+      : null;
+
+  const lastMonthEarningsPounds =
+    lastMonthEarningsPennies != null
+      ? formatPenniesAsPounds(lastMonthEarningsPennies)
+      : null;
+
+  const lastMonthExpensesPounds =
+    lastMonthExpensesPennies != null
+      ? formatPenniesAsPounds(lastMonthExpensesPennies)
+      : null;
+
 
   // ────────────────────────────────────────────────────────────────
   // 6) Assigned students (via student_teacher + students + profiles)
@@ -271,70 +335,102 @@ export default async function AdminTeacherPage({
   const lessonRows: RecentLessonRow[] =
     (recentLessons ?? []) as unknown as RecentLessonRow[];
 
-  // ────────────────────────────────────────────────────────────────
-  //8) Placeholders for future SQL-driven summaries
-  //    (no React maths; these will later come from views)
-  // ────────────────────────────────────────────────────────────────
+
+    const statusLabel =
+  teacherStatus === "current"
+    ? "Current teacher"
+    : teacherStatus === "inactive"
+    ? "Inactive (only dormant students)"
+    : teacherStatus === "potential"
+    ? "Potential (no current/dormant students)"
+    : teacherStatus === "past"
+    ? "Past teacher"
+    : teacherStatus;
+
+const statusClass =
+  teacherStatus === "current"
+    ? "bg-emerald-50 text-emerald-700"
+    : teacherStatus === "inactive"
+    ? "bg-amber-50 text-amber-700"
+    : teacherStatus === "potential"
+    ? "bg-slate-50 text-slate-700"
+    : teacherStatus === "past"
+    ? "bg-rose-50 text-rose-700"
+    : "bg-slate-50 text-slate-700";
 
 
-  // TODO: replace with v_teacher_lesson_earnings_last_month
-  const lastMonthEarningsPounds: string | null = null;
-
-  // TODO: replace with v_teacher_expenses_summary
-  const lastMonthExpensesPounds: string | null = null;
+ 
 
   // ────────────────────────────────────────────────────────────────
 
   return (
     <Section title={`Teacher 360 — ${teacherName}`}>
-      {/* Header: identity + basic meta */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold">{teacherName}</h2>
-            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-              {teacherStatus === "current" ? "Current teacher" : teacherStatus}
-            </span>
-          </div>
-          <div className="text-[11px] text-gray-500">
-            Created: {formatDateTimeLondon(teacherRow.created_at as string)}
-          </div>
-          <div className="text-[11px] text-gray-500">
-            Last activity:{" "}
-            {lastActivityAt
-              ? formatDateTimeLondon(lastActivityAt)
-              : "No lessons logged yet"}
-          </div>
-        </div>
+  {/* Header: identity + basic meta */}
+<div className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 pb-4">
+  <div className="space-y-1">
+    <div className="flex items-center gap-2">
+      <h2 className="text-xl font-semibold tracking-tight text-gray-900">
+        {teacherName}
+      </h2>
+      <span
+        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${statusClass}`}
+      >
+        {statusLabel}
+      </span>
+    </div>
 
-        {/* Quick links to spin-off pages */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Link
-            href={`/admin/teachers/${teacherId}/rates`}
-            className="rounded border px-3 py-1 hover:bg-gray-50"
-          >
-            Rates
-          </Link>
-          <Link
-            href={`/admin/teachers/${teacherId}/lessons`}
-            className="rounded border px-3 py-1 hover:bg-gray-50"
-          >
-            Lessons
-          </Link>
-          <Link
-            href={`/admin/teachers/${teacherId}/invoices`}
-            className="rounded border px-3 py-1 hover:bg-gray-50"
-          >
-            Invoices / payouts
-          </Link>
-          <Link
-            href={`/admin/teachers/${teacherId}/expenses`}
-            className="rounded border px-3 py-1 hover:bg-gray-50"
-          >
-            Expenses
-          </Link>
-        </div>
-      </div>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
+      <span>
+        Last confirmed lesson:{" "}
+        {lastActivityAt
+          ? formatDateTimeLondon(lastActivityAt)
+          : "No lessons logged yet"}
+      </span>
+
+      {avgMonthHours != null && (
+        <span className="inline-flex items-center gap-1">
+          <span className="h-1 w-1 rounded-full bg-gray-300" />
+          Avg (last 3 months):{" "}
+          <span className="font-medium text-gray-700">
+            {avgMonthHours} h / month
+          </span>
+          {isHeavyUser && (
+            <span className="ml-1 inline-flex items-center rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
+              Heavy workload
+            </span>
+          )}
+        </span>
+      )}
+    </div>
+  </div>
+
+  <div className="flex flex-col items-end gap-2">
+    {/* Quick links */}
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <Link
+        href={`/admin/teachers/${teacherId}/rates`}
+        className="rounded border border-gray-300 px-3 py-1 hover:bg-gray-50"
+      >
+        Rates
+      </Link>
+      <Link
+        href={`/admin/teachers/${teacherId}/invoices`}
+        className="rounded border border-gray-300 px-3 py-1 hover:bg-gray-50"
+      >
+        Invoices / payouts
+      </Link>
+    </div>
+
+    {/* Set to past button */}
+    <SetTeacherPastButton
+      teacherId={teacherId}
+      disabled={teacherStatus === "past"}
+    />
+  </div>
+</div>
+
+
+      
 
       {/* Workload & usage summary (placeholder numbers for now) */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-600">
@@ -358,7 +454,7 @@ export default async function AdminTeacherPage({
                   <>
                     {" "}
                     · SNCs: {lastMonthSncFreeCount} free /{" "}
-                    {lastMonthSncChargedCount} charged (teacher paid for all)
+                    {lastMonthSncChargedCount} student charged 
                   </>
                 )}
             </>
@@ -370,82 +466,96 @@ export default async function AdminTeacherPage({
       </div>
 
 
-      {/* Money summary (Phase 2 – currently placeholders) */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-2xl border p-4 text-sm">
-          <div className="text-xs text-gray-500">Lesson earnings (last month)</div>
-          <div className="mt-1 text-xl font-semibold">
-            {lastMonthEarningsPounds ?? "—"}
-          </div>
-          <div className="mt-1 text-[11px] text-gray-500">
-            Fully SQL-driven later via v_teacher_lesson_earnings_last_month.
-          </div>
-        </div>
+     {/* Money summary (Phase 2 – currently placeholders) */}
+<div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm shadow-sm">
+    <div className="mb-1 flex items-center justify-between">
+      <div className="text-xs font-semibold text-gray-600">
+        Lesson earnings (last month)
+      </div>
+      <span className="h-1 w-8 rounded-full bg-red-500/80" />
+    </div>
+    <div className="text-xl font-semibold">
+      {lastMonthEarningsPounds ?? "—"}
+    </div>
+    <div className="mt-1 text-[11px] text-gray-500">
+      Fully SQL-driven later via v_teacher_lesson_earnings_last_month.
+    </div>
+  </div>
 
-        <div className="rounded-2xl border p-4 text-sm">
-          <div className="text-xs text-gray-500">Expenses (last month)</div>
-          <div className="mt-1 text-xl font-semibold">
-            {lastMonthExpensesPounds ?? "—"}
-          </div>
-          <div className="mt-1 text-[11px] text-gray-500">
-            To be driven by v_teacher_expenses_summary.
-          </div>
-        </div>
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm shadow-sm">
+    <div className="mb-1 flex items-center justify-between">
+      <div className="text-xs font-semibold text-gray-600">
+        Expenses (last month)
+      </div>
+      <span className="h-1 w-8 rounded-full bg-red-500/80" />
+    </div>
+    <div className="text-xl font-semibold">
+      {lastMonthExpensesPounds ?? "—"}
+    </div>
+    <div className="mt-1 text-[11px] text-gray-500">
+      To be driven by v_teacher_expenses_summary.
+    </div>
+  </div>
 
-                <div className="rounded-2xl border p-4 text-sm">
-          <div className="text-xs text-gray-500">Rates</div>
-          {hasRateSummary ? (
-            <div className="mt-1 space-y-1 text-xs">
-              <div>
-                Online:{" "}
-                {defaultOnlinePennies != null
-                  ? `£${(defaultOnlinePennies / 100).toFixed(2)}/h`
-                  : "—"}
-              </div>
-              <div>
-                F2F (legacy/basic):{" "}
-                {f2fBasicPennies != null
-                  ? `£${(f2fBasicPennies / 100).toFixed(2)}/h`
-                  : "—"}
-              </div>
-              <div>
-                F2F (premium/elite):{" "}
-                {f2fPremiumPennies != null
-                  ? `£${(f2fPremiumPennies / 100).toFixed(2)}/h`
-                  : "—"}
-              </div>
-              <div className="text-[11px] text-gray-500">
-                {numF2fOverrides > 0 ? (
-                  <>
-                    {numF2fOverrides} student-specific F2F override
-                    {numF2fOverrides > 1 ? "s" : ""}.{" "}
-                    <Link
-                      href={`/admin/teachers/${teacherId}/rates`}
-                      className="text-blue-700 underline"
-                    >
-                      View details
-                    </Link>
-                  </>
-                ) : (
-                  "No student-specific F2F overrides."
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-1 text-[11px] text-gray-500">
-              No rate row found for this teacher yet. Configure rates on the{" "}
+  <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm shadow-sm">
+    <div className="mb-1 flex items-center justify-between">
+      <div className="text-xs font-semibold text-gray-600">Rates</div>
+      <span className="h-1 w-8 rounded-full bg-red-500/80" />
+    </div>
+
+    {hasRateSummary ? (
+      <div className="mt-1 space-y-1 text-xs">
+        <div>
+          Online:{" "}
+          {defaultOnlinePennies != null
+            ? `£${(defaultOnlinePennies / 100).toFixed(2)}/h`
+            : "—"}
+        </div>
+        <div>
+          F2F (legacy/basic):{" "}
+          {f2fBasicPennies != null
+            ? `£${(f2fBasicPennies / 100).toFixed(2)}/h`
+            : "—"}
+        </div>
+        <div>
+          F2F (premium/elite):{" "}
+          {f2fPremiumPennies != null
+            ? `£${(f2fPremiumPennies / 100).toFixed(2)}/h`
+            : "—"}
+        </div>
+        <div className="text-[11px] text-gray-500">
+          {numF2fOverrides > 0 ? (
+            <>
+              {numF2fOverrides} student-specific F2F override
+              {numF2fOverrides > 1 ? "s" : ""}.{" "}
               <Link
                 href={`/admin/teachers/${teacherId}/rates`}
                 className="text-blue-700 underline"
               >
-                Rates
-              </Link>{" "}
-              page.
-            </div>
+                View details
+              </Link>
+            </>
+          ) : (
+            "No student-specific F2F overrides."
           )}
         </div>
-
       </div>
+    ) : (
+      <div className="mt-1 text-[11px] text-gray-500">
+        No rate row found for this teacher yet. Configure rates on the{" "}
+        <Link
+          href={`/admin/teachers/${teacherId}/rates`}
+          className="text-blue-700 underline"
+        >
+          Rates
+        </Link>{" "}
+        page.
+      </div>
+    )}
+  </div>
+</div>
+
 
       {/* Assigned students */}
       <div className="mb-8">
@@ -493,46 +603,48 @@ export default async function AdminTeacherPage({
         )}
       </div>
 
-      {/* Recent lessons */}
-      <div className="mb-4">
-        <h3 className="mb-2 text-sm font-semibold">Recent lessons</h3>
-        {lessonRows.length === 0 ? (
-          <p className="text-xs text-gray-600">
-            No lessons logged yet for this teacher.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="border-b text-left">
-                  <th className="py-2 pr-4">Date</th>
-                  <th className="py-2 pr-4">Student</th>
-                  <th className="py-2 pr-4">Duration (h)</th>
-                  <th className="py-2 pr-4">State</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lessonRows.map((l) => (
-                  <tr key={l.id} className="border-b">
-                    <td className="py-2 pr-4">
-                      {formatDateTimeLondon(l.start_at)}
-                    </td>
-                    <td className="py-2 pr-4">
-                      {l.student_name ?? "(student)"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      {formatMinutesAsHours(l.duration_min)} h
-                    </td>
-                    <td className="py-2 pr-4">
-                      {l.state === "confirmed" ? "Confirmed" : l.state}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+   {/* Recent lessons */}
+<div className="mb-4">
+  <h3 className="mb-2 text-sm font-semibold">Recent lessons</h3>
+  {lessonRows.length === 0 ? (
+    <p className="text-xs text-gray-600">
+      No lessons logged yet for this teacher.
+    </p>
+  ) : (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-xs">
+        <thead>
+          <tr className="border-b text-left">
+            <th className="py-2 pr-4">Date</th>
+            <th className="py-2 pr-4">Student</th>
+            <th className="py-2 pr-4">Duration (min)</th>
+            <th className="py-2 pr-4">State</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lessonRows.map((l) => (
+            <tr key={l.id} className="border-b">
+              <td className="py-2 pr-4">
+                {formatDateTimeLondon(l.start_at)}
+              </td>
+              <td className="py-2 pr-4">
+                {l.student_name ?? "(student)"}
+              </td>
+              <td className="py-2 pr-4">
+                {l.duration_min} min
+              </td>
+              <td className="py-2 pr-4">
+                {l.state === "confirmed" ? "Confirmed" : l.state}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</div>
+
+
     </Section>
   );
 }

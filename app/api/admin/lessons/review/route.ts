@@ -12,7 +12,8 @@
  * - `lots`         → OPEN credit lots from `v_credit_lot_remaining`
  * - `studentName`  → resolved via profiles
  * - `teacherName`  → resolved via profiles
- * - `sncStats`     → per-student SNC stats from `v_student_snc_status_current_month`
+ * - `sncStats`     → per-student SNC stats from
+ *                    v_student_snc_status_previous_month
  * - `studentTier`  → student.tier at time of review (basic / premium / elite / null)
  *
  * Call graph:
@@ -23,7 +24,7 @@
  *         → students + profiles (name + tier)
  *         → teachers + profiles (name)
  *         → v_credit_lot_remaining (open lots)
- *         → v_student_snc_status_current_month (if is_snc = true)
+ *         → v_student_snc_status_previous_month (if is_snc = true)
  *
  * SNC business rules (implemented in SQL, NOT here):
  * - `snc_mode = 'none'`    → normal lesson (not an SNC)
@@ -39,6 +40,18 @@
 
 import { NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import {
+  Delivery,
+  LengthCat,
+  LessonState,
+  Tier,
+  CreditLotState,
+  DeliveryRestriction,
+} from "@/lib/enums";
+import {
+  readProfileFullName,
+  type ProfilesEmbed,
+} from "@/lib/types/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -50,11 +63,11 @@ type Lesson = {
   teacher_id: string;
   occurred_at: string;
   duration_min: number;
-  delivery: "online" | "f2f";
-  length_cat: "none" | "60" | "90" | "120";
-  state: "pending" | "confirmed" | "declined";
+  delivery: Delivery;
+  length_cat: LengthCat;
+  state: LessonState;
   is_snc: boolean;
-  snc_mode: "none" | "free" | "charged";
+  snc_mode: "none" | "free" | "charged"; // or SncMode if you want
   notes: string | null;
 };
 
@@ -67,12 +80,12 @@ type LotRow = {
   minutes_granted: number;
   minutes_allocated: number;
   minutes_remaining: number;
-  delivery_restriction: "online" | "f2f" | null;
-  tier_restriction: "basic" | "standard" | "elite" | null;
-  length_restriction: "none" | "60" | "90" | "120" | null;
+  delivery_restriction: DeliveryRestriction;
+  tier_restriction: Tier | null;
+  length_restriction: LengthCat | null;
   start_date: string;
   expiry_date: string | null;
-  state: "open" | "closed" | "expired";
+  state: CreditLotState;
 };
 
 type SncStats = {
@@ -81,14 +94,6 @@ type SncStats = {
   charged_sncs: number;
   has_free_snc_used: boolean;
 };
-
-type Tier = "basic" | "premium" | "elite";
-
-// profiles helper: cope with single row or array
-function readFullName(p: any): string | undefined {
-  if (!p) return undefined;
-  return Array.isArray(p) ? p[0]?.full_name : p.full_name;
-}
 
 // ---- Handler -------------------------------------------------------------
 
@@ -158,11 +163,20 @@ export async function GET(req: Request) {
         .maybeSingle(),
     ]);
 
-    const studentRow = studentRes.data;
-    const teacherRow = teacherRes.data;
+    const studentRow = studentRes.data as
+      | { id: string; tier: Tier | null; profiles: ProfilesEmbed }
+      | null
+      | undefined;
 
-    const studentName = readFullName(studentRow?.profiles) ?? "(student)";
-    const teacherName = readFullName(teacherRow?.profiles) ?? "(teacher)";
+    const teacherRow = teacherRes.data as
+      | { id: string; profiles: ProfilesEmbed }
+      | null
+      | undefined;
+
+    const studentName =
+      readProfileFullName(studentRow?.profiles) ?? "(student)";
+    const teacherName =
+      readProfileFullName(teacherRow?.profiles) ?? "(teacher)";
 
     const studentTier = (studentRow?.tier ?? null) as Tier | null;
 
@@ -200,12 +214,17 @@ export async function GET(req: Request) {
 
     const lots = (lotsRows ?? []) as unknown as LotRow[];
 
-    // 4) SNC stats (from view) – only if this lesson is marked SNC
+    // 4) SNC stats (previous-month summary) – only if this lesson is marked SNC
+    //
+    // Note: this uses v_student_snc_status_previous_month, which aggregates
+    // SNCs for the *previous calendar month* in Europe/London time.
+    // That matches the operational review cadence (processing last month’s
+    // logs around the 7th/8th of the current month).
     let sncStats: SncStats | null = null;
 
     if (lesson.is_snc) {
       const { data: sncRow, error: sncErr } = await supabase
-        .from("v_student_snc_status_current_month")
+        .from("v_student_snc_status_previous_month")
         .select(
           "student_id, free_sncs, charged_sncs, has_free_snc_used",
         )

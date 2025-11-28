@@ -1,65 +1,34 @@
-Latest version 21/22/25
-
-
 C:\Users\kagaw\dev\lesson_credit_tracker
 ├── app
 │   ├── (admin)
 │   │   ├── admin
-│   │   │   ├── allocations
-│   │   │   │   ├── [lessonId]
+│   │   │   ├── analytics
+│   │   │   │   ├── cohorts
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── expiry
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── revenue-cost
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── snc
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
-│   │   │   ├── credit
-│   │   │   │   └── expiring
-│   │   │   │       └── page.tsx
 │   │   │   ├── credit-invoices
 │   │   │   │   ├── [externalRefOrLotId]
 │   │   │   │   │   └── page.tsx
-│   │   │   │   └── import
-│   │   │   │       └── page.tsx
-│   │   │   ├── dashboard
 │   │   │   │   └── page.tsx
-│   │   │   ├── hazards
+│   │   │   ├── dashboard
+│   │   │   │   ├── NotificationPanel.tsx
 │   │   │   │   ├── page.tsx
-│   │   │   │   └── ResolveHazardButton.tsx
+│   │   │   │   └── PendingTeacherExpensesCard.tsx
 │   │   │   ├── lessons
-│   │   │   │   ├── [lessonId]
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── cancelled-snc
-│   │   │   │   │   └── page.tsx
 │   │   │   │   ├── confirmed
 │   │   │   │   │   └── page.tsx
 │   │   │   │   ├── queue
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── review
-│   │   │   │       ├── ConfirmBar.tsx
 │   │   │   │       └── page.tsx
 │   │   │   ├── maintenance
 │   │   │   │   └── page.tsx
-│   │   │   ├── reports
-│   │   │   │   ├── credit-usage
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── expiry
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── low-credit
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── revenue-cost
-│   │   │   │   │   └── page.tsx
-│   │   │   │   └── uptake
-│   │   │   │       └── page.tsx
-│   │   │   ├── settings
-│   │   │   │   ├── audit-log
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── enums
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── expiry-policy
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── pricing-tiers
-│   │   │   │   │   └── page.tsx
-│   │   │   │   ├── rbac
-│   │   │   │   │   └── page.tsx
-│   │   │   │   └── snc-policy
-│   │   │   │       └── page.tsx
 │   │   │   ├── students
 │   │   │   │   ├── [studentId]
 │   │   │   │   │   ├── credit-lots
@@ -68,33 +37,41 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   │   │   └── new
 │   │   │   │   │   │       ├── AddCreditModal.tsx
 │   │   │   │   │   │       └── page.tsx
-│   │   │   │   │   ├── lessons
-│   │   │   │   │   │   └── page.tsx
-│   │   │   │   │   ├── policies
-│   │   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── OverdraftActionButtons.tsx
 │   │   │   │   │   ├── page.tsx
-│   │   │   │   │   ├── pageBACKUP.tsx
-│   │   │   │   │   ├── SettleOverdraftButton.tsx
 │   │   │   │   │   └── StudentTeacherAssignments.tsx
-│   │   │   │   ├── low-credit
-│   │   │   │   │   └── page.tsx
 │   │   │   │   ├── new
 │   │   │   │   │   ├── NewStudentForm.tsx
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
 │   │   │   ├── teachers
 │   │   │   │   ├── [teacherId]
-│   │   │   │   │   ├── expenses
-│   │   │   │   │   │   └── page.tsx
 │   │   │   │   │   ├── invoices
 │   │   │   │   │   │   ├── [invoiceId]
 │   │   │   │   │   │   │   └── page.tsx
 │   │   │   │   │   │   └── page.tsx
 │   │   │   │   │   ├── rates
 │   │   │   │   │   │   └── page.tsx
-│   │   │   │   │   └── page.tsx
+│   │   │   │   │   ├── page.tsx
+│   │   │   │   │   └── SetTeacherPastButton.tsx
+│   │   │   │   ├── invoices
+│   │   │   │   │   └── monthly
+│   │   │   │   │       └── page.tsx
 │   │   │   │   ├── new
 │   │   │   │   │   ├── NewTeacherForm.tsx
+│   │   │   │   │   └── page.tsx
+│   │   │   │   └── page.tsx
+│   │   │   ├── warnings
+│   │   │   │   ├── cancelled-snc
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── credit-expiring
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── hazards
+│   │   │   │   │   ├── page.tsx
+│   │   │   │   │   └── ResolveHazardButton.tsx
+│   │   │   │   ├── low-credit
+│   │   │   │   │   └── page.tsx
+│   │   │   │   ├── overdraft
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
 │   │   │   └── write-offs
@@ -144,8 +121,6 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   ├── new
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
-│   │   │   ├── profile
-│   │   │   │   └── page.tsx
 │   │   │   ├── students
 │   │   │   │   ├── [studentId]
 │   │   │   │   │   └── page.tsx
@@ -154,17 +129,12 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   └── layout.tsx
 │   ├── api
 │   │   ├── admin
-│   │   │   ├── allocations
-│   │   │   │   └── by-lesson
-│   │   │   │       └── route.ts
 │   │   │   ├── credit-lots
 │   │   │   │   ├── award-minutes
 │   │   │   │   │   └── route.ts
-│   │   │   │   ├── import-invoice
-│   │   │   │   │   ├── route.ts
-│   │   │   │   │   └── routeBACKUP123.ts
-│   │   │   │   └── settle-overdraft
-│   │   │   │       └── route.ts
+│   │   │   │   └── import-invoice
+│   │   │   │       ├── route.ts
+│   │   │   │       └── routeBACKUP123.ts
 │   │   │   ├── hazards
 │   │   │   │   ├── by-lesson
 │   │   │   │   │   └── route.ts
@@ -186,6 +156,13 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   │   └── route.ts
 │   │   │   │   └── mark-dormant
 │   │   │   │       └── route.ts
+│   │   │   ├── overdraft
+│   │   │   │   ├── award
+│   │   │   │   │   └── route.ts
+│   │   │   │   ├── invoice
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── write-off
+│   │   │   │       └── route.ts
 │   │   │   ├── search
 │   │   │   │   └── route.ts
 │   │   │   ├── student-teachers
@@ -201,19 +178,32 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   ├── write-off-overdraft
 │   │   │   │   │   └── route.ts
 │   │   │   │   └── route.ts
+│   │   │   ├── teacher-expenses
+│   │   │   │   └── route.ts
+│   │   │   ├── teacher-invoices
+│   │   │   │   ├── bulk-mark-paid
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── route.ts
 │   │   │   └── teachers
 │   │   │       ├── rates
 │   │   │       │   ├── base
 │   │   │       │   │   └── route.ts
 │   │   │       │   └── override
 │   │   │       │       └── route.ts
+│   │   │       ├── set-status
+│   │   │       │   └── route.ts
 │   │   │       └── route.ts
 │   │   ├── auth
 │   │   │   └── callback
 │   │   │       └── route.ts
 │   │   └── teacher
-│   │       └── lessons
-│   │           └── log
+│   │       ├── expenses
+│   │       │   └── route.ts
+│   │       ├── lessons
+│   │       │   └── log
+│   │       │       └── route.ts
+│   │       └── students
+│   │           └── assigned
 │   │               └── route.ts
 │   ├── 404.tsx
 │   ├── 500.tsx
@@ -225,6 +215,9 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   ├── admin
 │   │   ├── admin-global-search.tsx
 │   │   ├── AdminSignOutButton.tsx
+│   │   ├── BulkMarkInvoicesPaidButton.tsx
+│   │   ├── ExpenseStatusButtons.tsx
+│   │   ├── GenerateInvoiceButton.tsx
 │   │   ├── LessonHazards.tsx
 │   │   ├── LotAllocations.tsx
 │   │   ├── MaintenancePanel.tsx
@@ -245,26 +238,38 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   └── LessonTypeBadge.tsx
 │   ├── misc
 │   │   └── CreditMeter.tsx
+│   ├── teacher
+│   │   └── DeleteExpenseButton.tsx
 │   └── ui
 │       └── Section.tsx
 └── lib
     ├── api
-    │   └── admin
-    │       ├── creditLots.ts
-    │       ├── dashboard.ts
-    │       ├── expiringCredit.ts
-    │       ├── lessons.ts
-    │       └── lowCredit.ts
+    │   ├── admin
+    │   │   ├── creditLots.ts
+    │   │   ├── dashboard.ts
+    │   │   ├── expiringCredit.ts
+    │   │   ├── lessons.ts
+    │   │   └── lowCredit.ts
+    │   └── student
+    │       └── dashboard.ts
     ├── supabase
     │   ├── admin.ts
     │   ├── browser.ts
     │   ├── client.ts
     │   ├── server.ts
     │   └── teacher.ts
+    ├── types
+    │   ├── analytics.ts
+    │   ├── profiles.ts
+    │   └── students.ts
+    ├── awardReasons.ts
     ├── credit-lot-colors.ts
     ├── credit-lot-labels.ts
     ├── credit-lot-ordering.ts
     ├── credit-lot-types.ts
     ├── credit-lot-utils.ts
+    ├── enums.ts
     ├── formatters.ts
+    ├── teacherInvoices.ts
+    ├── types.ts
     └── utils.ts

@@ -6,6 +6,12 @@ import {
   formatMinutesAsHours,
   formatPenniesAsPounds,
 } from "@/lib/formatters";
+import {
+  getInvoiceMonthKey,
+  formatInvoiceMonthLabel,
+  TeacherInvoiceStatusPill,
+  type InvoiceStatus,
+} from "@/lib/teacherInvoices";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +20,7 @@ type InvoiceSummary = {
   lesson_gross_pennies: number | null;
   expenses_pennies: number | null;
   total_pennies: number | null;
-  status: "not_generated" | "generated" | "paid";
+  status: InvoiceStatus;
 };
 
 type LessonEarningsMonth = {
@@ -45,45 +51,46 @@ type StudentNameRow = {
   full_name: string;
 };
 
-// We treat the "invoice month" as the previous calendar month.
-// e.g. on 8th December, this shows November.
-function getInvoiceMonthKey(): string {
-  const now = new Date();
-  const monthStart = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
-  );
-  return monthStart.toISOString().slice(0, 10); // 'YYYY-MM-01'
-}
-
-function formatMonthLabel(monthStart: string): string {
-  const d = new Date(`${monthStart}T00:00:00Z`);
-  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-}
-
-function StatusPill({
-  status,
-}: {
-  status: "not_generated" | "generated" | "paid";
-}) {
-  const base =
-    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium";
-  if (status === "paid") {
-    return <span className={`${base} bg-green-100 text-green-800`}>Paid</span>;
-  }
-  if (status === "generated") {
-    return (
-      <span className={`${base} bg-amber-100 text-amber-800`}>Generated</span>
-    );
-  }
-  return (
-    <span className={`${base} bg-gray-100 text-gray-800`}>Not generated</span>
-  );
-}
-
 export default async function TeacherCurrentMonthInvoicePage() {
   const supabase = await getServerSupabase();
   const monthKey = getInvoiceMonthKey();
-  const monthLabel = formatMonthLabel(monthKey);
+  const monthLabel = formatInvoiceMonthLabel(monthKey);
+
+  // Map logged-in user → teacher_id (same pattern as other teacher pages)
+  const { data: u } = await supabase.auth.getUser();
+  const user = u?.user;
+
+  if (!user) {
+    return (
+      <Section
+        title="Invoice month snapshot"
+        subtitle={`${monthLabel} · previous calendar month`}
+      >
+        <p className="text-sm text-gray-600">Please sign in as a teacher.</p>
+      </Section>
+    );
+  }
+
+  const { data: t, error: teacherError } = await supabase
+    .from("teachers")
+    .select("id")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  if (teacherError || !t?.id) {
+    return (
+      <Section
+        title="Invoice month snapshot"
+        subtitle={`${monthLabel} · previous calendar month`}
+      >
+        <p className="text-sm text-red-600">
+          Error: teacher record not found for this login.
+        </p>
+      </Section>
+    );
+  }
+
+  const teacherId = t.id as string;
 
   const [
     { data: summaryData, error: summaryError },
@@ -96,6 +103,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
       .select(
         "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
       )
+      .eq("teacher_id", teacherId)
       .eq("month_start", monthKey)
       .maybeSingle(),
     supabase
@@ -103,6 +111,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
       .select(
         "month_start, lesson_minutes_total, gross_pennies, snc_free_minutes, snc_charged_minutes",
       )
+      .eq("teacher_id", teacherId)
       .eq("month_start", monthKey)
       .maybeSingle(),
     supabase
@@ -110,6 +119,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
       .select(
         "month_start, approved_pennies, pending_pennies, rejected_pennies",
       )
+      .eq("teacher_id", teacherId)
       .eq("month_start", monthKey)
       .maybeSingle(),
     supabase
@@ -117,6 +127,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
       .select(
         "teacher_id, month_start, student_id, lesson_minutes_total, gross_pennies",
       )
+      .eq("teacher_id", teacherId)
       .eq("month_start", monthKey)
       .order("student_id", { ascending: true }),
   ]);
@@ -140,28 +151,25 @@ export default async function TeacherCurrentMonthInvoicePage() {
   const expenseSummary = (expensesSummaryData ?? null) as ExpenseSummary | null;
   const studentEarnings = (studentEarningsData ?? []) as StudentEarningsRow[];
 
-// Map student_id -> full_name for the table
-const studentIds = Array.from(
-  new Set(studentEarnings.map((row) => row.student_id).filter(Boolean)),
-);
+  // Map student_id -> full_name for the table
+  const studentIds = Array.from(
+    new Set(studentEarnings.map((row) => row.student_id).filter(Boolean)),
+  );
 
-const studentNameById = new Map<string, string>();
+  const studentNameById = new Map<string, string>();
 
-if (studentIds.length > 0) {
-  const { data: studentNames } = await supabase
-    .from("v_student_names")
-    .select("student_id, full_name")
-    .in("student_id", studentIds);
+  if (studentIds.length > 0) {
+    const { data: studentNames } = await supabase
+      .from("v_student_names")
+      .select("student_id, full_name")
+      .in("student_id", studentIds);
 
-  if (studentNames) {
-    for (const sn of studentNames as StudentNameRow[]) {
-      studentNameById.set(sn.student_id, sn.full_name);
+    if (studentNames) {
+      for (const sn of studentNames as StudentNameRow[]) {
+        studentNameById.set(sn.student_id, sn.full_name);
+      }
     }
   }
-}
-
-
-  
 
   const lessonMinutesTotal = earnings?.lesson_minutes_total ?? 0;
   const lessonGrossPennies = earnings?.gross_pennies ?? 0;
@@ -175,8 +183,7 @@ if (studentIds.length > 0) {
   const totalPennies =
     summary?.total_pennies ?? lessonGrossPennies + approvedExpensesPennies;
 
-  const status: "not_generated" | "generated" | "paid" =
-    summary?.status ?? "not_generated";
+  const status: InvoiceStatus = summary?.status ?? "not_generated";
 
   return (
     <Section
@@ -242,7 +249,7 @@ if (studentIds.length > 0) {
             </div>
           </div>
 
-          <StatusPill status={status} />
+          <TeacherInvoiceStatusPill status={status} />
         </div>
 
         {/* Lesson earnings panel with per-student breakdown */}
@@ -305,8 +312,9 @@ if (studentIds.length > 0) {
                       return (
                         <tr key={row.teacher_id + row.student_id}>
                           <td className="px-3 py-2 text-gray-900">
-  {studentNameById.get(row.student_id) ?? row.student_id}
-</td>
+                            {studentNameById.get(row.student_id) ??
+                              row.student_id}
+                          </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
                             {formatMinutesAsHours(minutes)}
                           </td>

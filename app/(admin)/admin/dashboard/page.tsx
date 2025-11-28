@@ -1,4 +1,4 @@
-// app/(admin)/admin/page.tsx  (or dashboard/page.tsx)
+// app/(admin)/admin/page.tsx (or dashboard/page.tsx)
 //
 // Admin Dashboard – read-only + navigation
 // - No business logic here (no allocation/SNC/expiry in React)
@@ -12,17 +12,24 @@ import {
 } from "@/lib/api/admin/lessons";
 import {
   getLowCreditStudentsCount,
-  getLowCreditStudentsCountByDelivery,   // 👈 NEW
+  getLowCreditStudentsCountByDelivery,
 } from "@/lib/api/admin/lowCredit";
 import {
   getTotalRemainingMinutes,
   getStudentLifecycleSummary,
   getExpiringSoonSummary,
   getLastMonthFreeSncPremiumEliteCount,
-  getTeacherLifecycleSummary,            // 👈 NEW
+  getTeacherLifecycleSummary,
+  getLifecycleNotifications,
+  getLastMonthSncSummary, 
 } from "@/lib/api/admin/dashboard";
 
-
+import {
+  NotificationPanel,
+  type DashboardNotification,
+} from "./NotificationPanel";
+import PendingTeacherExpensesCard from "./PendingTeacherExpensesCard";
+export const dynamic = "force-dynamic";
 
 async function getDashboardData() {
   const [
@@ -34,7 +41,9 @@ async function getDashboardData() {
     expiringSoon,
     freeSncLastMonthPremiumElite,
     lowCreditByDelivery,
-    teacherLifecycleSummary,              // 👈 NEW
+    teacherLifecycleSummary,
+    lifecycleNotifications,
+    monthlySncSummary, // 👈 NEW
   ] = await Promise.all([
     getPendingLessonsCount(),
     getLessonHazardsCount(),
@@ -44,7 +53,9 @@ async function getDashboardData() {
     getExpiringSoonSummary(),
     getLastMonthFreeSncPremiumEliteCount(),
     getLowCreditStudentsCountByDelivery(),
-    getTeacherLifecycleSummary(),         // 👈 NEW
+    getTeacherLifecycleSummary(),
+    getLifecycleNotifications(),
+    getLastMonthSncSummary(), // 👈 NEW
   ]);
 
   return {
@@ -55,140 +66,152 @@ async function getDashboardData() {
     expiringSoon,
     lowCreditStudentCount,
     lowCreditByDelivery,
-    monthlySnc: {
-      total: 0,
-      free: 0,
-      charged: 0,
-    },
+    monthlySnc: monthlySncSummary, // 👈 now real data
     freeSncLastMonthPremiumElite,
     sncAnomalyCount: 0,
     lifecycleSummary,
-    teacherLifecycleSummary,              // 👈 NEW
+    teacherLifecycleSummary,
     autoDormantCandidateCount: 0,
     writeOffCandidateCount: 0,
+    notifications: lifecycleNotifications,
   };
 }
-
-
-
 
 
 export default async function AdminDashboardPage() {
   const data = await getDashboardData();
 
   // Helper: minutes -> hours (UI-only, 2dp)
-  const minutesToHours = (minutes: number) =>
+  const minutesToHours = (minutes: number): string =>
     (minutes / 60).toFixed(2);
 
-  return (
-    <div className="space-y-8">
-      {/* Page header */}
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Admin Dashboard
-        </h1>
-       
-      </header>
+  const notifications = data.notifications as DashboardNotification[]; // structural match
 
-      {/* 1. Today / Triage strip */}
+  return (
+  <div className="space-y-8">
+    {/* Page header */}
+    <header>
+      <h1 className="text-2xl font-semibold tracking-tight">
+        Admin Dashboard
+      </h1>
+    </header>
+
+    <main className="space-y-6">
+      <NotificationPanel initialNotifications={notifications} />
+
+      {/* Overview & alerts (includes pending expenses card) */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Overview & alerts</h2>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <PendingTeacherExpensesCard />
+          {/* later: other alert cards can go here */}
+        </div>
+      </section>
+
+      {/* 1. Today / operational KPIs */}
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Today</h2>
         <div className="grid gap-4 md:grid-cols-3">
           <DashboardCard
-  title="Pending lessons"
-  value={data.pendingLessonsCount}
-  description="Waiting for review in the lesson queue."
-  actionLabel="View queue"
-  href="/admin/lessons/queue" // ← this
-/>
-          <DashboardCard
-  title="Active hazards" // ← was "Lessons with hazards"
-  value={data.lessonHazardsCount}
-  description="Unresolved hazards from v_lesson_hazards (length, allocation, delivery, etc.)."
-  actionLabel="Review hazards"
-  href="/admin/hazards"
-/>
-        <DashboardCard
-  title="Low-credit students"
-  value={data.lowCreditStudentCount}
-  description={`Overall (generic ≤ 6h or dynamic buffer). Online: ${
-    data.lowCreditByDelivery?.online ?? 0
-  } · F2F: ${data.lowCreditByDelivery?.f2f ?? 0}`}
-  actionLabel="View low-credit list"
-  href="/admin/students/low-credit"
-/>
-     
-         <DashboardCard
-  title="Expiring in next 30 days"
-  value={`${data.expiringSoon.mandatory.studentCount} / ${data.expiringSoon.advisory.studentCount}`}
-  description={
-    `Mandatory: ${minutesToHours(data.expiringSoon.mandatory.totalMinutes)} h · ` +
-    `Advisory: ${minutesToHours(data.expiringSoon.advisory.totalMinutes)} h`
-  }
-  // TODO: link to filtered student list → Student 360
-  actionLabel="View expiring credit"
-  href="/admin/credit/expiring"  
-/>
-        
-        </div>
-      </section>
+            title="Pending lessons"
+            value={data.pendingLessonsCount}
+            description="Waiting for review in the lesson queue."
+            actionLabel="View queue"
+            href="/admin/lessons/queue"
+          />
 
-      <section className="space-y-2">
+            <DashboardCard
+              title="Active hazards"
+              value={data.lessonHazardsCount}
+              description="Unresolved hazards from v_lesson_hazards (length, allocation, delivery, etc.)."
+              actionLabel="Review hazards"
+              href="/admin/warnings/hazards"
+            />
+
+            <DashboardCard
+              title="Low-credit students"
+              value={data.lowCreditStudentCount}
+              description={`Overall (generic ≤ 6h or dynamic buffer). Online: ${
+                data.lowCreditByDelivery?.online ?? 0
+              } · F2F: ${data.lowCreditByDelivery?.f2f ?? 0}`}
+              actionLabel="View low-credit list"
+              href="/admin/warnings/low-credit"
+            />
+
+            <DashboardCard
+              title="Expiring in next 30 days"
+              value={`${data.expiringSoon.mandatory.studentCount} / ${data.expiringSoon.advisory.studentCount}`}
+              description={
+                `Mandatory: ${minutesToHours(
+                  data.expiringSoon.mandatory.totalMinutes,
+                )} h · ` +
+                `Advisory: ${minutesToHours(
+                  data.expiringSoon.advisory.totalMinutes,
+                )} h`
+              }
+              actionLabel="View expiring credit"
+              href="/admin/warnings/credit-expiring"
+            />
+          </div>
+        </section>
+
+       <section className="space-y-2">
   <h2 className="text-lg font-semibold">SNC & tiers</h2>
   <div className="grid gap-4 md:grid-cols-3">
     <DashboardCard
-  title="SNCs this month"
-  value={data.monthlySnc.total}
-  description={`Free: ${data.monthlySnc.free} / Charged: ${data.monthlySnc.charged}. Last month free SNCs (premium/elite): ${data.freeSncLastMonthPremiumElite}`}
-      actionLabel="free SNCs"
-      href="/admin/lessons/cancelled-snc"
-     
+      title="SNCs last month"
+      value={data.monthlySnc.total}
+      description={
+        `Last calendar month (Europe/London). ` +
+        `Free: ${data.monthlySnc.free} / Charged: ${data.monthlySnc.charged}. ` +
+        `Students on premium/elite with a free SNC last month: ${data.freeSncLastMonthPremiumElite}`
+      }
+      actionLabel="Review SNCs"
+      href="/admin/warnings/cancelled-snc"
     />
   </div>
 </section>
 
-      {/* 4. Lifecycle & write-offs */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Teachers and Students</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          <DashboardCard
-            title="Student lifecycle"
-            value={`${data.lifecycleSummary.current} / ${data.lifecycleSummary.dormant} / ${data.lifecycleSummary.past}`}
-            description="Current / Dormant / Past students."
-          />
-             <DashboardCard
-      title="Teacher lifecycle"
-      value={`${data.teacherLifecycleSummary.current} / ${data.teacherLifecycleSummary.potential}`}
-      description="Current / Potential teachers."
-    />
-          <DashboardCard
-            title="Auto-dormant candidates"
-            value={data.autoDormantCandidateCount}
-            description="Matching the auto-dormant rules; review before changing status."
-            // TODO: link to maintenance / student index filtered to candidates
-            actionLabel="Review candidates"
-          />
-          
-        
-          <DashboardCard
-            title="Total remaining credit"
-            value={`${minutesToHours(data.totalRemainingMinutes)} h`}
-            description="Sum of all non-expired credit lots across students."
-          />
-        </div>
-      </section>
 
-      {/* 5. Quick actions */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Quick actions</h2>
-        <div className="flex flex-wrap gap-3">
-          {/* TODO: convert to <Link> or buttons that open modals, all via proper /api/admin/... flows */}
-          <QuickActionButton label="Add credit (invoice/award)" />
-          <QuickActionButton label="Open lesson queue" />
-       
-          <QuickActionButton label="Maintenance / cleanup" />
-        </div>
-      </section>
+        {/* 3. Lifecycle & credit position */}
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Teachers and Students</h2>
+          <div className="grid gap-4 md:grid-cols-3">
+            <DashboardCard
+              title="Student lifecycle"
+              value={`${data.lifecycleSummary.current} / ${data.lifecycleSummary.dormant} / ${data.lifecycleSummary.past}`}
+              description="Current / Dormant / Past students."
+            />
+
+            <DashboardCard
+              title="Teacher lifecycle"
+              value={
+                `${data.teacherLifecycleSummary.current} / ` +
+                `${data.teacherLifecycleSummary.inactive} / ` +
+                `${data.teacherLifecycleSummary.potential} / ` +
+                `${data.teacherLifecycleSummary.past}`
+              }
+              description="Current / Inactive / Potential / Past teachers."
+            />
+
+            <DashboardCard
+              title="Total remaining credit"
+              value={`${minutesToHours(data.totalRemainingMinutes)} h`}
+              description="Sum of all non-expired credit lots across students."
+            />
+          </div>
+        </section>
+
+        {/* 4. Quick actions (currently placeholder-only; no DB writes) */}
+        {/* <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Quick actions</h2>
+          <div className="flex flex-wrap gap-2">
+            <QuickActionButton label="Add credit to a student" />
+            <QuickActionButton label="Review SNC warnings" />
+            <QuickActionButton label="Open maintenance tools" />
+          </div>
+        </section> */}
+      </main>
     </div>
   );
 }
@@ -202,7 +225,7 @@ type DashboardCardProps = {
   value: string | number;
   description?: string;
   actionLabel?: string;
-  href?: string; // NEW
+  href?: string;
 };
 
 function DashboardCard({
@@ -218,8 +241,11 @@ function DashboardCard({
         <h3 className="text-sm font-medium">{title}</h3>
         <span className="text-xl font-semibold">{value}</span>
       </div>
+
       {description && (
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {description}
+        </p>
       )}
 
       {actionLabel && href && (
@@ -242,7 +268,6 @@ function DashboardCard({
     </div>
   );
 }
-
 
 /**
  * Simple quick-action pill/button.

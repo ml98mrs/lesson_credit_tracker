@@ -4,6 +4,8 @@ import Link from "next/link";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import Section from "@/components/ui/Section";
 import { formatDateTimeUK, formatMinutesAsHours } from "@/lib/formatters";
+import type { ProfilesEmbed } from "@/lib/types/profiles";
+import { readProfileFullName } from "@/lib/types/profiles";
 
 type CreditLot = {
   id: string;
@@ -13,10 +15,10 @@ type CreditLot = {
   external_ref: string | null;
   minutes_granted: number;
   delivery_restriction: "online" | "f2f" | null;
-  tier_restriction: "basic" | "standard" | "elite" | null;
+  tier_restriction: "basic" | "premium" | "elite" | null;
   length_restriction: "none" | "60" | "90" | "120" | null;
   start_date: string | null;
-  expiry_policy: "none" | "advisory" | "mandatory" | "default";
+  expiry_policy: "none" | "advisory" | "mandatory";
   expiry_date: string | null;
   state: "open" | "closed" | "expired" | "cancelled";
   created_at: string | null;
@@ -34,18 +36,23 @@ type LessonLite = {
   occurred_at: string | null;
 };
 
+type StudentWithProfile = {
+  id: string;
+  profiles: ProfilesEmbed;
+};
+
 function isUUID(s: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    s
+    s,
   );
 }
 
 export default async function Page({
   params,
 }: {
-  params: { externalRefOrLotId: string };
+  params: Promise<{ externalRefOrLotId: string }>;
 }) {
-  const { externalRefOrLotId } = params;
+  const { externalRefOrLotId } = await params;
   const key = decodeURIComponent(externalRefOrLotId);
 
   const sb = getAdminSupabase();
@@ -76,7 +83,6 @@ export default async function Page({
   try {
     const baseQuery = sb.from("credit_lots").select(selectColumns).limit(1);
 
-    // Cast the response to any to avoid noisy generic typing issues
     const { data, error } = (await (isUUID(key)
       ? baseQuery.eq("id", key)
       : baseQuery.eq("external_ref", key).eq("source_type", "invoice"))) as {
@@ -116,6 +122,31 @@ export default async function Page({
   }
 
   //
+  // 1b) Fetch student profile for full_name (via students → profiles)
+  //
+  let studentName: string | null = null;
+
+  try {
+    const { data, error } = (await sb
+      .from("students")
+      .select("id, profiles(full_name)")
+      .eq("id", lot.student_id)
+      .maybeSingle()) as {
+      data: StudentWithProfile | null;
+      error: any;
+    };
+
+    if (!error && data) {
+      studentName = readProfileFullName(data.profiles) ?? null;
+    }
+  } catch {
+    // fall back to student_id
+    studentName = null;
+  }
+
+  const displayStudentName = studentName ?? lot.student_id;
+
+  //
   // 2) Remaining minutes (view is optional)
   //
   let minutesRemaining: number | null = null;
@@ -143,8 +174,7 @@ export default async function Page({
     const { data, error } = await sb
       .from("allocations")
       .select("id, lesson_id, credit_lot_id, minutes_allocated")
-      .eq("credit_lot_id", lot.id)
-      .order("id", { ascending: true });
+      .eq("credit_lot_id", lot.id);
 
     if (error) {
       allocErrMsg = error.message;
@@ -156,15 +186,13 @@ export default async function Page({
   }
 
   //
-  // 4) Lesson dates (only if we have allocations)
+  // 4) Lesson dates (only if we have allocations) + sort allocations
   //
   let lessonsById = new Map<string, LessonLite>();
 
   if (allocations.length > 0) {
     try {
-      const lessonIds = Array.from(
-        new Set(allocations.map((a) => a.lesson_id))
-      );
+      const lessonIds = Array.from(new Set(allocations.map((a) => a.lesson_id)));
       const { data, error } = await sb
         .from("lessons")
         .select("id, occurred_at")
@@ -172,11 +200,26 @@ export default async function Page({
 
       if (!error && Array.isArray(data)) {
         lessonsById = new Map(
-          (data as LessonLite[]).map((L) => [L.id, L])
+          (data as LessonLite[]).map((L) => [L.id, L]),
         );
+
+        // Sort allocations by lesson occurred_at DESC (most recent first)
+        allocations.sort((a, b) => {
+          const aDate = lessonsById.get(a.lesson_id)?.occurred_at;
+          const bDate = lessonsById.get(b.lesson_id)?.occurred_at;
+
+          if (!aDate && !bDate) return 0;
+          if (!aDate) return 1;
+          if (!bDate) return -1;
+
+          // ISO strings compare lexicographically in chronological order
+          if (aDate < bDate) return 1;
+          if (aDate > bDate) return -1;
+          return 0;
+        });
       }
     } catch {
-      // ignore; we just won't show dates
+      // ignore; we just won't show dates or custom sort
     }
   }
 
@@ -195,8 +238,18 @@ export default async function Page({
       .filter(Boolean)
       .join(" · ") || "Any";
 
-  const policyBadge =
-    lot.expiry_policy === "default" ? "default (legacy)" : lot.expiry_policy;
+  const policyBadge = (() => {
+    switch (lot.expiry_policy) {
+      case "none":
+        return "none (no expiry)";
+      case "advisory":
+        return "advisory (soft)";
+      case "mandatory":
+        return "mandatory (enforced)";
+      default:
+        return lot.expiry_policy;
+    }
+  })();
 
   return (
     <Section title="Credit invoice" subtitle="(Linked credit lot)">
@@ -205,7 +258,13 @@ export default async function Page({
           <span className="text-gray-500">Lot ID:</span> {lot.id}
         </div>
         <div>
-          <span className="text-gray-500">Student:</span> {lot.student_id}
+          <span className="text-gray-500">Student:</span>{" "}
+          <Link
+            href={`/admin/students/${lot.student_id}`}
+            className="underline"
+          >
+            {displayStudentName}
+          </Link>
         </div>
         <div>
           <span className="text-gray-500">Source:</span> {lot.source_type}
@@ -282,7 +341,7 @@ export default async function Page({
                       <Link
                         className="underline"
                         href={`/admin/allocations?lessonId=${encodeURIComponent(
-                          a.lesson_id
+                          a.lesson_id,
                         )}`}
                       >
                         {a.lesson_id}
@@ -302,15 +361,6 @@ export default async function Page({
             </tbody>
           </table>
         </div>
-      )}
-
-      {lot.expiry_policy === "default" && (
-        <p className="mt-4 text-xs text-amber-700">
-          This lot has a legacy expiry policy value <code>default</code>.
-          Your current enum is <code>none | advisory | mandatory</code>. We
-          can migrate these to <code>none</code> with a one-liner if you’d
-          like.
-        </p>
       )}
     </Section>
   );

@@ -1,5 +1,7 @@
 // app/(admin)/admin/teachers/[teacherId]/invoices/[invoiceId]/page.tsx
 
+import { notFound } from "next/navigation";
+import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import {
@@ -7,9 +9,12 @@ import {
   formatPenniesAsPounds,
   formatDateTimeLondon,
 } from "@/lib/formatters";
-import { notFound } from "next/navigation";
 import ExpenseStatusButtons from "@/components/admin/ExpenseStatusButtons";
-
+import {
+  formatInvoiceMonthLabel,
+  TeacherInvoiceStatusPill,
+  InvoiceStatus,
+} from "@/lib/teacherInvoices";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +34,7 @@ type InvoiceSummary = {
   lesson_gross_pennies: number | null;
   expenses_pennies: number | null;
   total_pennies: number | null;
-  status: "not_generated" | "generated" | "paid";
+  status: InvoiceStatus;
 };
 
 type LessonEarningsMonth = {
@@ -58,9 +63,12 @@ type ExpenseDetail = {
   status: "pending" | "approved" | "rejected";
   description: string | null;
   category: "drinks" | "teaching_resources" | "other";
+  student_id: string | null;
+  student_name: string | null;
+  student_full_name: string | null;
 };
 
-type StudentEarnings = {
+type StudentEarningsRow = {
   teacher_id: string;
   month_start: string;
   student_id: string;
@@ -72,32 +80,6 @@ type StudentNameRow = {
   student_id: string;
   full_name: string;
 };
-
-
-function formatMonthLabel(monthStart: string): string {
-  const d = new Date(`${monthStart}T00:00:00Z`);
-  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-}
-
-function StatusPill({
-  status,
-}: {
-  status: "not_generated" | "generated" | "paid";
-}) {
-  const base =
-    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium";
-  if (status === "paid") {
-    return <span className={`${base} bg-green-100 text-green-800`}>Paid</span>;
-  }
-  if (status === "generated") {
-    return (
-      <span className={`${base} bg-amber-100 text-amber-800`}>Generated</span>
-    );
-  }
-  return (
-    <span className={`${base} bg-gray-100 text-gray-800`}>Not generated</span>
-  );
-}
 
 export default async function TeacherInvoiceAdminDetail({
   params,
@@ -112,7 +94,7 @@ export default async function TeacherInvoiceAdminDetail({
   const { data: invoice, error: invoiceError } = await supabase
     .from("teacher_invoices")
     .select(
-      "id, teacher_id, month_start, status, invoice_ref, created_at, paid_at"
+      "id, teacher_id, month_start, status, invoice_ref, created_at, paid_at",
     )
     .eq("id", invoiceIdNumber)
     .eq("teacher_id", teacherId)
@@ -124,28 +106,42 @@ export default async function TeacherInvoiceAdminDetail({
 
   const typedInvoice = invoice as TeacherInvoice;
   const { month_start } = typedInvoice;
+  // Friendly invoice reference fallback
+function makeFriendlyInvoiceRef() {
+  const dt = new Date(month_start + "T00:00:00Z");
+  const month = dt.toLocaleString("en-GB", { month: "long" });
+  const year = dt.getUTCFullYear();
 
-  // Look up teacher's full name via teachers → profiles
-const { data: teacherRow } = await supabase
-  .from("teachers")
-  .select("profile_id")
-  .eq("id", teacherId)
-  .maybeSingle();
+  // convert teacher name to safe slug
+  const slug = teacherLabel
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
-let teacherLabel = `Teacher ID ${teacherId}`;
-
-if (teacherRow?.profile_id) {
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", teacherRow.profile_id)
-    .maybeSingle();
-
-  if (profile?.full_name) {
-    teacherLabel = profile.full_name;
-  }
+  return `teacherinvoice_${month.toLowerCase()}_${year}_${slug}`;
 }
 
+
+  // 1b) Look up teacher's full name via teachers → profiles
+  const { data: teacherRow } = await supabase
+    .from("teachers")
+    .select("profile_id")
+    .eq("id", teacherId)
+    .maybeSingle();
+
+  let teacherLabel = `Teacher ID ${teacherId}`;
+
+  if (teacherRow?.profile_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", teacherRow.profile_id)
+      .maybeSingle();
+
+    if (profile?.full_name) {
+      teacherLabel = profile.full_name;
+    }
+  }
 
   // 2) Load monthly aggregates + itemised expenses + per-student earnings
   const [
@@ -158,7 +154,7 @@ if (teacherRow?.profile_id) {
     supabase
       .from("v_teacher_invoice_summary")
       .select(
-        "teacher_id, month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status"
+        "teacher_id, month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
       )
       .eq("teacher_id", teacherId)
       .eq("month_start", month_start)
@@ -166,7 +162,7 @@ if (teacherRow?.profile_id) {
     supabase
       .from("v_teacher_lesson_earnings_by_month")
       .select(
-        "teacher_id, month_start, lesson_minutes_total, gross_pennies, snc_free_minutes, snc_charged_minutes"
+        "teacher_id, month_start, lesson_minutes_total, gross_pennies, snc_free_minutes, snc_charged_minutes",
       )
       .eq("teacher_id", teacherId)
       .eq("month_start", month_start)
@@ -174,57 +170,56 @@ if (teacherRow?.profile_id) {
     supabase
       .from("v_teacher_expenses_summary")
       .select(
-        "teacher_id, month_start, approved_pennies, pending_pennies, rejected_pennies"
+        "teacher_id, month_start, approved_pennies, pending_pennies, rejected_pennies",
       )
       .eq("teacher_id", teacherId)
       .eq("month_start", month_start)
       .maybeSingle(),
-    supabase
-      .from("v_teacher_expenses_detail_by_month")
-      .select(
-        "id, teacher_id, month_start, incurred_at, amount_pennies, status, description, category"
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", month_start)
-      .order("incurred_at", { ascending: true }),
+supabase
+  .from("v_teacher_expenses_detail_by_month")
+  .select(
+    "id, teacher_id, month_start, incurred_at, amount_pennies, status, description, category, student_id, student_name, student_full_name",
+  )
+  .eq("teacher_id", teacherId)
+  .eq("month_start", month_start)
+  .order("incurred_at", { ascending: true }),
+
     supabase
       .from("v_teacher_lesson_earnings_by_student_month")
       .select(
-        "teacher_id, month_start, student_id, lesson_minutes_total, gross_pennies"
+        "teacher_id, month_start, student_id, lesson_minutes_total, gross_pennies",
       )
       .eq("teacher_id", teacherId)
       .eq("month_start", month_start)
       .order("student_id", { ascending: true }),
   ]);
 
-
-  const monthLabel = formatMonthLabel(month_start);
+  const monthLabel = formatInvoiceMonthLabel(month_start);
   const summary = (summaryData ?? null) as InvoiceSummary | null;
   const earnings = (earningsData ?? null) as LessonEarningsMonth | null;
   const expenseSummary = (expensesSummaryData ?? null) as ExpenseSummary | null;
   const expenseDetails = (expensesDetailData ?? []) as ExpenseDetail[];
-  const studentEarnings = (studentEarningsData ?? []) as StudentEarnings[];
+  const studentEarnings = (studentEarningsData ?? []) as StudentEarningsRow[];
 
   // Map student_id -> full_name for the table
-const studentIds = Array.from(
-  new Set(studentEarnings.map((row) => row.student_id).filter(Boolean)),
-);
+  const studentIds = Array.from(
+    new Set(studentEarnings.map((row) => row.student_id).filter(Boolean)),
+  );
 
-const studentNameById = new Map<string, string>();
+  const studentNameById = new Map<string, string>();
 
-if (studentIds.length > 0) {
-  const { data: studentNames, error: studentNamesError } = await supabase
-    .from("v_student_names")
-    .select("student_id, full_name")
-    .in("student_id", studentIds);
+  if (studentIds.length > 0) {
+    const { data: studentNames, error: studentNamesError } = await supabase
+      .from("v_student_names")
+      .select("student_id, full_name")
+      .in("student_id", studentIds);
 
-  if (!studentNamesError && studentNames) {
-    for (const sn of studentNames as StudentNameRow[]) {
-      studentNameById.set(sn.student_id, sn.full_name);
+    if (!studentNamesError && studentNames) {
+      for (const sn of studentNames as StudentNameRow[]) {
+        studentNameById.set(sn.student_id, sn.full_name);
+      }
     }
   }
-}
-
 
   const lessonMinutesTotal = earnings?.lesson_minutes_total ?? 0;
   const lessonGrossPennies = earnings?.gross_pennies ?? 0;
@@ -238,14 +233,14 @@ if (studentIds.length > 0) {
   const totalPennies =
     summary?.total_pennies ?? lessonGrossPennies + approvedExpensesPennies;
 
-  const displayStatus: "not_generated" | "generated" | "paid" =
-    summary?.status ?? "generated"; // there *is* an invoice row
+  // There IS an invoice row, so "not_generated" is only a display fallback.
+  const displayStatus: InvoiceStatus = summary?.status ?? "generated";
 
- return (
-  <Section
-    title="Invoice detail"
-    subtitle={`${teacherLabel} · ${monthLabel}`}
-  >
+  return (
+    <Section
+      title="Invoice detail"
+      subtitle={`${teacherLabel} · ${monthLabel}`}
+    >
       <div className="space-y-6">
         {/* Invoice meta */}
         <div className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
@@ -256,14 +251,22 @@ if (studentIds.length > 0) {
             </div>
             <div className="flex items-center gap-2">
               <span className="font-semibold">Status:</span>
-              <StatusPill status={displayStatus} />
+              <TeacherInvoiceStatusPill status={displayStatus} />
+              <Link
+  href={`/admin/teachers/${typedInvoice.teacher_id}/invoices/${typedInvoice.id}/download`}
+  className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+>
+  Download Excel
+</Link>
             </div>
             <div>
-              <span className="font-semibold">Invoice ref:</span>{" "}
-              {typedInvoice.invoice_ref ?? (
-                <span className="text-gray-500">—</span>
-              )}
-            </div>
+  <span className="font-semibold">Invoice ref:</span>{" "}
+  {typedInvoice.invoice_ref ?? (
+    <span className="text-gray-800">
+      {makeFriendlyInvoiceRef()}
+    </span>
+  )}
+</div>
             <div className="text-xs text-gray-500">
               Created: {formatDateTimeLondon(typedInvoice.created_at)}
               {typedInvoice.paid_at && (
@@ -274,61 +277,57 @@ if (studentIds.length > 0) {
               )}
             </div>
           </div>
-          
         </div>
 
         {/* Top-level totals */}
-       <div className="flex flex-col justify-between gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
-  <div>
-    <h2 className="text-sm font-semibold text-gray-900">
-      {monthLabel} invoice period
-    </h2>
+        <div className="flex flex-col justify-between gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">
+              {monthLabel} invoice period
+            </h2>
 
-    {/* ⬇️ replace old <p>…</p> block with this */}
-    <div className="mt-3 space-y-1 text-sm">
-      <div className="flex items-baseline justify-between">
-        <span className="text-gray-600">Hours total</span>
-        <span className="font-semibold text-gray-900">
-          {formatMinutesAsHours(lessonMinutesTotal)} h
-        </span>
-      </div>
+            <div className="mt-3 space-y-1 text-sm">
+              <div className="flex items-baseline justify-between">
+                <span className="text-gray-600">Hours total</span>
+                <span className="font-semibold text-gray-900">
+                  {formatMinutesAsHours(lessonMinutesTotal)} h
+                </span>
+              </div>
 
-      <div className="flex items-baseline justify-between">
-        <span className="text-gray-600">Lesson earnings total</span>
-        <span className="font-semibold text-gray-900">
-          {formatPenniesAsPounds(lessonGrossPennies)}
-        </span>
-      </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-gray-600">Lesson earnings total</span>
+                <span className="font-semibold text-gray-900">
+                  {formatPenniesAsPounds(lessonGrossPennies)}
+                </span>
+              </div>
 
-      <div className="flex items-baseline justify-between">
-        <span className="text-gray-600">Expenses (approved)</span>
-        <span className="font-semibold text-gray-900">
-          {formatPenniesAsPounds(approvedExpensesPennies)}
-        </span>
-      </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-gray-600">Expenses (approved)</span>
+                <span className="font-semibold text-gray-900">
+                  {formatPenniesAsPounds(approvedExpensesPennies)}
+                </span>
+              </div>
 
-      {/* Grand total */}
-      <div className="mt-3 border-t border-gray-200 pt-3">
-        <div className="flex items-baseline justify-between">
-          <span className="text-sm font-semibold text-gray-900">
-            Grand total
-          </span>
-          <span className="text-lg font-semibold text-gray-900">
-            {formatPenniesAsPounds(totalPennies)}
-          </span>
+              <div className="mt-3 border-t border-gray-200 pt-3">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm font-semibold text-gray-900">
+                    Grand total
+                  </span>
+                  <span className="text-lg font-semibold text-gray-900">
+                    {formatPenniesAsPounds(totalPennies)}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Lessons + approved expenses for this invoice period.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <TeacherInvoiceStatusPill status={displayStatus} />
         </div>
-        <p className="mt-1 text-[11px] text-gray-500">
-          Lessons + approved expenses for this invoice period.
-        </p>
-      </div>
-    </div>
-  </div>
 
-  <StatusPill status={displayStatus} />
-</div>
-
-
-        {/* Lesson earnings panel WITH per-student breakdown */}
+        {/* Lesson earnings panel with per-student breakdown */}
         <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-900">
             Lesson earnings
@@ -343,8 +342,7 @@ if (studentIds.length > 0) {
           <p className="text-xs text-gray-700">
             SNC minutes (teacher always paid):{" "}
             {formatMinutesAsHours(sncFreeMinutes)} h free ·{" "}
-            {formatMinutesAsHours(sncChargedMinutes)} h charged
-            (student-side).
+            {formatMinutesAsHours(sncChargedMinutes)} h charged (student-side).
           </p>
 
           <div className="mt-3 border-t border-gray-100 pt-3">
@@ -379,8 +377,9 @@ if (studentIds.length > 0) {
                       return (
                         <tr key={row.teacher_id + row.student_id}>
                           <td className="px-3 py-2 text-gray-900">
-  {studentNameById.get(row.student_id) ?? row.student_id}
-</td>
+                            {studentNameById.get(row.student_id) ??
+                              row.student_id}
+                          </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
                             {formatMinutesAsHours(minutes)}
                           </td>
@@ -406,25 +405,19 @@ if (studentIds.length > 0) {
               <div className="text-xs font-semibold text-gray-500">
                 Approved
               </div>
-              <div>
-                {formatPenniesAsPounds(approvedExpensesPennies)}
-              </div>
+              <div>{formatPenniesAsPounds(approvedExpensesPennies)}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-gray-500">
                 Pending
               </div>
-              <div>
-                {formatPenniesAsPounds(pendingExpensesPennies)}
-              </div>
+              <div>{formatPenniesAsPounds(pendingExpensesPennies)}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-gray-500">
                 Rejected
               </div>
-              <div>
-                {formatPenniesAsPounds(rejectedExpensesPennies)}
-              </div>
+              <div>{formatPenniesAsPounds(rejectedExpensesPennies)}</div>
             </div>
           </div>
 
@@ -436,77 +429,92 @@ if (studentIds.length > 0) {
           <div className="mt-3 overflow-hidden rounded-lg border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200 text-xs">
               <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-700">
-                    Date
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-700">
-                    Description
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium text-gray-700">
-                    Amount
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-gray-700">
-                    Status
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium text-gray-700">
-                    Admin
-                  </th>
-                </tr>
-              </thead>
-            <tbody className="divide-y divide-gray-100 bg-white">
-  {expenseDetails.length === 0 ? (
-    <tr>
-      <td
-        colSpan={5}
-        className="px-3 py-3 text-center text-[11px] text-gray-500"
-      >
-        No expenses logged for this invoice month.
-      </td>
-    </tr>
-  ) : (
-    expenseDetails.map((exp) => (
-      <tr key={exp.id}>
-        <td className="whitespace-nowrap px-3 py-2 text-gray-900">
-          {formatDateTimeLondon(exp.incurred_at)}
-        </td>
+  <tr>
+    <th className="px-3 py-2 text-left font-medium text-gray-700">
+      Date
+    </th>
+    <th className="px-3 py-2 text-left font-medium text-gray-700">
+      Student
+    </th>
+    <th className="px-3 py-2 text-left font-medium text-gray-700">
+      Description
+    </th>
+    <th className="px-3 py-2 text-right font-medium text-gray-700">
+      Amount
+    </th>
+    <th className="px-3 py-2 text-left font-medium text-gray-700">
+      Status
+    </th>
+    <th className="px-3 py-2 text-right font-medium text-gray-700">
+      Admin
+    </th>
+  </tr>
+</thead>
 
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {expenseDetails.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-3 py-3 text-center text-[11px] text-gray-500"
+                    >
+                      No expenses logged for this invoice month.
+                    </td>
+                  </tr>
+                ) : (
+                  expenseDetails.map((exp) => (
+                    <tr key={exp.id}>
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-900">
+                        {formatDateTimeLondon(exp.incurred_at)}
+                      </td>
+                      {/* NEW student cell */}
         <td className="px-3 py-2 text-gray-900">
-          <div className="text-xs font-medium">
-            {exp.category === "drinks"
-              ? "Drinks"
-              : exp.category === "teaching_resources"
-              ? "Teaching resources"
-              : "Other"}
-          </div>
-          <div className="text-[11px] text-gray-600">
-            {exp.description ? (
-              exp.description
-            ) : (
-              <span className="text-gray-400">No details</span>
-            )}
+          <div className="text-xs">
+            {exp.student_name ||
+              exp.student_full_name ||
+              (exp.student_id ? (
+                <span className="text-gray-500">{exp.student_id}</span>
+              ) : (
+                <span className="text-gray-400">No student</span>
+              ))}
           </div>
         </td>
 
-        <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
-          {formatPenniesAsPounds(exp.amount_pennies)}
-        </td>
+                      <td className="px-3 py-2 text-gray-900">
+                        <div className="text-xs font-medium">
+                          {exp.category === "drinks"
+                            ? "Drinks"
+                            : exp.category === "teaching_resources"
+                            ? "Teaching resources"
+                            : "Other"}
+                        </div>
+                        <div className="text-[11px] text-gray-600">
+                          {exp.description ? (
+                            exp.description
+                          ) : (
+                            <span className="text-gray-400">No details</span>
+                          )}
+                        </div>
+                      </td>
 
-        <td className="whitespace-nowrap px-3 py-2 text-gray-900">
-          {exp.status}
-        </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
+                        {formatPenniesAsPounds(exp.amount_pennies)}
+                      </td>
 
-        <td className="whitespace-nowrap px-3 py-2 text-right text-[11px] text-gray-500">
-          <ExpenseStatusButtons
-            expenseId={exp.id}
-            currentStatus={exp.status}
-          />
-        </td>
-      </tr>
-    ))
-  )}
-</tbody>
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-900">
+                        {exp.status}
+                      </td>
 
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-[11px] text-gray-500">
+                        <ExpenseStatusButtons
+                          expenseId={exp.id}
+                          currentStatus={exp.status}
+                        />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
             </table>
           </div>
         </div>

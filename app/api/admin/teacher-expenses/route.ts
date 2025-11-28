@@ -4,52 +4,57 @@ import { getAdminSupabase } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-type ExpenseStatus = "approved" | "rejected";
+type Body = {
+  expenseId?: number | string;
+  status?: "pending" | "approved" | "rejected";
+};
 
-export async function POST(req: Request) {
+async function handleUpdate(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as Body;
 
-    const expenseIdRaw = body?.expenseId;
-    const nextStatus = body?.status as ExpenseStatus | undefined;
+    const rawId = body.expenseId;
+    const expenseId =
+      typeof rawId === "string" ? Number.parseInt(rawId, 10) : rawId;
 
-    const expenseId = Number(expenseIdRaw);
-    if (!Number.isFinite(expenseId) || expenseId <= 0) {
+    const status = body.status;
+
+    if (!expenseId || !status) {
       return NextResponse.json(
-        { error: "Valid expenseId is required" },
-        { status: 400 },
-      );
-    }
-
-    if (!nextStatus || !["approved", "rejected"].includes(nextStatus)) {
-      return NextResponse.json(
-        { error: "status must be 'approved' or 'rejected'" },
+        { error: "expenseId and status are required" },
         { status: 400 },
       );
     }
 
     const supabase = await getAdminSupabase();
 
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("teacher_expenses")
-      .update({
-        status: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", expenseId);
+      .update({ status })
+      .eq("id", expenseId)
+      .select("id, status")
+      .single(); // 0 rows => error
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, expenseId: data.id, status: data.status },
+      { status: 200 },
+    );
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Unknown error" },
       { status: 500 },
     );
   }
+}
+
+export async function PATCH(req: Request) {
+  return handleUpdate(req);
+}
+
+export async function POST(req: Request) {
+  return handleUpdate(req);
 }

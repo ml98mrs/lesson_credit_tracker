@@ -1,6 +1,7 @@
 // app/(teacher)/teacher/students/page.tsx
 
 import { getServerSupabase } from "@/lib/supabase/server";
+import Link from "next/link";
 
 export default async function Page() {
   const sb = await getServerSupabase();
@@ -94,13 +95,17 @@ export default async function Page() {
     ]),
   );
 
-  const rows =
-    (students ?? []).map((s) => ({
-      id: s.id,
-      name:
-        nameByProfile.get(s.profile_id) ||
-        `${(s.id as string).slice(0, 8)}…`,
-    })) ?? [];
+  type StudentListRow = { id: string; name: string };
+  const rows: StudentListRow[] =
+  (students ?? []).map((s) => ({
+    id: s.id as string,
+    name:
+      nameByProfile.get(s.profile_id) ||
+      `${(s.id as string).slice(0, 8)}…`,
+  })) ?? [];
+
+
+
 
   return (
     <div className="space-y-4">
@@ -112,12 +117,12 @@ export default async function Page() {
             className="flex items-center justify-between p-4 text-sm"
           >
             <div className="font-medium">{s.name}</div>
-            <a
-              className="text-xs font-medium text-blue-600 hover:underline"
-              href={`/teacher/students/${s.id}`}
-            >
-              Open
-            </a>
+           <Link
+  className="text-xs font-medium text-blue-600 hover:underline"
+  href={`/teacher/students/${s.id}`}
+>
+  Open
+</Link>
           </li>
         ))}
       </ul>
