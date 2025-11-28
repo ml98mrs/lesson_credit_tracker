@@ -11,6 +11,8 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   │   └── page.tsx
 │   │   │   │   ├── snc
 │   │   │   │   │   └── page.tsx
+│   │   │   │   ├── timezones
+│   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
 │   │   │   ├── credit-invoices
 │   │   │   │   ├── [externalRefOrLotId]
@@ -26,7 +28,8 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   ├── queue
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── review
-│   │   │   │       └── page.tsx
+│   │   │   │       ├── page.tsx
+│   │   │   │       └── ReviewLessonClient.tsx
 │   │   │   ├── maintenance
 │   │   │   │   └── page.tsx
 │   │   │   ├── students
@@ -48,6 +51,8 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   ├── [teacherId]
 │   │   │   │   │   ├── invoices
 │   │   │   │   │   │   ├── [invoiceId]
+│   │   │   │   │   │   │   ├── download
+│   │   │   │   │   │   │   │   └── route.ts
 │   │   │   │   │   │   │   └── page.tsx
 │   │   │   │   │   │   └── page.tsx
 │   │   │   │   │   ├── rates
@@ -95,7 +100,9 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   ├── dashboard
 │   │   │   │   └── page.tsx
 │   │   │   ├── lessons
-│   │   │   │   └── page.tsx
+│   │   │   │   ├── page.tsx
+│   │   │   │   ├── pagebackup.tsx
+│   │   │   │   └── pagebackup2.tsx
 │   │   │   └── uptake
 │   │   │       └── page.tsx
 │   │   └── layout.tsx
@@ -240,11 +247,13 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   └── CreditMeter.tsx
 │   ├── teacher
 │   │   └── DeleteExpenseButton.tsx
-│   └── ui
-│       └── Section.tsx
+│   ├── ui
+│   │   └── Section.tsx
+│   └── TeacherInvoiceStatusPill.tsx
 └── lib
     ├── api
     │   ├── admin
+    │   │   ├── _shared.ts
     │   │   ├── creditLots.ts
     │   │   ├── dashboard.ts
     │   │   ├── expiringCredit.ts
@@ -252,24 +261,36 @@ C:\Users\kagaw\dev\lesson_credit_tracker
     │   │   └── lowCredit.ts
     │   └── student
     │       └── dashboard.ts
+    ├── creditLots
+    │   ├── colors.ts
+    │   ├── labels.ts
+    │   ├── ordering.ts
+    │   └── types.ts
+    ├── domain
+    │   ├── expiry.ts
+    │   ├── hazards.ts
+    │   ├── snc.ts
+    │   └── tiers.ts
     ├── supabase
     │   ├── admin.ts
     │   ├── browser.ts
     │   ├── client.ts
+    │   ├── index.ts
+    │   ├── middleware.ts
     │   ├── server.ts
     │   └── teacher.ts
     ├── types
+    │   ├── views
+    │   │   ├── credit.ts
+    │   │   ├── index.ts
+    │   │   └── student.ts
     │   ├── analytics.ts
     │   ├── profiles.ts
-    │   └── students.ts
+    │   ├── students.ts
+    │   └── teachers.ts
     ├── awardReasons.ts
-    ├── credit-lot-colors.ts
-    ├── credit-lot-labels.ts
-    ├── credit-lot-ordering.ts
-    ├── credit-lot-types.ts
-    ├── credit-lot-utils.ts
+    ├── database.types.ts
     ├── enums.ts
     ├── formatters.ts
     ├── teacherInvoices.ts
-    ├── types.ts
     └── utils.ts

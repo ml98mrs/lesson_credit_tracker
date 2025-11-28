@@ -121,7 +121,13 @@ Capabilities:
 ### 5.2 Credit Lots
 - Created via invoice import (`invoice`), award credits (`award`), adjustments.
 - Fields: `minutes_granted`, `minutes_allocated`, `minutes_remaining` (via view), restrictions, `expiry_date`, `expiry_policy`.
-- Expiry policy: `none`, `optional`, `mandatory`.
+- Expiry policy: `none`, `advisory`, `mandatory`.
+
+none – no expiry; lot can be used indefinitely.
+
+advisory – “soft” expiry; lots can still be used after the date, but they count towards “expiring soon” summaries and warnings.
+
+mandatory – “hard” expiry; lots cannot be used after the expiry date unless an admin override is explicitly applied.
 
 ### 5.3 FIFO Allocation Engine
 - Implemented in `fn_plan_lesson_allocation` (planner) and `rpc_confirm_lesson` (materialiser).
@@ -161,12 +167,21 @@ Capabilities:
 - Driven by views: `v_lesson_hazards`.
 
 ### 5.10 Core Views
-- `v_credit_lot_remaining`
-- `v_lesson_hazards`
-- `v_teacher_rate_summary`
-- `v_teacher_usage_last_3m`
-- `v_teacher_last_activity`
-- `v_student_names`
+- `v_credit_lot_remaining` – per-lot remaining minutes, expiry flags, and overdraft detection.
+- `v_lesson_hazards` – unresolved hazards per lesson/allocation.
+- `v_teacher_rate_summary` – effective per-teacher rates (baseline + overrides).
+- `v_teacher_usage_last_3m` – teacher usage last 3 months.
+- `v_teacher_last_activity` – teacher last lesson date.
+- `v_student_names` – student display names.
+- `v_student_credit_summary` – canonical per-student totals (granted, allocated, remaining, next expiry date).
+- `v_student_credit_delivery_summary` – per-student invoice credit split by delivery (online/F2F) and usage.
+- `v_student_award_reason_summary` – per-student award minutes (granted/used/remaining) grouped by award_reason_code.
+- `v_student_last_activity` – last confirmed lesson (or created_at) per student.
+- `v_student_usage_last_3m` – per-student usage last 3 months (avg hours/month, heavy-user flag).
+- `v_student_snc_lessons` – per-student SNC history (used to compute lifetime free/charged SNCs).
+- `v_student_dynamic_credit_alerts` – overall low-credit signals per student (generic 6-hour rule + dynamic usage-based buffer). :contentReference[oaicite:5]{index=5}  
+- `v_student_dynamic_credit_alerts_by_delivery` – per-delivery low-credit signals for purchased invoice credit only (online/F2F), including remaining minutes, average monthly usage, and buffer. :contentReference[oaicite:6]{index=6}  
+
 
 ### 5.11 RPCs
 - `rpc_confirm_lesson`
@@ -189,9 +204,10 @@ Capabilities:
 - If shortfall → overdraft step appended.
 
 ### 6.2 Expiry Rules
-- `mandatory`: cannot use expired lot unless override.
-- `optional`: allow use after expiry.
-- `none`: ignore expiry.
+- `mandatory`: “hard” expiry – cannot use an expired lot unless an explicit admin override is applied during lesson confirmation.
+- `advisory`: “soft” expiry – lots can still be used after the expiry date, but they are treated as expiring for warnings and analytics (e.g. expiring-soon dashboards).
+- `none`: ignore expiry completely (no warnings, no blocking).
+
 
 ### 6.3 SNC Rules (Expanded)
 - Free SNC → plan empty; teacher paid.
@@ -201,6 +217,134 @@ Capabilities:
 - `current`: active + remaining >= 0.
 - `dormant`: auto after inactivity.
 - `past`: manual or via write-off process.
+
+### 6.5 Low-credit Rules & Alerts
+
+Low-credit is computed in SQL and exposed via:
+- `v_student_dynamic_credit_alerts` (overall per student)
+- `v_student_dynamic_credit_alerts_by_delivery` (per-delivery: online / F2F, purchased credit only)
+
+### 6.6 Domain Micro-modules (`lib/domain/*`)
+
+Most business rules live in SQL views / functions. The frontend uses a small set of **domain micro-modules** in `lib/domain/*` to keep UI logic thin and consistent.
+
+#### 6.6.1 SNC helpers — `lib/domain/snc.ts`
+
+**SQL source of truth**
+
+- `lessons.is_snc`, `lessons.snc_mode`
+- `v_student_snc_lessons` (per-lesson SNC history)
+- `v_student_snc_status_previous_month` (per-student SNC stats for last month)
+
+**Responsibilities**
+
+- `computeStudentSncStatus(rows)`  
+  - Input: array of SNC lesson rows (e.g. from `v_student_snc_lessons`).  
+  - Output: `{ freeSncs, chargedSncs, hasFreeSncUsed }` used by:
+    - Student dashboard (lifetime SNC counts).
+    - Admin Student 360 SNC summary.
+  - Does **not** decide *which* SNCs are free vs charged — that is owned by SQL via `snc_mode` in `lessons` and the SNC views.
+- All calendar-month boundaries and tier-based SNC rules remain in SQL; the helper only aggregates counts.
+
+#### 6.6.2 Hazard helpers — `lib/domain/hazards.ts`
+
+**SQL source of truth**
+
+- `v_lesson_hazards` — one row per hazard per lesson/allocation.
+
+**Responsibilities**
+
+- `getHazardMeta(code)`  
+  - Maps a `hazard_code` from `v_lesson_hazards` to:
+    - A stable UI label.
+    - Severity (e.g. warning vs blocking).
+    - Short explanation/tooltips.
+- `sortHazardsForDisplay(hazards)`  
+  - Sorts hazards into a stable, user-friendly order for:
+    - Admin lesson review page.
+    - Any hazards list/summary panels.
+- The helper never decides *whether* something is a hazard; it only decorates and orders rows produced by SQL.
+
+#### 6.6.3 Expiry helpers — `lib/domain/expiryPolicy.ts`
+
+**SQL source of truth**
+
+- `credit_lots.expiry_policy` (`none` / `advisory` / `mandatory`)
+- `v_credit_lot_remaining.expiry_within_30d`
+- Any expiry analytics views.
+
+**Responsibilities**
+
+- `getExpiryPolicyLabel(policy)`  
+  - Returns a short, user-facing label for the three policies, e.g. “No expiry”, “Soft advisory expiry”, “Hard mandatory expiry”.
+- `getExpiryPolicyDescription(policy)`  
+  - Returns a longer explanation for tooltips / banners (what the policy means in practice).
+- Used by:
+  - Admin **Add credit** UI when configuring/inspecting lots.
+  - Student 360 & student dashboard expiry banners.
+  - Any expiry summaries on the admin dashboard.
+- All blocking rules (e.g. “mandatory lots cannot be used after expiry unless override”) and “within 30 days” cut-offs remain in SQL.
+
+#### 6.6.4 Tier helpers — `lib/domain/tiers.ts`
+
+**SQL source of truth**
+
+- `students.tier` (enum: `basic`, `premium`, `elite`, `null`)
+- SNC rules per tier (in SQL + SNC views).
+- Teacher rate configuration per tier (in rate views).
+
+**Responsibilities**
+
+- `formatTierLabel(tier)`  
+  - Maps internal tier values to consistent UI labels (e.g. “Basic package”, “Premium package”, “No package (legacy)”).
+  - Used anywhere a tier is shown: admin Student 360, teacher/student dashboards, teacher rate screens.
+- `compareTierDisplay(a, b)`  
+  - Stable sort order for tiers in dropdowns or lists (e.g. `null` → `basic` → `premium` → `elite`).
+- Tier helpers must not implement SNC or pricing rules; they only control **how tiers are displayed and ordered**.
+
+> **Rule of thumb:**  
+> - **SQL** decides *what is true* (SNC classification, hazards, expiry flags, tier pricing).  
+> - **`lib/domain/*`** decides *how to present and aggregate that truth* for the UI in a single, reusable place.
+
+
+
+
+**Overall low-credit (per student)**
+
+- Generic rule (safety net):
+  - `is_generic_low = remaining_minutes <= 360` (≤ 6 hours total remaining).
+- Dynamic rule (usage-based buffer):
+  - Compute `avg_month_hours` from confirmed lessons over the last 3 calendar months.
+  - Compute `buffer_hours = remaining_hours - avg_month_hours`.
+  - `is_dynamic_low = avg_month_hours > 0 AND buffer_hours < 4.0`.
+- Combined:
+  - `is_low_any = is_generic_low OR is_dynamic_low`.
+
+These values drive:
+- Admin dashboard “Low-credit students” count.
+- Admin per-student low-credit banners.
+- Student-facing low-credit banner when only one delivery mode is relevant.
+
+**Per-delivery low-credit (online / F2F)**
+
+For each student and delivery (`online`, `f2f`), `v_student_dynamic_credit_alerts_by_delivery`:
+
+- Restricts to **invoice** lots:
+  - `source_type = 'invoice'`, `state = 'open'`, not expired, delivery_restriction in (`online`, `f2f`).
+- Aggregates:
+  - `remaining_minutes` and `remaining_hours`.
+  - `avg_month_hours` from last 3 months of confirmed lessons for that delivery.
+  - `buffer_hours = remaining_hours - avg_month_hours`.
+- Flags:
+  - `is_generic_low` – same 6-hour rule, per delivery.
+  - `is_dynamic_low` – same 4-hour buffer rule, per delivery.
+  - `is_zero_purchased` – remaining_minutes ≤ 0 (no purchased credit left for that delivery).
+  - `is_low_any` – `is_generic_low OR is_dynamic_low`.
+
+These per-delivery rows power:
+- Admin Student 360 per-delivery warnings (online vs F2F).
+- Student portal “Low credit by delivery” banner when both online and F2F credit exist.
+
 
 ---
 
@@ -224,9 +368,14 @@ Capabilities:
 - View invoices
 
 ### 7.3 Student
-- Credit summary
-- SNC history
-- Expiry warnings
+- Credit summary (purchased vs awarded, by delivery, driven by `v_student_credit_summary` and `v_student_credit_delivery_summary`).
+- Award / bonus breakdown by reason (from `v_student_award_reason_summary`).
+- SNC history + lifetime SNC status (from `v_student_snc_lessons`).
+- Low-credit warnings:
+  - Overall low credit (single-delivery students).
+  - Per-delivery low credit (online vs F2F) when both exist.
+- Expiry warnings (next mandatory expiry within 30 days, via `v_credit_lot_remaining.next_expiry_date` and `expiry_within_30d`).
+
 
 ---
 
