@@ -36,6 +36,8 @@ import {
   CreditLotState,
 } from "@/lib/enums";
 import type { StudentAwardReasonSummary } from "@/lib/types/students";
+import { computeStudentSncStatus } from "@/lib/domain/snc";
+import { getExpiryPolicyLabel } from "@/lib/domain/expiry";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -432,20 +434,29 @@ const hasOverdraft = overdraftMinutesRemaining < 0;
     throw new Error(sncErr.message);
   }
 
-  const sncRows: SncRow[] = (sncLessons ?? []).map((l: SncHistoryRow) => ({
-    id: l.lesson_id as string,
-    occurred_at: l.occurred_at as string,
-    duration_min: l.duration_min as number,
-    delivery: l.delivery as Delivery,
+  const sncDbRows: SncHistoryRow[] = (sncLessons ?? []) as SncHistoryRow[];
+
+  // Domain helper: lifetime SNC status from DB rows
+  const sncStatus = computeStudentSncStatus(
+    sncDbRows.map((r) => ({ is_charged: r.is_charged })),
+  );
+
+  // UI table rows still use the richer SncRow shape
+  const sncRows: SncRow[] = sncDbRows.map((l) => ({
+    id: l.lesson_id,
+    occurred_at: l.occurred_at,
+    duration_min: l.duration_min,
+    delivery: l.delivery,
     charged: Boolean(l.is_charged),
   }));
 
-  // Legacy vs tiered + lifetime free SNC flag (lifetime view only now)
-  const isLegacyTier = !studentTier; // Tier is null for "No package (legacy rules)"
-  const hasLifetimeFreeSnc = sncRows.some((s) => !s.charged);
+  const lifetimeFreeSncs = sncStatus?.freeSncs ?? 0;
+  const lifetimeChargedSncs = sncStatus?.chargedSncs ?? 0;
+  const hasLifetimeFreeSnc = sncStatus?.hasFreeSncUsed ?? false;
 
-  const lifetimeFreeSncs = sncRows.filter((s) => !s.charged).length;
-  const lifetimeChargedSncs = sncRows.filter((s) => s.charged).length;
+  // Tier is null for "No package (legacy rules)"
+  const isLegacyTier = !studentTier;
+
 
   // --- 9) Totals & breakdowns (via views, to stay in sync with student portal) ---
 
@@ -956,17 +967,17 @@ const awardLineRemaining = buildAwardLine(awardReasons, "remaining");
                     >
                       {formatMinutesAsHours(r.minutes_remaining)} h
                     </td>
-                    <td className="py-2 pr-4">
-                      {r.expiry_policy === "none" || !r.expiry_date ? (
-                        ""
-                      ) : (
-                        <span
-                          className={isExpiring ? "text-rose-700" : ""}
-                        >
-                          {formatDateTimeLondon(r.expiry_date)}
-                        </span>
-                      )}
-                    </td>
+                   <td className="py-2 pr-4">
+  {r.expiry_policy === "none" || !r.expiry_date ? (
+    ""
+  ) : (
+    <span className={isExpiring ? "text-rose-700" : ""}>
+      {getExpiryPolicyLabel(r.expiry_policy)}{" "}
+      {formatDateTimeLondon(r.expiry_date)}
+    </span>
+  )}
+</td>
+
                   </tr>
 
                   <tr className="border-b">

@@ -1,6 +1,7 @@
 // lib/teacherInvoices.ts
-
-import React, { type ReactElement } from "react";
+//
+// Domain helpers and types for teacher invoices.
+// No React imports here – UI lives in components/TeacherInvoiceStatusPill.tsx
 
 /**
  * Shared status type for teacher invoice workflows.
@@ -30,30 +31,33 @@ export function formatInvoiceMonthLabel(monthStart: string): string {
 }
 
 /**
- * Shared status pill component for teacher invoice status.
- * Used on both teacher and admin invoice pages.
+ * Status metadata for UI layers (label + Tailwind classes).
+ * UI components can use this without re-encoding the logic.
  */
-export function TeacherInvoiceStatusPill({
-  status,
-}: {
-  status: InvoiceStatus;
-}): ReactElement {
+export function getInvoiceStatusMeta(status: InvoiceStatus): {
+  label: string;
+  className: string;
+} {
   const base =
     "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium";
 
-  let className = base;
-  let label = "Not generated";
-
   if (status === "paid") {
-    className += " bg-green-100 text-green-800";
-    label = "Paid";
-  } else if (status === "generated") {
-    className += " bg-amber-100 text-amber-800";
-    label = "Generated";
-  } else {
-    className += " bg-gray-100 text-gray-800";
-    label = "Not generated";
+    return {
+      label: "Paid",
+      className: `${base} bg-green-100 text-green-800`,
+    };
   }
 
-  return React.createElement("span", { className }, label);
+  if (status === "generated") {
+    return {
+      label: "Generated",
+      className: `${base} bg-amber-100 text-amber-800`,
+    };
+  }
+
+  // default: not_generated
+  return {
+    label: "Not generated",
+    className: `${base} bg-gray-100 text-gray-800`,
+  };
 }

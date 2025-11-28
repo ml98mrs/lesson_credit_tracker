@@ -3,23 +3,20 @@
 // Shared admin helpers for low-credit logic.
 // IMPORTANT: all admin data access uses getAdminSupabase (service-role).
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAdminSupabase } from "@/lib/supabase/admin";
+import {
+  getAdminClient,
+  type AdminClient,
+  logAdminError,
+} from "./_shared";
+import type {
+  VStudentDynamicCreditAlertRow,
+  VStudentDynamicCreditAlertByDeliveryRow,
+} from "@/lib/types/views/credit";
 
+// DB-shaped row from v_student_dynamic_credit_alerts
+export type LowCreditAlertRow = VStudentDynamicCreditAlertRow;
 
-type TypedClient = SupabaseClient<any>;
-
-export type LowCreditAlertRow = {
-  student_id: string;
-  remaining_minutes: number | null;
-  remaining_hours: number | null;
-  avg_month_hours: number | null;
-  buffer_hours: number | null;
-  is_generic_low: boolean;
-  is_dynamic_low: boolean;
-  is_low_any: boolean;
-};
-
+// Domain-facing, camelCase shape for per-delivery alerts
 export type LowCreditByDeliveryRow = {
   studentId: string;
   delivery: "online" | "f2f" | null;
@@ -36,7 +33,7 @@ export type LowCreditByDeliveryRow = {
  * Base query for low-credit alerts.
  * Single source of truth for what counts as "low" (generic + dynamic).
  */
-export function lowCreditAlertsBaseQuery(sb: TypedClient) {
+export function lowCreditAlertsBaseQuery(sb: AdminClient) {
   return sb
     .from("v_student_dynamic_credit_alerts")
     .select(
@@ -58,7 +55,7 @@ export function lowCreditAlertsBaseQuery(sb: TypedClient) {
  * Uses the same 'is_low_any' logic as the list page.
  */
 export async function getLowCreditStudentsCount(): Promise<number> {
-  const supabase = getAdminSupabase();
+  const supabase = getAdminClient();
 
   const { count, error } = await supabase
     .from("v_student_dynamic_credit_alerts")
@@ -66,15 +63,12 @@ export async function getLowCreditStudentsCount(): Promise<number> {
     .eq("is_low_any", true);
 
   if (error) {
-    console.error("Error fetching low-credit count", error);
+    logAdminError("Error fetching low-credit count", error);
     return 0;
   }
 
   return count ?? 0;
 }
-
-
-
 
 /**
  * Low-credit alert for a single student (overall, not per-delivery).
@@ -83,14 +77,14 @@ export async function getLowCreditStudentsCount(): Promise<number> {
 export async function getLowCreditAlertForStudent(
   studentId: string,
 ): Promise<LowCreditAlertRow | null> {
-  const supabase = getAdminSupabase();
+  const supabase = getAdminClient();
 
   const { data, error } = await lowCreditAlertsBaseQuery(supabase)
     .eq("student_id", studentId)
-    .maybeSingle();
+    .maybeSingle<VStudentDynamicCreditAlertRow>();
 
   if (error) {
-    console.error("Error fetching low-credit alert for student", {
+    logAdminError("Error fetching low-credit alert for student", {
       studentId,
       error,
     });
@@ -101,9 +95,7 @@ export async function getLowCreditAlertForStudent(
     return null;
   }
 
-  // Supabase types include GenericStringError in the row union;
-  // we know this view shape, so we cast via unknown.
-  return data as unknown as LowCreditAlertRow;
+  return data;
 }
 
 /**
@@ -113,7 +105,7 @@ export async function getLowCreditAlertForStudent(
 export async function getLowCreditAlertsByDeliveryForStudent(
   studentId: string,
 ): Promise<LowCreditByDeliveryRow[]> {
-  const supabase = getAdminSupabase();
+  const supabase = getAdminClient();
 
   const { data, error } = await supabase
     .from("v_student_dynamic_credit_alerts_by_delivery")
@@ -133,25 +125,32 @@ export async function getLowCreditAlertsByDeliveryForStudent(
     .eq("student_id", studentId);
 
   if (error) {
-    console.error(
+    logAdminError(
       "Error fetching per-delivery low-credit alerts for student",
       { studentId, error },
     );
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
-    studentId: row.student_id as string,
-    delivery: row.delivery as "online" | "f2f" | null,
-    remainingMinutes: row.remaining_minutes as number | null,
-    remainingHours: row.remaining_hours as number | null,
-    avgMonthHours: row.avg_month_hours as number | null,
-    bufferHours: row.buffer_hours as number | null,
-    isGenericLow: row.is_generic_low as boolean,
-    isDynamicLow: row.is_dynamic_low as boolean,
-    isLowAny: row.is_low_any as boolean,
-  }));
+  // TS fix: cast via unknown to avoid GenericStringError[] → view-row cast error
+  const rows =
+    (data ?? []) as unknown as VStudentDynamicCreditAlertByDeliveryRow[];
+
+  return rows.map(
+    (row): LowCreditByDeliveryRow => ({
+      studentId: row.student_id,
+      delivery: row.delivery,
+      remainingMinutes: row.remaining_minutes,
+      remainingHours: row.remaining_hours,
+      avgMonthHours: row.avg_month_hours,
+      bufferHours: row.buffer_hours,
+      isGenericLow: row.is_generic_low,
+      isDynamicLow: row.is_dynamic_low,
+      isLowAny: row.is_low_any,
+    }),
+  );
 }
+
 export type LowCreditCountsByDelivery = {
   online: number;
   f2f: number;
@@ -164,7 +163,7 @@ export type LowCreditCountsByDelivery = {
 export async function getAllLowCreditAlertsByDelivery(): Promise<
   LowCreditByDeliveryRow[]
 > {
-  const supabase = getAdminSupabase();
+  const supabase = getAdminClient();
 
   const { data, error } = await supabase
     .from("v_student_dynamic_credit_alerts_by_delivery")
@@ -184,23 +183,28 @@ export async function getAllLowCreditAlertsByDelivery(): Promise<
     .eq("is_low_any", true);
 
   if (error) {
-    console.error("Error fetching all per-delivery low-credit alerts", error);
+    logAdminError("Error fetching all per-delivery low-credit alerts", error);
     return [];
   }
 
-  return (data ?? []).map((row: any) => ({
-    studentId: row.student_id as string,
-    delivery: row.delivery as "online" | "f2f" | null,
-    remainingMinutes: row.remaining_minutes as number | null,
-    remainingHours: row.remaining_hours as number | null,
-    avgMonthHours: row.avg_month_hours as number | null,
-    bufferHours: row.buffer_hours as number | null,
-    isGenericLow: row.is_generic_low as boolean,
-    isDynamicLow: row.is_dynamic_low as boolean,
-    isLowAny: row.is_low_any as boolean,
-  }));
-}
+  // TS fix: cast via unknown here as well
+  const rows =
+    (data ?? []) as unknown as VStudentDynamicCreditAlertByDeliveryRow[];
 
+  return rows.map(
+    (row): LowCreditByDeliveryRow => ({
+      studentId: row.student_id,
+      delivery: row.delivery,
+      remainingMinutes: row.remaining_minutes,
+      remainingHours: row.remaining_hours,
+      avgMonthHours: row.avg_month_hours,
+      bufferHours: row.buffer_hours,
+      isGenericLow: row.is_generic_low,
+      isDynamicLow: row.is_dynamic_low,
+      isLowAny: row.is_low_any,
+    }),
+  );
+}
 
 /**
  * Count of low-credit students by delivery, based on
@@ -210,7 +214,7 @@ export async function getAllLowCreditAlertsByDelivery(): Promise<
  * - counts distinct students per delivery
  */
 export async function getLowCreditStudentsCountByDelivery(): Promise<LowCreditCountsByDelivery> {
-  const supabase = getAdminSupabase();
+  const supabase = getAdminClient();
 
   const { data, error } = await supabase
     .from("v_student_dynamic_credit_alerts_by_delivery")
@@ -218,16 +222,19 @@ export async function getLowCreditStudentsCountByDelivery(): Promise<LowCreditCo
     .eq("is_low_any", true);
 
   if (error) {
-    console.error("Error fetching low-credit counts by delivery", error);
+    logAdminError("Error fetching low-credit counts by delivery", error);
     return { online: 0, f2f: 0 };
   }
+
+  const rows =
+    (data ?? []) as unknown as VStudentDynamicCreditAlertByDeliveryRow[];
 
   const online = new Set<string>();
   const f2f = new Set<string>();
 
-  for (const row of data ?? []) {
-    const delivery = (row as any).delivery as string | null;
-    const studentId = (row as any).student_id as string | null;
+  for (const row of rows) {
+    const delivery = row.delivery;
+    const studentId = row.student_id;
 
     if (!studentId) continue;
 

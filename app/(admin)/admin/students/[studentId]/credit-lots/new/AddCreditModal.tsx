@@ -10,6 +10,13 @@ import {
 } from "@/lib/api/admin/creditLots";
 import type { Delivery, LengthCat, Tier, ExpiryPolicy } from "@/lib/enums";
 import type { AwardReasonCode, AWARD_REASON_CODES } from "@/lib/awardReasons";
+import {
+  getExpiryPolicyLabel,
+  getExpiryPolicyDescription,
+} from "@/lib/domain/expiry";
+import { formatTierLabel } from "@/lib/domain/tiers";
+
+const EXPIRY_POLICIES: ExpiryPolicy[] = ["none", "advisory", "mandatory"];
 
 type DeliveryRestriction = Delivery | null; // online | f2f | (null = hybrid/unrestricted)
 type TierRestriction = Tier | null;
@@ -335,122 +342,132 @@ export default function AddCreditModal({
         {tab === "invoice" ? (
           <form onSubmit={submitInvoice} className="mt-6 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">Xero #</span>
-                <div className="flex overflow-hidden rounded-md border">
-                  <span className="flex items-center bg-gray-50 px-2 text-sm text-gray-500">
-                    INV-
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]{4,5}"
-                    maxLength={5}
-                    value={invoiceNumber}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, "");
-                      setInvoiceNumber(digits.slice(0, 5));
-                    }}
-                    className="flex-1 border-0 p-2 outline-none"
-                  />
-                </div>
-                <span className="text-xs text-gray-500"></span>
-              </label>
+  <label className="flex flex-col gap-1">
+    <span className="text-sm text-gray-600">Xero #</span>
+    <div className="flex overflow-hidden rounded-md border">
+      <span className="flex items-center bg-gray-50 px-2 text-sm text-gray-500">
+        INV-
+      </span>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]{4,5}"
+        maxLength={5}
+        value={invoiceNumber}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/\D/g, "");
+          setInvoiceNumber(digits.slice(0, 5));
+        }}
+        className="flex-1 border-0 p-2 outline-none"
+      />
+    </div>
+    <span className="text-xs text-gray-500"></span>
+  </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">Invoice total (£)</span>
-                <input
-                  type="number"
-                  min={0.01}
-                  step={0.01}
-                  value={invoiceAmount}
-                  onChange={(e) => setInvoiceAmount(e.target.value)}
-                  className="rounded-md border p-2"
-                />
-                <span className="text-xs text-gray-500">
-                  {amountPennies || 0} pennies
-                </span>
-              </label>
+  <label className="flex flex-col gap-1">
+    <span className="text-sm text-gray-600">Invoice total (£)</span>
+    <input
+      type="number"
+      min={0.01}
+      step={0.01}
+      value={invoiceAmount}
+      onChange={(e) => setInvoiceAmount(e.target.value)}
+      className="rounded-md border p-2"
+    />
+    <span className="text-xs text-gray-500">
+      {amountPennies || 0} pennies
+    </span>
+  </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">Expiry enforcement</span>
-                <select
-                  value={expiryPolicy}
-                  onChange={(e) =>
-                    setExpiryPolicy(e.target.value as ExpiryPolicy)
-                  }
-                  className="rounded-md border p-2"
-                >
-                  <option value="none">none</option>
-                  <option value="advisory">advisory</option>
-                  <option value="mandatory">mandatory</option>
-                </select>
-              </label>
+  <label className="flex flex-col gap-1">
+    <span className="text-sm text-gray-600">Expiry enforcement</span>
+    <select
+      value={expiryPolicy}
+      onChange={(e) =>
+        setExpiryPolicy(e.target.value as ExpiryPolicy)
+      }
+      className="rounded-md border p-2"
+    >
+      {EXPIRY_POLICIES.map((policy) => (
+        <option key={policy} value={policy}>
+          {getExpiryPolicyLabel(policy)}
+        </option>
+      ))}
+    </select>
+    <span className="text-xs text-gray-500">
+      {getExpiryPolicyDescription(expiryPolicy)}
+    </span>
+  </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">Length restriction</span>
-                <select
-                  value={lengthRestriction}
-                  onChange={(e) =>
-                    setLengthRestriction(e.target.value as LengthCat)
-                  }
-                  className="rounded-md border p-2"
-                >
-                  <option value="none">none</option>
-                  <option value="60">60</option>
-                  <option value="90">90</option>
-                  <option value="120">120</option>
-                </select>
-              </label>
+  <label className="flex flex-col gap-1">
+    <span className="text-sm text-gray-600">Length restriction</span>
+    <select
+      value={lengthRestriction}
+      onChange={(e) =>
+        setLengthRestriction(e.target.value as LengthCat)
+      }
+      className="rounded-md border p-2"
+    >
+      <option value="none">none</option>
+      <option value="60">60</option>
+      <option value="90">90</option>
+      <option value="120">120</option>
+    </select>
+  </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">
-                  Delivery restriction
-                </span>
-                <select
-                  value={deliveryRestriction ?? ""}
-                  onChange={(e) => {
-                    const value = e.target.value as Delivery | "";
-                    setDeliveryRestriction(value === "" ? null : value);
-                  }}
-                  className="rounded-md border p-2"
-                >
-                  <option value="">hybrid (online &amp; f2f)</option>
-                  <option value="online">online only</option>
-                  <option value="f2f">face to face only</option>
-                </select>
-              </label>
+  <label className="flex flex-col gap-1">
+    <span className="text-sm text-gray-600">
+      Delivery restriction
+    </span>
+    <select
+      value={deliveryRestriction ?? ""}
+      onChange={(e) => {
+        const value = e.target.value as Delivery | "";
+        setDeliveryRestriction(value === "" ? null : value);
+      }}
+      className="rounded-md border p-2"
+    >
+      <option value="">hybrid (online &amp; f2f)</option>
+      <option value="online">online only</option>
+      <option value="f2f">face to face only</option>
+    </select>
+  </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">Tier restriction</span>
-                <select
-                  value={tierRestriction ?? ""}
-                  onChange={(e) => {
-                    const value = e.target.value as Tier | "";
-                    setTierRestriction(value === "" ? null : value);
-                  }}
-                  className="rounded-md border p-2"
-                >
-                  <option value="">(none)</option>
-                  <option value="basic">basic</option>
-                  <option value="premium">premium</option>
-                  <option value="elite">elite</option>
-                </select>
-              </label>
+  <label className="flex flex-col gap-1">
+    <span className="text-sm text-gray-600">Tier restriction</span>
+    <select
+      value={tierRestriction ?? ""}
+      onChange={(e) => {
+        const value = e.target.value as Tier | "";
+        setTierRestriction(value === "" ? null : value);
+      }}
+      className="rounded-md border p-2"
+    >
+      <option value="">(none)</option>
+      {(["basic", "premium", "elite"] as Tier[]).map((tier) => (
+        <option key={tier} value={tier}>
+          {formatTierLabel(tier)}
+        </option>
+      ))}
+    </select>
+  </label>
 
-              <label className="flex flex-col gap-1">
-                <span className="text-sm text-gray-600">
-                  Expiry date override (optional)
-                </span>
-                <input
-                  type="date"
-                  value={expiryDateOverride}
-                  onChange={(e) => setExpiryDateOverride(e.target.value)}
-                  className="rounded-md border p-2"
-                />
-              </label>
-            </div>
+  <div className="mt-3 text-sm text-gray-700">
+    Expiry preview{" "}
+    <span className="text-xs text-gray-500">
+      ({getExpiryPolicyLabel(expiryPolicy)})
+    </span>
+    :{" "}
+    <span className="font-medium">
+      {expiryDateOverride
+        ? `${expiryDateOverride} (override)`
+        : expiryPreview ?? "—"}
+    </span>
+  </div>
+</div>
 
+
+    
             <div className="rounded-lg border p-3">
               <div className="mb-2 font-medium">Expiry calculation</div>
               <div className="grid grid-cols-3 gap-3">

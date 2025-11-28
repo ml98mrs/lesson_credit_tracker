@@ -5,11 +5,17 @@
 // Just simple counts/aggregates that rely on existing DB rules.
 
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import { getAdminClient, logAdminError } from "./_shared";
 import type { TeacherStatus, ExpiryPolicy } from "@/lib/enums";
 import {
   readProfileDisplayName,
   type ProfilesDisplayEmbed,
 } from "@/lib/types/profiles";
+import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
+
+// Reuse the canonical pending-lessons implementation from lessons.ts
+export { getPendingLessonsCount } from "./lessons";
+
 
 // ────────────────────────────────────────────────────────────────
 // Types
@@ -70,26 +76,7 @@ function getPreviousMonthBoundsUtc(): {
   return { lastMonthStart, thisMonthStart };
 }
 
-// ────────────────────────────────────────────────────────────────
-// Lessons queue / hazards
-// ────────────────────────────────────────────────────────────────
 
-export async function getPendingLessonsCount(): Promise<number> {
-  const sb = getAdminSupabase(); // same as queue page
-
-  const { count, error } = await sb
-    .from("lessons")
-    .select("id", { count: "exact", head: true })
-    .eq("state", "pending"); // mirror queue: .eq("state", "pending")
-
-  if (error) {
-    console.error("Error fetching pending lessons count", error);
-    // For the dashboard, fail soft and show 0.
-    return 0;
-  }
-
-  return count ?? 0;
-}
 
 // ────────────────────────────────────────────────────────────────
 // Total remaining minutes
@@ -101,7 +88,7 @@ export async function getPendingLessonsCount(): Promise<number> {
  * - Includes negative minutes (overdrawn lots) so this is a NET total.
  */
 export async function getTotalRemainingMinutes(): Promise<number> {
-  const sb = getAdminSupabase();
+  const sb = getAdminClient();
 
   const { data, error } = await sb
     .from("v_credit_lot_remaining")
@@ -112,18 +99,22 @@ export async function getTotalRemainingMinutes(): Promise<number> {
     .or("expiry_date.is.null,days_to_expiry.gte.0");
 
   if (error) {
-    console.error("Error fetching total remaining minutes", error);
+    logAdminError("Error fetching total remaining minutes", error);
     return 0;
   }
 
-  const total =
-    data?.reduce(
-      (sum, row) => sum + (row.minutes_remaining ?? 0),
-      0,
-    ) ?? 0;
+  // Cast via unknown to avoid GenericStringError[] union complaints
+  const rows =
+    (data ?? []) as unknown as VCreditLotRemainingRow[];
+
+  const total = rows.reduce(
+    (sum, row) => sum + (row.minutes_remaining ?? 0),
+    0,
+  );
 
   return total;
 }
+
 
 // ────────────────────────────────────────────────────────────────
 // Lifecycle summaries
@@ -243,7 +234,7 @@ export async function getTeacherLifecycleSummary(): Promise<TeacherLifecycleSumm
  * - totalMinutes = sum of minutes_remaining per policy.
  */
 export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
-  const sb = getAdminSupabase();
+  const sb = getAdminClient();
 
   const { data, error } = await sb
     .from("v_credit_lot_remaining")
@@ -256,12 +247,16 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
     .in("expiry_policy", ["mandatory", "advisory"]);
 
   if (error) {
-    console.error("Error fetching expiring soon summary", error);
+    logAdminError("Error fetching expiring soon summary", error);
     return {
       mandatory: { studentCount: 0, totalMinutes: 0 },
       advisory: { studentCount: 0, totalMinutes: 0 },
     };
   }
+
+  // TS: data can be a union internally, so cast via unknown
+  const rows =
+    (data ?? []) as unknown as VCreditLotRemainingRow[];
 
   type PolicyKey = Extract<ExpiryPolicy, "mandatory" | "advisory">;
 
@@ -275,7 +270,7 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
     advisory: 0,
   };
 
-  for (const row of data ?? []) {
+  for (const row of rows) {
     const policy = row.expiry_policy as ExpiryPolicy | null;
     if (policy !== "mandatory" && policy !== "advisory") continue;
 
@@ -283,7 +278,7 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
     minutesByPolicy[policy] += minutes;
 
     if (row.student_id) {
-      studentSets[policy].add(row.student_id as string);
+      studentSets[policy].add(row.student_id);
     }
   }
 
@@ -298,6 +293,7 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
     },
   };
 }
+
 
 // ────────────────────────────────────────────────────────────────
 // SNC / tiers – free SNCs last month

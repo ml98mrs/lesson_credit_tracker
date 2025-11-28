@@ -3,16 +3,14 @@
 // Shared admin helpers for lessons & hazards.
 // IMPORTANT: all admin data access uses getAdminSupabase (service-role).
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { getAdminSupabase } from "@/lib/supabase/admin";
 
-type TypedClient = SupabaseClient<any>;
+import { getAdminClient, type AdminClient, logAdminError } from "./_shared";
 
 /**
  * Base query for "pending lessons".
  * Single source of truth for what counts as "pending".
  */
-export function pendingLessonsBaseQuery(sb: TypedClient) {
+export function pendingLessonsBaseQuery(sb: AdminClient) {
   return sb
     .from("lessons")
     .select(
@@ -26,7 +24,7 @@ export function pendingLessonsBaseQuery(sb: TypedClient) {
  * Uses the same 'state = pending' condition as the queue.
  */
 export async function getPendingLessonsCount(): Promise<number> {
-  const supabase = getAdminSupabase();
+  const supabase = getAdminClient();
 
   const { count, error } = await supabase
     .from("lessons")
@@ -34,7 +32,7 @@ export async function getPendingLessonsCount(): Promise<number> {
     .eq("state", "pending");
 
   if (error) {
-    console.error("Error fetching pending lessons count", error);
+    logAdminError("Error fetching pending lessons count", error);
     return 0;
   }
 
@@ -45,7 +43,7 @@ export async function getPendingLessonsCount(): Promise<number> {
  * Base query for unresolved hazards, via v_lesson_hazards.
  * Single source of truth for the hazards list page.
  */
-export function lessonHazardsBaseQuery(sb: TypedClient) {
+export function lessonHazardsBaseQuery(sb: AdminClient) {
   return sb
     .from("v_lesson_hazards")
     .select("lesson_id, allocation_id, hazard_type, severity");
@@ -56,14 +54,14 @@ export function lessonHazardsBaseQuery(sb: TypedClient) {
  * One row = one unresolved hazard instance.
  */
 export async function getLessonHazardsCount(): Promise<number> {
-  const supabase = getAdminSupabase();
+  const supabase = getAdminClient();
 
   const { count, error } = await supabase
     .from("v_lesson_hazards")
     .select("*", { count: "exact", head: true });
 
   if (error) {
-    console.error("Error fetching lesson hazards count", error);
+    logAdminError("Error fetching lesson hazards count", error);
     return 0;
   }
 

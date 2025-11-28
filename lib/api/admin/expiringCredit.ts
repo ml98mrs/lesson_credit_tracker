@@ -4,8 +4,14 @@
 // Uses v_credit_lot_remaining so all expiry rules live in SQL.
 
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import type { ExpiryPolicy as ExpiryPolicyEnum } from "@/lib/enums";
+import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
 
-export type ExpiryPolicy = "mandatory" | "advisory";
+// Only "mandatory" and "advisory" are relevant for expiring-lot lists.
+export type ExpiryPolicy = Extract<
+  ExpiryPolicyEnum,
+  "mandatory" | "advisory"
+>;
 
 export type ExpiringLotRow = {
   credit_lot_id: string;
@@ -46,8 +52,20 @@ export async function getExpiringLotsByPolicy(
     return [];
   }
 
-  // Narrow type
-  return (data ?? []) as ExpiringLotRow[];
+  const rows =
+    (data ?? []) as VCreditLotRemainingRow[];
+
+  // Map from generic view row → narrowed ExpiringLotRow
+  return rows.map(
+    (row): ExpiringLotRow => ({
+      credit_lot_id: row.credit_lot_id,
+      student_id: row.student_id,
+      minutes_remaining: row.minutes_remaining ?? 0,
+      expiry_date: row.expiry_date,
+      // We know we're filtering by `policy`, so we can safely use it
+      expiry_policy: policy,
+    }),
+  );
 }
 
 /**

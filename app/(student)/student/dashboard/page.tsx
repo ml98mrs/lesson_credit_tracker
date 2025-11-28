@@ -143,9 +143,7 @@ export default async function StudentDashboard() {
   const remainingOnlineHours = formatMinutesAsHours(remainingOnlineMin);
   const remainingF2fHours = formatMinutesAsHours(remainingF2fMin);
 
-  const hasAnyLowCreditBanner =
-    (!hasBothDeliveries && remainingTotalMin <= 0) ||
-    (hasBothDeliveries && perDeliveryAlerts.length > 0);
+  
 
   return (
     <>

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 const cards = [
   {
-    href: "/admin/reports/revenue-cost",
+    href: "/admin/analytics/revenue-cost",
     title: "Revenue vs cost",
     subtitle: "Margin by teacher, tier, and lesson length.",
     body: "Break down revenue, teacher pay, drinks allocation, and margins at both teacher-month and lesson level. Filter by month, teacher, student, delivery, tier, and length.",

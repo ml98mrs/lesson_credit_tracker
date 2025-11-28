@@ -4,7 +4,9 @@
  * Student SNC status summary.
  * Currently interpreted as "lifetime counts" (all confirmed SNCs).
  */
+
 import type { Database } from "@/lib/database.types";
+import type { Delivery } from "@/lib/enums";
 
 export type StudentRow = Database["public"]["Tables"]["students"]["Row"];
 
@@ -47,14 +49,17 @@ export type StudentAwardReasonSummary = {
 
 /**
  * Per-delivery low-credit alert used in student dashboards.
- * Values follow the dynamic credit alert views (minutes / hours mixed).
+ * Values mirror v_student_dynamic_credit_alerts_by_delivery:
+ * - remainingMinutes: purchased-only minutes (invoice lots)
+ * - avgMonthHours / bufferHours: usage-derived hours
  */
 export type StudentDeliveryLowCreditAlert = {
-  delivery: string; // "online" | "f2f" (kept as string for flexibility)
+  delivery: Delivery; // "online" | "f2f"
   remainingMinutes: number;
   avgMonthHours: number | null;
   bufferHours: number | null;
   isGenericLow: boolean;
   isDynamicLow: boolean;
   isLowAny: boolean;
+  isZeroPurchased: boolean;
 };

@@ -1,4 +1,4 @@
-// app/(admin)/admin/hazards/page.tsx
+// app/(admin)/admin/warnings/hazards/page.tsx
 
 import Link from "next/link";
 import Section from "@/components/ui/Section";
@@ -9,13 +9,18 @@ import {
   type ProfilesDisplayEmbed,
   readProfileDisplayName,
 } from "@/lib/types/profiles";
+import type { HazardType } from "@/lib/enums";
+import {
+  getHazardMeta,
+  sortHazardsForDisplay,
+} from "@/lib/domain/hazards";
 
 // Basic hazard type from v_lesson_hazards
 type Hazard = {
   lesson_id: string;
   allocation_id: string | null;
-  hazard_type: string;
-  severity: string;
+  hazard_type: HazardType;
+  severity: string | null;
 };
 
 type LessonRow = {
@@ -32,46 +37,11 @@ type HazardWithStudent = Hazard & {
   studentName: string;
 };
 
-// Presentation-only label mapping
-function formatHazardType(hazardType: string): string {
-  switch (hazardType) {
-    case "length_too_short":
-      return "Lesson length too short";
-    case "length_restriction_mismatch":
-      return "Lesson shorter than lot’s required length";
-    case "delivery_f2f_on_online":
-      return "F2F lesson allocated to online-only credit";
-    case "delivery_online_on_f2f":
-      return "Online lesson allocated to F2F-only credit";
-    case "overdraft_allocation":
-      return "Lesson confirmed using overdraft credit";
-    case "snc_overuse":
-      return "Too many SNCs this month";
-    default:
-      return hazardType;
-  }
-}
-
-function formatSeverity(severity: string): string {
-  switch (severity) {
-    case "red":
-      return "Red";
-    case "amber":
-      return "Amber";
-    case "yellow":
-      return "Yellow";
-    default:
-      return severity || "Unknown";
-  }
-}
-
 export default async function HazardsPage() {
   const sb = getAdminSupabase();
 
   // 1) Base hazards from view
   const { data, error } = await lessonHazardsBaseQuery(sb)
-    .order("severity", { ascending: false }) // simple lexical ordering
-    .order("lesson_id", { ascending: true })
     .limit(500);
 
   if (error) {
@@ -150,6 +120,9 @@ export default async function HazardsPage() {
     };
   });
 
+  // 2d) Sort hazards using domain ordering (severity + type priority)
+  const sorted = sortHazardsForDisplay(enriched);
+
   return (
     <Section
       title="Active hazards"
@@ -169,45 +142,77 @@ export default async function HazardsPage() {
             </tr>
           </thead>
           <tbody>
-            {enriched.map((r, idx) => (
-              <tr
-                key={`${r.lesson_id}-${r.allocation_id ?? "none"}-${idx}`}
-                className="border-b hover:bg-gray-50"
-              >
-                <td className="py-2 pr-4 font-mono text-xs">
-                  {r.lesson_id}
-                </td>
-                <td className="py-2 pr-4 text-xs">
-                  {r.studentName}
-                </td>
-                <td className="py-2 pr-4 font-mono text-xs">
-                  {r.allocation_id ?? "—"}
-                </td>
-                <td className="py-2 pr-4">
-                  {formatHazardType(r.hazard_type)}
-                </td>
-                <td className="py-2 pr-4">
-                  {formatSeverity(r.severity)}
-                </td>
-                <td className="py-2 pr-4">
-                  <Link
-                    href={`/admin/lessons/review?lessonId=${encodeURIComponent(
-                      r.lesson_id,
-                    )}`}
-                    className="text-blue-700 underline"
-                  >
-                    Review lesson
-                  </Link>
-                </td>
-                <td className="py-2 pr-4">
-                  <ResolveHazardButton
-                    hazardType={r.hazard_type}
-                    lessonId={r.lesson_id}
-                    allocationId={r.allocation_id}
-                  />
-                </td>
-              </tr>
-            ))}
+            {sorted.map((r, idx) => {
+              // NOTE: getHazardMeta expects a HazardType, not an object
+              const meta = getHazardMeta(r.hazard_type);
+
+              // HazardSeverity is "info" | "warning" | "error" in domain module,
+              // so we map those to display labels + colours.
+              const severityLabel =
+                meta.severity === "error"
+                  ? "High"
+                  : meta.severity === "warning"
+                  ? "Medium"
+                  : "Low";
+
+              const severityClass =
+                meta.severity === "error"
+                  ? "bg-rose-100 text-rose-800"
+                  : meta.severity === "warning"
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-sky-100 text-sky-800";
+
+              return (
+                <tr
+                  key={`${r.lesson_id}-${r.allocation_id ?? "none"}-${idx}`}
+                  className="border-b hover:bg-gray-50"
+                >
+                  <td className="py-2 pr-4 font-mono text-xs">
+                    {r.lesson_id}
+                  </td>
+                  <td className="py-2 pr-4 text-xs">
+                    {r.studentName}
+                  </td>
+                  <td className="py-2 pr-4 font-mono text-xs">
+                    {r.allocation_id ?? "—"}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <div className="text-xs font-medium">
+                      {meta.title}
+                    </div>
+                    {meta.description && (
+                      <div className="text-[11px] text-gray-500">
+                        {meta.description}
+                      </div>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${severityClass}`}
+                    >
+                      {severityLabel}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <Link
+                      href={`/admin/lessons/review?lessonId=${encodeURIComponent(
+                        r.lesson_id,
+                      )}`}
+                      className="text-blue-700 underline"
+                    >
+                      Review lesson
+                    </Link>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <ResolveHazardButton
+                      hazardType={r.hazard_type}
+                      lessonId={r.lesson_id}
+                      allocationId={r.allocation_id}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

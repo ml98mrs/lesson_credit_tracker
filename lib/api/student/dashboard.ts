@@ -7,6 +7,22 @@ import type {
   StudentAwardReasonSummary,
   StudentDeliveryLowCreditAlert,
 } from "@/lib/types/students";
+import type {
+  VStudentCreditSummaryRow,
+  VStudentCreditDeliverySummaryRow,
+  VStudentAwardReasonSummaryRow,
+  VStudentSncLessonRow,
+  VStudentLastActivityRow,
+} from "@/lib/types/views/student";
+import type {
+  VCreditLotRemainingRow,
+  VStudentDynamicCreditAlertByDeliveryRow,
+} from "@/lib/types/views/credit";
+import { computeStudentSncStatus } from "@/lib/domain/snc";
+import type { Delivery } from "@/lib/enums";
+
+// Convenience alias for the server Supabase client type
+type ServerSupabaseClient = Awaited<ReturnType<typeof getServerSupabase>>;
 
 // ---- Types ---------------------------------------------------------------
 
@@ -27,10 +43,10 @@ export type StudentDashboardData = {
   // SNC status (lifetime: all confirmed SNCs for this student)
   sncStatus: StudentSncStatus | null;
 
-  // Low-credit alerts by delivery
+  // Low-credit alerts by delivery (purchased-only credit)
   lowCreditAlertsByDelivery: StudentDeliveryLowCreditAlert[];
 
-  // Earliest mandatory expiry within 30 days (if any)
+  // Earliest mandatory expiry within 30 days (if any, UTC ISO date string)
   nextMandatoryExpiry?: string;
 
   // When this snapshot was generated (UTC ISO string)
@@ -38,67 +54,31 @@ export type StudentDashboardData = {
   lastActivityAtUtc: string | null;
 };
 
-// ---- Internal row types (DB-shaped) --------------------------------------
+// ---- Internal helper result types ----------------------------------------
 
-type SummaryRow = {
-  student_id: string;
-  total_granted_min: number | null;
-  total_allocated_min: number | null;
-  total_remaining_min: number | null;
-  next_expiry_date: string | null;
+type CreditSummaryResult = {
+  grantedMin: number;
+  usedMin: number;
+  remainingMin: number;
+  nextMandatoryExpiry?: string;
 };
 
-type DeliveryRow = {
-  student_id: string;
-  purchased_min: number | null;
-  purchased_online_min: number | null;
-  purchased_f2f_min: number | null;
-  used_online_min: number | null;
-  used_f2f_min: number | null;
-  remaining_online_min: number | null;
-  remaining_f2f_min: number | null;
+type DeliverySplitResult = {
+  purchasedInvoiceMin: number;
+  purchasedOnlineMin: number;
+  purchasedF2fMin: number;
+  usedOnlineMin: number;
+  usedF2fMin: number;
+  remainingOnlineMin: number;
+  remainingF2fMin: number;
 };
 
-type AwardReasonRow = {
-  award_reason_code: string;
-  granted_award_min: number | null;
-  used_award_min: number | null;
-  remaining_award_min: number | null;
-};
+// ---- Internal helper functions -------------------------------------------
 
-// Lifetime SNC history rows (from v_student_snc_lessons)
-type SncLessonRow = {
-  is_charged: boolean | null;
-};
-
-type RawDeliveryAlertRow = {
-  student_id: string;
-  delivery: string;
-  remaining_minutes: number;
-  avg_month_hours: number | null;
-  buffer_hours: number | null;
-  is_generic_low: boolean;
-  is_dynamic_low: boolean;
-  is_low_any: boolean;
-};
-
-type LastActivityRow = {
-  student_id: string;
-  last_activity_at: string | null;
-};
-
-// ---- Public loader -------------------------------------------------------
-
-/**
- * Load all data needed for the Student Dashboard for a single student.
- *
- * Caller is responsible for resolving `studentId` from the logged-in profile.
- */
-export async function loadStudentDashboard(
+async function fetchCreditSummary(
+  supabase: ServerSupabaseClient,
   studentId: string,
-): Promise<StudentDashboardData> {
-  const supabase = await getServerSupabase();
-
+): Promise<CreditSummaryResult> {
   // Overall summary (canonical totals)
   const { data: summaryRow, error: sumErr } = await supabase
     .from("v_student_credit_summary")
@@ -106,7 +86,7 @@ export async function loadStudentDashboard(
       "student_id,total_granted_min,total_allocated_min,total_remaining_min,next_expiry_date",
     )
     .eq("student_id", studentId)
-    .maybeSingle<SummaryRow>();
+    .maybeSingle<VStudentCreditSummaryRow>();
 
   if (sumErr) {
     throw new Error(sumErr.message);
@@ -120,7 +100,9 @@ export async function loadStudentDashboard(
   const { data: mandatoryExpiryRows, error: mandatoryExpiryErr } =
     await supabase
       .from("v_credit_lot_remaining")
-      .select("expiry_date")
+      .select(
+        "student_id,expiry_date,expiry_policy,expiry_within_30d,state,minutes_remaining",
+      )
       .eq("student_id", studentId)
       .eq("state", "open")
       .eq("expiry_policy", "mandatory")
@@ -132,12 +114,26 @@ export async function loadStudentDashboard(
     throw new Error(mandatoryExpiryErr.message);
   }
 
+  const mandatoryTyped =
+    (mandatoryExpiryRows ?? []) as unknown as VCreditLotRemainingRow[];
+
   const nextMandatoryExpiry =
-    mandatoryExpiryRows && mandatoryExpiryRows.length > 0
-      ? (mandatoryExpiryRows[0].expiry_date as string)
+    mandatoryTyped.length > 0
+      ? mandatoryTyped[0].expiry_date ?? undefined
       : undefined;
 
-  // SNC status (lifetime, from v_student_snc_lessons)
+  return {
+    grantedMin,
+    usedMin,
+    remainingMin,
+    nextMandatoryExpiry,
+  };
+}
+
+async function fetchSncStatus(
+  supabase: ServerSupabaseClient,
+  studentId: string,
+): Promise<StudentSncStatus | null> {
   const { data: sncLessonRows, error: sncErr } = await supabase
     .from("v_student_snc_lessons")
     .select("is_charged")
@@ -147,29 +143,17 @@ export async function loadStudentDashboard(
     throw new Error(sncErr.message);
   }
 
-  const sncRowsTyped = (sncLessonRows ?? []) as SncLessonRow[];
+  const sncRowsTyped =
+    (sncLessonRows ?? []) as VStudentSncLessonRow[];
 
-  let lifetimeFreeSncs = 0;
-  let lifetimeChargedSncs = 0;
+  // Delegate counting logic to the domain helper
+  return computeStudentSncStatus(sncRowsTyped);
+}
 
-  for (const row of sncRowsTyped) {
-    if (row.is_charged) {
-      lifetimeChargedSncs += 1;
-    } else {
-      lifetimeFreeSncs += 1;
-    }
-  }
-
-  const sncStatus: StudentSncStatus | null =
-    sncRowsTyped.length === 0
-      ? null
-      : {
-          freeSncs: lifetimeFreeSncs,
-          chargedSncs: lifetimeChargedSncs,
-          hasFreeSncUsed: lifetimeFreeSncs > 0,
-        };
-
-  // Delivery split (from invoice credit lots)
+async function fetchDeliverySplit(
+  supabase: ServerSupabaseClient,
+  studentId: string,
+): Promise<DeliverySplitResult> {
   const { data: deliveryRow, error: deliveryErr } = await supabase
     .from("v_student_credit_delivery_summary")
     .select(
@@ -185,27 +169,167 @@ export async function loadStudentDashboard(
       ].join(","),
     )
     .eq("student_id", studentId)
-    .maybeSingle<DeliveryRow>();
+    .maybeSingle<VStudentCreditDeliverySummaryRow>();
 
   if (deliveryErr) {
     throw new Error(deliveryErr.message);
   }
 
-  const breakdown = deliveryRow ?? ({} as DeliveryRow);
+  const breakdown =
+    deliveryRow ?? ({} as VStudentCreditDeliverySummaryRow);
 
   const purchasedInvoiceMin = breakdown.purchased_min ?? 0;
+  const purchasedOnlineMin = breakdown.purchased_online_min ?? 0;
+  const purchasedF2fMin = breakdown.purchased_f2f_min ?? 0;
+  const usedOnlineMin = breakdown.used_online_min ?? 0;
+  const usedF2fMin = breakdown.used_f2f_min ?? 0;
+  const remainingOnlineMin = breakdown.remaining_online_min ?? 0;
+  const remainingF2fMin = breakdown.remaining_f2f_min ?? 0;
+
+  return {
+    purchasedInvoiceMin,
+    purchasedOnlineMin,
+    purchasedF2fMin,
+    usedOnlineMin,
+    usedF2fMin,
+    remainingOnlineMin,
+    remainingF2fMin,
+  };
+}
+
+async function fetchAwardReasons(
+  supabase: ServerSupabaseClient,
+  studentId: string,
+): Promise<StudentAwardReasonSummary[]> {
+  const { data: awardRows, error: awardErr } = await supabase
+    .from("v_student_award_reason_summary")
+    .select(
+      "award_reason_code,granted_award_min,used_award_min,remaining_award_min",
+    )
+    .eq("student_id", studentId);
+
+  if (awardErr) {
+    throw new Error(awardErr.message);
+  }
+
+  return (awardRows ?? []).map(
+    (row: VStudentAwardReasonSummaryRow): StudentAwardReasonSummary => ({
+      awardReasonCode: row.award_reason_code,
+      grantedAwardMin: row.granted_award_min ?? 0,
+      usedAwardMin: row.used_award_min ?? 0,
+      remainingAwardMin: row.remaining_award_min ?? 0,
+    }),
+  );
+}
+
+async function fetchLowCreditAlertsByDelivery(
+  supabase: ServerSupabaseClient,
+  studentId: string,
+): Promise<StudentDeliveryLowCreditAlert[]> {
+  const { data: alertsRows, error: alertsErr } = await supabase
+    .from("v_student_dynamic_credit_alerts_by_delivery")
+    .select(
+      [
+        "student_id",
+        "delivery",
+        "remaining_minutes",
+        "remaining_hours",
+        "avg_month_hours",
+        "buffer_hours",
+        "is_generic_low",
+        "is_dynamic_low",
+        "is_low_any",
+        "is_zero_purchased",
+      ].join(","),
+    )
+    .eq("student_id", studentId);
+
+  if (alertsErr) {
+    throw new Error(alertsErr.message);
+  }
+
+  const alertRowsTyped =
+    (alertsRows ?? []) as unknown as VStudentDynamicCreditAlertByDeliveryRow[];
+
+  return alertRowsTyped.map(
+  (r): StudentDeliveryLowCreditAlert => ({
+    delivery: r.delivery as Delivery,   // <- assert non-null delivery
+    remainingMinutes: r.remaining_minutes ?? 0,
+    avgMonthHours: r.avg_month_hours,
+    bufferHours: r.buffer_hours,
+    isGenericLow: r.is_generic_low,
+    isDynamicLow: r.is_dynamic_low,
+    isLowAny: r.is_low_any,
+    isZeroPurchased: r.is_zero_purchased, // we'll add this to the view type next
+  }),
+);
+
+}
+
+async function fetchLastActivity(
+  supabase: ServerSupabaseClient,
+  studentId: string,
+): Promise<string | null> {
+  const { data: lastRow, error: lastErr } = await supabase
+    .from("v_student_last_activity")
+    .select("student_id,last_activity_at")
+    .eq("student_id", studentId)
+    .maybeSingle<VStudentLastActivityRow>();
+
+  if (lastErr) {
+    throw new Error(lastErr.message);
+  }
+
+  return lastRow?.last_activity_at ?? null;
+}
+
+// ---- Public loader -------------------------------------------------------
+
+/**
+ * Load all data needed for the Student Dashboard for a single student.
+ *
+ * Caller is responsible for resolving `studentId` from the logged-in profile.
+ */
+export async function loadStudentDashboard(
+  studentId: string,
+): Promise<StudentDashboardData> {
+  const supabase = await getServerSupabase();
+
+  const [
+    creditSummary,
+    sncStatus,
+    deliverySplit,
+    awardReasons,
+    lowCreditAlertsByDelivery,
+    lastActivityAtUtc,
+  ] = await Promise.all([
+    fetchCreditSummary(supabase, studentId),
+    fetchSncStatus(supabase, studentId),
+    fetchDeliverySplit(supabase, studentId),
+    fetchAwardReasons(supabase, studentId),
+    fetchLowCreditAlertsByDelivery(supabase, studentId),
+    fetchLastActivity(supabase, studentId),
+  ]);
+
+  const {
+    grantedMin,
+    usedMin,
+    remainingMin,
+    nextMandatoryExpiry,
+  } = creditSummary;
+
+  const {
+    purchasedInvoiceMin,
+    purchasedOnlineMin,
+    purchasedF2fMin,
+    usedOnlineMin,
+    usedF2fMin,
+    remainingOnlineMin,
+    remainingF2fMin,
+  } = deliverySplit;
 
   const purchasedMin = purchasedInvoiceMin;
   const awardedMin = Math.max(grantedMin - purchasedMin, 0);
-
-  const purchasedOnlineMin = breakdown.purchased_online_min ?? 0;
-  const purchasedF2fMin = breakdown.purchased_f2f_min ?? 0;
-
-  const usedOnlineMin = breakdown.used_online_min ?? 0;
-  const usedF2fMin = breakdown.used_f2f_min ?? 0;
-
-  const remainingOnlineMin = breakdown.remaining_online_min ?? 0;
-  const remainingF2fMin = breakdown.remaining_f2f_min ?? 0;
 
   const deliverySummary: StudentCreditDeliverySummary = {
     purchasedMin,
@@ -219,65 +343,6 @@ export async function loadStudentDashboard(
     remainingOnlineMin,
     remainingF2fMin,
   };
-
-  // Award reason breakdown
-  const { data: awardRows, error: awardErr } = await supabase
-    .from("v_student_award_reason_summary")
-    .select(
-      "award_reason_code,granted_award_min,used_award_min,remaining_award_min",
-    )
-    .eq("student_id", studentId);
-
-  if (awardErr) {
-    throw new Error(awardErr.message);
-  }
-
-  const awardReasons: StudentAwardReasonSummary[] = (awardRows ?? []).map(
-    (row: AwardReasonRow) => ({
-      awardReasonCode: row.award_reason_code,
-      grantedAwardMin: row.granted_award_min ?? 0,
-      usedAwardMin: row.used_award_min ?? 0,
-      remainingAwardMin: row.remaining_award_min ?? 0,
-    }),
-  );
-
-  // Per-delivery dynamic low-credit alerts
-  const { data: alertsRows, error: alertsErr } = await supabase
-    .from("v_student_dynamic_credit_alerts_by_delivery")
-    .select(
-      "student_id,delivery,remaining_minutes,avg_month_hours,buffer_hours,is_generic_low,is_dynamic_low,is_low_any",
-    )
-    .eq("student_id", studentId);
-
-  if (alertsErr) {
-    throw new Error(alertsErr.message);
-  }
-
-  const alertRowsTyped = (alertsRows ?? []) as RawDeliveryAlertRow[];
-
-  const lowCreditAlertsByDelivery: StudentDeliveryLowCreditAlert[] =
-    alertRowsTyped.map((r) => ({
-      delivery: r.delivery,
-      remainingMinutes: r.remaining_minutes,
-      avgMonthHours: r.avg_month_hours,
-      bufferHours: r.buffer_hours,
-      isGenericLow: r.is_generic_low,
-      isDynamicLow: r.is_dynamic_low,
-      isLowAny: r.is_low_any,
-    }));
-
-  // Last activity for this student (lessons or student.created_at)
-  const { data: lastRow, error: lastErr } = await supabase
-    .from("v_student_last_activity")
-    .select("student_id,last_activity_at")
-    .eq("student_id", studentId)
-    .maybeSingle<LastActivityRow>();
-
-  if (lastErr) {
-    throw new Error(lastErr.message);
-  }
-
-  const lastActivityAtUtc = lastRow?.last_activity_at ?? null;
 
   const generatedAtIso = new Date().toISOString();
 

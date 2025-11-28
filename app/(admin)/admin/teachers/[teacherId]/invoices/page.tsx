@@ -8,9 +8,9 @@ import GenerateInvoiceButton from "@/components/admin/GenerateInvoiceButton";
 import {
   getInvoiceMonthKey,
   formatInvoiceMonthLabel,
-  TeacherInvoiceStatusPill,
   type InvoiceStatus,
 } from "@/lib/teacherInvoices";
+import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
 
 export const dynamic = "force-dynamic";
 

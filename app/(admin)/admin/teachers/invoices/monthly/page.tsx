@@ -7,10 +7,10 @@ import { formatPenniesAsPounds } from "@/lib/formatters";
 import {
   getInvoiceMonthKey,
   formatInvoiceMonthLabel,
-  TeacherInvoiceStatusPill,
-  type InvoiceStatus,
+    type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import BulkMarkInvoicesPaidButton from "@/components/admin/BulkMarkInvoicesPaidButton";
+import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
 
 export const dynamic = "force-dynamic";
 

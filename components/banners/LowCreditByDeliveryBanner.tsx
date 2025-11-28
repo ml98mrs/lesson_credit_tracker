@@ -1,14 +1,20 @@
 // components/banners/LowCreditByDeliveryBanner.tsx
 
 import { formatMinutesAsHours } from "@/lib/formatters";
+import type { Delivery } from "@/lib/enums";
 
 type PerDeliveryAlert = {
-  delivery: string; // "online" | "f2f"
+  delivery: Delivery; // "online" | "f2f"
   remainingMinutes: number;
   avgMonthHours: number | null;
   isGenericLow: boolean;
   isDynamicLow: boolean;
-  isZero?: boolean;
+  /**
+   * True if there is no purchased credit left for this delivery.
+   * Mirrors v_student_dynamic_credit_alerts_by_delivery.is_zero_purchased.
+   * If omitted, we fall back to remainingMinutes <= 0.
+   */
+  isZeroPurchased?: boolean;
 };
 
 type Props = {
@@ -16,7 +22,7 @@ type Props = {
   generatedAtLabel: string;
 };
 
-const formatDeliveryLabel = (delivery: string) => {
+const formatDeliveryLabel = (delivery: Delivery) => {
   if (delivery === "online") return "online";
   if (delivery === "f2f") return "face-to-face";
   return delivery;
@@ -31,10 +37,17 @@ export default function LowCreditByDeliveryBanner({
   return (
     <div className="mb-4 space-y-2">
       {alerts.map((alert) => {
-        const hoursLeft = formatMinutesAsHours(alert.remainingMinutes);
         const deliveryLabel = formatDeliveryLabel(alert.delivery);
 
-        const isZero = alert.isZero ?? alert.remainingMinutes <= 0;
+        // Prefer DB-driven zero flag; fall back to derived condition.
+        const isZero =
+          alert.isZeroPurchased ?? alert.remainingMinutes <= 0;
+
+        // Clamp negative values for display
+        const safeRemainingMinutes = Math.max(alert.remainingMinutes, 0);
+        const hoursLeftStr = formatMinutesAsHours(safeRemainingMinutes);
+        const hoursLeft = Number(hoursLeftStr);
+        const hoursLabel = hoursLeft === 1 ? "hour" : "hours";
 
         // Red for zero purchased credit, amber for “running low”
         const borderClass = isZero ? "border-red-300" : "border-amber-300";
@@ -47,7 +60,7 @@ export default function LowCreditByDeliveryBanner({
 
         const body = isZero
           ? `You’ve used up all of your purchased ${deliveryLabel} credit. Any remaining complimentary (free) credit isn’t included here.`
-          : `You have ${hoursLeft} hours of purchased ${deliveryLabel} credit left. Complimentary (free) credit, if any, isn’t included in this number.`;
+          : `You have ${hoursLeftStr} ${hoursLabel} of purchased ${deliveryLabel} credit left. Complimentary (free) credit, if any, isn’t included in this number.`;
 
         return (
           <div

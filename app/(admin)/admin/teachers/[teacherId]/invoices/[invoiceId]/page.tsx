@@ -12,9 +12,9 @@ import {
 import ExpenseStatusButtons from "@/components/admin/ExpenseStatusButtons";
 import {
   formatInvoiceMonthLabel,
-  TeacherInvoiceStatusPill,
   InvoiceStatus,
 } from "@/lib/teacherInvoices";
+import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
 
 export const dynamic = "force-dynamic";
 

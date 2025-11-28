@@ -1,21 +1,51 @@
 // components/banners/ExpirySoonBanner.tsx
+
+"use client";
+
 import { formatDateTimeLondon } from "@/lib/formatters";
+import type { ExpiryPolicy } from "@/lib/enums";
+import {
+  getExpiryPolicyLabel,
+  getExpiryPolicyDescription,
+} from "@/lib/domain/expiry";
+
+type ExpirySoonBannerProps = {
+  /**
+   * UTC ISO string for the earliest mandatory expiry date.
+   * If null/undefined, the banner is hidden.
+   */
+  expiryDateUtc?: string | null;
+
+  /**
+   * Expiry policy for the expiring credit.
+   * For the student dashboard we currently only surface mandatory expiries,
+   * so this defaults to "mandatory".
+   */
+  policy?: ExpiryPolicy;
+};
 
 export default function ExpirySoonBanner({
   expiryDateUtc,
-}: {
-  expiryDateUtc?: string;
-}) {
-  if (!expiryDateUtc) return null;
+  policy = "mandatory",
+}: ExpirySoonBannerProps) {
+  if (!expiryDateUtc) {
+    return null;
+  }
 
-  const formatted = formatDateTimeLondon(expiryDateUtc);
-  // If your formatter returns "dd.mm.yyyy · HH:MM", grab the date part:
-  const dateOnly = formatted.split(" ")[0];
+  const policyLabel = getExpiryPolicyLabel(policy);
+  const policyDescription = getExpiryPolicyDescription(policy);
+  const expiryLabel = formatDateTimeLondon(expiryDateUtc);
 
   return (
-    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-      <strong>Heads up:</strong>{" "}
-      Some of your credit is due to expire on <span className="font-semibold">{dateOnly}</span>.
+    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <div className="font-semibold">
+        {policyLabel} – some credit is expiring soon
+      </div>
+      <div className="mt-0.5">
+        Some of your lesson credit will reach its expiry date by{" "}
+        <span className="font-semibold">{expiryLabel}</span>.{" "}
+        {policyDescription}
+      </div>
     </div>
   );
 }
