@@ -9,7 +9,8 @@ import {
   formatDateTimeLondon,
   formatMinutesAsHours,
 } from "@/lib/formatters";
-import { formatLotLabel, CreditLotSource } from "@/lib/creditLots/labels";
+import { formatLotLabel } from "@/lib/creditLots/labels";
+import type { CreditLotSource } from "@/lib/creditLots/types";
 import LessonHazards from "@/components/admin/LessonHazards";
 import SNCInfoPanel, { SncStats } from "@/components/admin/SNCInfoPanel";
 import { Tier, TierBadge } from "@/components/admin/TierBadge";
@@ -526,7 +527,7 @@ export default function ReviewLessonClient() {
 
           <p className="mt-2 text-xs text-gray-600">
             Policy: expired lots are allowed unless{" "}
-            <code>expiry_policy = 'mandatory'</code>. Tick override to allow
+            <code>expiry_policy = mandatory</code>. Tick override to allow
             allocation even for expired mandatory lots (logged with reason).
           </p>
         </div>

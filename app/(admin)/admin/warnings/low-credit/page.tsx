@@ -13,6 +13,21 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Local UI shapes – note remainingHours is number | null
+type OverallItem = {
+  studentId: string;
+  name: string;
+  tier: string | null;
+  status: string;
+  remainingHours: number | null;
+  isGenericLow: boolean;
+  isDynamicLow: boolean;
+};
+
+type PerDeliveryItem = OverallItem & {
+  delivery: "online" | "f2f" | null;
+};
+
 export default async function LowCreditStudentsPage({
   searchParams,
 }: {
@@ -50,8 +65,8 @@ export default async function LowCreditStudentsPage({
 
   // 3) Counts by delivery for summary text
   const countsByDelivery = await getLowCreditStudentsCountByDelivery();
-  const hasAnyPerDeliveryLow =
-    countsByDelivery.online > 0 || countsByDelivery.f2f > 0;
+const _hasAnyPerDeliveryLow =
+  countsByDelivery.online > 0 || countsByDelivery.f2f > 0;
 
   // 4) If absolutely nothing is low anywhere, early return
   if (overallRows.length === 0 && perDeliveryRows.length === 0) {
@@ -137,36 +152,42 @@ export default async function LowCreditStudentsPage({
     );
   };
 
-  // 6) Shape rows for overall table
-  let overallItems = overallRows.map((r) => {
+  // 6) Shape rows for overall table – coerce remainingHours → number | null
+  let overallItems: OverallItem[] = overallRows.map((r) => {
     const sInfo = studentById.get(r.student_id);
+    const remainingHours =
+      r.remaining_hours != null ? Number(r.remaining_hours) : null;
+
     return {
       studentId: r.student_id,
       name: readName(r.student_id),
       tier: sInfo?.tier ?? null,
       status: sInfo?.status ?? "current",
-      remainingHours: r.remaining_hours ?? null,
+      remainingHours,
       isGenericLow: r.is_generic_low,
       isDynamicLow: r.is_dynamic_low,
     };
   });
 
-  // 7) Shape rows for per-delivery table
-  let perDeliveryItems = perDeliveryRows.map((r) => {
+  // 7) Shape rows for per-delivery table – also coerce to number | null
+  let perDeliveryItems: PerDeliveryItem[] = perDeliveryRows.map((r) => {
     const sInfo = studentById.get(r.studentId);
+    const remainingHours =
+      r.remainingHours != null ? Number(r.remainingHours) : null;
+
     return {
       studentId: r.studentId,
       name: readName(r.studentId),
       tier: sInfo?.tier ?? null,
       status: sInfo?.status ?? "current",
       delivery: r.delivery, // 'online' | 'f2f' | null
-      remainingHours: r.remainingHours ?? null,
+      remainingHours,
       isGenericLow: r.isGenericLow,
       isDynamicLow: r.isDynamicLow,
     };
   });
 
-  const formatDelivery = (d: "online" | "f2f" | null) =>
+  const formatDelivery = (d: PerDeliveryItem["delivery"]) =>
     d === "online" ? "Online" : d === "f2f" ? "F2F" : "—";
 
   // 8) Apply filters (predictive student name)
@@ -181,9 +202,7 @@ export default async function LowCreditStudentsPage({
   }
 
   // 9) Sort helper with narrowed order type
-  const sortByRemaining = <
-    T extends { remainingHours: number | null },
-  >(
+  const sortByRemaining = <T extends { remainingHours: number | null }>(
     items: T[],
     order: "" | "asc" | "desc",
   ): T[] => {

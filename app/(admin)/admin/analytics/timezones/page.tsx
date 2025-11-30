@@ -24,15 +24,19 @@ type LessonWithStudentProfile = {
 };
 
 const STATUS_OPTIONS = ["current", "dormant", "past", "all"] as const;
+type StatusOption = (typeof STATUS_OPTIONS)[number];
+
 const LOOKBACK_DAYS = 90;
 
-function normaliseStatusFilter(raw?: string): (typeof STATUS_OPTIONS)[number] {
+function normaliseStatusFilter(raw?: string): StatusOption {
   if (!raw) return "current";
   const lower = raw.toLowerCase();
-  return STATUS_OPTIONS.includes(lower as any)
-    ? (lower as (typeof STATUS_OPTIONS)[number])
+
+  return STATUS_OPTIONS.includes(lower as StatusOption)
+    ? (lower as StatusOption)
     : "current";
 }
+
 
 function getLocalHour(dateIso: string, timeZone: string): number {
   const d = new Date(dateIso);
@@ -252,7 +256,7 @@ export default async function TimezoneAnalyticsPage({
             <p className="mt-1 text-xs text-gray-600">
               Confirmed lessons in the last{" "}
               <span className="font-semibold">{LOOKBACK_DAYS}</span> days,
-              grouped by the hour of day in the student's local timezone.
+              grouped by the hour of day in the student local timezone.
             </p>
           </div>
         </div>
