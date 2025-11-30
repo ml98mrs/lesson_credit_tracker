@@ -1,4 +1,4 @@
-// app/(teacher)/teacher/invoices/current-month/page.tsx
+// app/(teacher)/teacher/invoices/previous-month/page.tsx
 
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";

@@ -1,18 +1,15 @@
+// lib/creditLots/labels.ts
 // ---------------------------------------------------------------------------
 // Shared helpers for credit lot labels and UI display
 // ---------------------------------------------------------------------------
 
-export type CreditLotSource =
-  | 'invoice'
-  | 'award'
-  | 'adjustment'
-  | 'overdraft';
+import type { CreditLotSource } from "./types";
 
 // Optional — if you want to expose structured label + icon + description
 export interface SourceInfo {
   label: string;
-  short: string;   // short label for tables
-  long: string;    // long label for tooltips / details
+  short: string; // short label for tables
+  long: string;  // long label for tooltips / details
 }
 
 /**
@@ -48,7 +45,7 @@ export const SOURCE_LABELS: Record<CreditLotSource, SourceInfo> = {
 export function formatLotLabel(
   source: CreditLotSource,
   externalRef?: string | null,
-  awardReason?: string | null
+  awardReason?: string | null,
 ): string {
   switch (source) {
     case "invoice":

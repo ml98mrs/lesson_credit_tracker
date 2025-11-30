@@ -1,7 +1,8 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import type { TeacherStatus } from "@/lib/types";
+import type { TeacherStatus } from "@/lib/types/teachers";
+import { readProfileDisplayName } from "@/lib/types/profiles";
 
 type StatusFilter = "current" | "potential" | "all";
 
@@ -68,7 +69,7 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
     );
   }
 
-  // 2) Load teacher names from profiles
+   // 2) Load teacher names from profiles
   const profileIds = teachers.map((t) => t.profile_id);
   const { data: profiles, error: pErr } = await sb
     .from("profiles")
@@ -89,16 +90,26 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
     string,
     { displayName: string; fullName: string }
   >(
-    (profiles ?? []).map((p) => [
-      p.id as string,
-      {
-        displayName:
-          (p.preferred_name as string | null) ||
-          (p.full_name as string) ||
-          "—",
-        fullName: (p.full_name as string) || "",
-      },
-    ])
+    (profiles ?? []).map((p) => {
+      const profileObj = {
+        full_name: p.full_name as string | null,
+        preferred_name: p.preferred_name as string | null,
+      };
+
+      const id = p.id as string;
+      const displayName =
+        readProfileDisplayName(profileObj, id.slice(0, 8) + "…") ??
+        id.slice(0, 8) + "…";
+
+      return [
+        id,
+        {
+          displayName,
+          // Full legal name can stay as the raw full_name string
+          fullName: (p.full_name as string | null) ?? "",
+        },
+      ];
+    }),
   );
 
   // 3) Load student-teacher links + student statuses to compute counts

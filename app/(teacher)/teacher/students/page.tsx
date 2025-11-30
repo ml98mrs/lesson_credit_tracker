@@ -1,7 +1,8 @@
 // app/(teacher)/teacher/students/page.tsx
 
-import { getServerSupabase } from "@/lib/supabase/server";
 import Link from "next/link";
+import { getServerSupabase } from "@/lib/supabase/server";
+import { readProfileDisplayName } from "@/lib/types/profiles";
 
 export default async function Page() {
   const sb = await getServerSupabase();
@@ -25,7 +26,7 @@ export default async function Page() {
     );
   }
 
-  const teacherId = t.id;
+  const teacherId = t.id as string;
 
   // 2) Assigned students come from student_teacher
   const { data: links, error: linksError } = await sb
@@ -42,8 +43,12 @@ export default async function Page() {
   }
 
   const studentIds = Array.from(
-    new Set((links ?? []).map((r) => r.student_id).filter(Boolean)),
-  ) as string[];
+    new Set(
+      (links ?? [])
+        .map((r) => r.student_id as string | null)
+        .filter((id): id is string => !!id),
+    ),
+  );
 
   if (studentIds.length === 0) {
     return (
@@ -72,8 +77,12 @@ export default async function Page() {
   }
 
   const profileIds = Array.from(
-    new Set((students ?? []).map((s) => s.profile_id).filter(Boolean)),
-  ) as string[];
+    new Set(
+      (students ?? [])
+        .map((s) => s.profile_id as string | null)
+        .filter((id): id is string => !!id),
+    ),
+  );
 
   const { data: profs, error: profErr } = await sb
     .from("profiles")
@@ -88,24 +97,31 @@ export default async function Page() {
     );
   }
 
-  const nameByProfile = new Map(
-    (profs ?? []).map((p) => [
-      p.id,
-      p.preferred_name || p.full_name || "—",
-    ]),
+  const nameByProfile = new Map<string, string>(
+    (profs ?? []).map((p) => {
+      const id = p.id as string;
+      const profileObj = {
+        full_name: p.full_name as string | null,
+        preferred_name: p.preferred_name as string | null,
+      };
+
+      const displayName =
+        readProfileDisplayName(profileObj, id.slice(0, 8) + "…") ??
+        id.slice(0, 8) + "…";
+
+      return [id, displayName];
+    }),
   );
 
   type StudentListRow = { id: string; name: string };
-  const rows: StudentListRow[] =
-  (students ?? []).map((s) => ({
-    id: s.id as string,
-    name:
-      nameByProfile.get(s.profile_id) ||
-      `${(s.id as string).slice(0, 8)}…`,
-  })) ?? [];
 
+  const rows: StudentListRow[] = (students ?? []).map((s) => {
+    const id = s.id as string;
+    const name =
+      nameByProfile.get(s.profile_id as string) ?? id.slice(0, 8) + "…";
 
-
+    return { id, name };
+  });
 
   return (
     <div className="space-y-4">
@@ -117,12 +133,12 @@ export default async function Page() {
             className="flex items-center justify-between p-4 text-sm"
           >
             <div className="font-medium">{s.name}</div>
-           <Link
-  className="text-xs font-medium text-blue-600 hover:underline"
-  href={`/teacher/students/${s.id}`}
->
-  Open
-</Link>
+            <Link
+              className="text-xs font-medium text-blue-600 hover:underline"
+              href={`/teacher/students/${s.id}`}
+            >
+              Open
+            </Link>
           </li>
         ))}
       </ul>

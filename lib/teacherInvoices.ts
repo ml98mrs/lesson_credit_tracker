@@ -1,7 +1,9 @@
 // lib/teacherInvoices.ts
 //
-// Domain helpers and types for teacher invoices.
-// No React imports here – UI lives in components/TeacherInvoiceStatusPill.tsx
+// Domain + UI micro-helpers for teacher invoices.
+// - Pure functions only (no React imports, no fetch/Supabase).
+// - Safe to use from components like TeacherInvoiceStatusPill for
+//   consistent status labels and badge styling across the app.
 
 /**
  * Shared status type for teacher invoice workflows.
@@ -32,7 +34,9 @@ export function formatInvoiceMonthLabel(monthStart: string): string {
 
 /**
  * Status metadata for UI layers (label + Tailwind classes).
- * UI components can use this without re-encoding the logic.
+ * Treat this as a small UI-flavoured domain helper, similar to
+ * lib/domain/teachers.ts. Components should call this rather than
+ * re-encoding invoice status labels or colours.
  */
 export function getInvoiceStatusMeta(status: InvoiceStatus): {
   label: string;

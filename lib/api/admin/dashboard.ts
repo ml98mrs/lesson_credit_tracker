@@ -4,7 +4,6 @@
 // IMPORTANT: No allocation/SNC/expiry/write-off logic here.
 // Just simple counts/aggregates that rely on existing DB rules.
 
-import { getAdminSupabase } from "@/lib/supabase/admin";
 import { getAdminClient, logAdminError } from "./_shared";
 import type { TeacherStatus, ExpiryPolicy } from "@/lib/enums";
 import {
@@ -15,7 +14,6 @@ import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
 
 // Reuse the canonical pending-lessons implementation from lessons.ts
 export { getPendingLessonsCount } from "./lessons";
-
 
 // ────────────────────────────────────────────────────────────────
 // Types
@@ -76,8 +74,6 @@ function getPreviousMonthBoundsUtc(): {
   return { lastMonthStart, thisMonthStart };
 }
 
-
-
 // ────────────────────────────────────────────────────────────────
 // Total remaining minutes
 // ────────────────────────────────────────────────────────────────
@@ -103,9 +99,7 @@ export async function getTotalRemainingMinutes(): Promise<number> {
     return 0;
   }
 
-  // Cast via unknown to avoid GenericStringError[] union complaints
-  const rows =
-    (data ?? []) as unknown as VCreditLotRemainingRow[];
+  const rows = (data ?? []) as unknown as VCreditLotRemainingRow[];
 
   const total = rows.reduce(
     (sum, row) => sum + (row.minutes_remaining ?? 0),
@@ -114,7 +108,6 @@ export async function getTotalRemainingMinutes(): Promise<number> {
 
   return total;
 }
-
 
 // ────────────────────────────────────────────────────────────────
 // Lifecycle summaries
@@ -127,7 +120,7 @@ export async function getTotalRemainingMinutes(): Promise<number> {
  * Uses v_student_lifecycle_summary to keep the aggregation in SQL.
  */
 export async function getStudentLifecycleSummary(): Promise<StudentLifecycleSummary> {
-  const sb = getAdminSupabase();
+  const sb = getAdminClient();
 
   const { data, error } = await sb
     .from("v_student_lifecycle_summary")
@@ -135,9 +128,7 @@ export async function getStudentLifecycleSummary(): Promise<StudentLifecycleSumm
     .single();
 
   if (error || !data) {
-    if (error) {
-      console.error("Error fetching student lifecycle summary", error);
-    }
+    logAdminError("Error fetching student lifecycle summary", error);
     return {
       current: 0,
       dormant: 0,
@@ -160,7 +151,7 @@ export async function getStudentLifecycleSummary(): Promise<StudentLifecycleSumm
  * linked students, then aggregates.
  */
 export async function getTeacherLifecycleSummary(): Promise<TeacherLifecycleSummary> {
-  const sb = getAdminSupabase();
+  const sb = getAdminClient();
 
   const summary: TeacherLifecycleSummary = {
     current: 0,
@@ -172,7 +163,7 @@ export async function getTeacherLifecycleSummary(): Promise<TeacherLifecycleSumm
   // 1) Ensure teacher.status is up to date with student statuses
   const { error: rpcErr } = await sb.rpc("rpc_refresh_teacher_statuses");
   if (rpcErr) {
-    console.error(
+    logAdminError(
       "Error refreshing teacher statuses in getTeacherLifecycleSummary",
       rpcErr,
     );
@@ -185,12 +176,10 @@ export async function getTeacherLifecycleSummary(): Promise<TeacherLifecycleSumm
     .select("status");
 
   if (tErr || !teachers) {
-    if (tErr) {
-      console.error(
-        "Error fetching teachers for lifecycle summary",
-        tErr,
-      );
-    }
+    logAdminError(
+      "Error fetching teachers for lifecycle summary",
+      tErr,
+    );
     return summary;
   }
 
@@ -211,7 +200,6 @@ export async function getTeacherLifecycleSummary(): Promise<TeacherLifecycleSumm
         summary[status] += 1;
         break;
       default: {
-        // Unknown status → bucket into potential and keep type exhaustive
         const _exhaustive: never = status;
         summary.potential += 1;
         break;
@@ -254,9 +242,7 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
     };
   }
 
-  // TS: data can be a union internally, so cast via unknown
-  const rows =
-    (data ?? []) as unknown as VCreditLotRemainingRow[];
+  const rows = (data ?? []) as unknown as VCreditLotRemainingRow[];
 
   type PolicyKey = Extract<ExpiryPolicy, "mandatory" | "advisory">;
 
@@ -294,7 +280,6 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
   };
 }
 
-
 // ────────────────────────────────────────────────────────────────
 // SNC / tiers – free SNCs last month
 // ────────────────────────────────────────────────────────────────
@@ -308,7 +293,7 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
  * - Previous month = full calendar month before the current one (UTC).
  */
 export async function getLastMonthFreeSncPremiumEliteCount(): Promise<number> {
-  const sb = getAdminSupabase();
+  const sb = getAdminClient();
 
   const { lastMonthStart, thisMonthStart } = getPreviousMonthBoundsUtc();
 
@@ -323,11 +308,10 @@ export async function getLastMonthFreeSncPremiumEliteCount(): Promise<number> {
     .lt("occurred_at", thisMonthStart.toISOString());
 
   if (sncError) {
-    console.error("Error fetching free SNC students last month", sncError);
+    logAdminError("Error fetching free SNC students last month", sncError);
     return 0;
   }
 
-  // Deduplicate in JS just in case
   const studentIds = Array.from(
     new Set(
       (sncRows ?? [])
@@ -348,7 +332,7 @@ export async function getLastMonthFreeSncPremiumEliteCount(): Promise<number> {
     .in("tier", ["premium", "elite"]);
 
   if (tierError) {
-    console.error(
+    logAdminError(
       "Error fetching premium/elite SNC students last month",
       tierError,
     );
@@ -358,14 +342,11 @@ export async function getLastMonthFreeSncPremiumEliteCount(): Promise<number> {
   return count ?? 0;
 }
 
-
 export type MonthlySncSummary = {
   total: number;
   free: number;
   charged: number;
 };
-
-
 
 /**
  * SNC summary for the previous calendar month (Europe/London).
@@ -377,19 +358,14 @@ export type MonthlySncSummary = {
  * We only aggregate per-student counts into global totals.
  */
 export async function getLastMonthSncSummary(): Promise<MonthlySncSummary> {
-  const sb = getAdminSupabase();
+  const sb = getAdminClient();
 
   const { data, error } = await sb
     .from("v_student_snc_status_previous_month")
     .select("free_sncs, charged_sncs");
 
   if (error || !data) {
-    if (error) {
-      console.error(
-        "Error fetching last-month SNC summary",
-        error,
-      );
-    }
+    logAdminError("Error fetching last-month SNC summary", error);
     return { total: 0, free: 0, charged: 0 };
   }
 
@@ -411,28 +387,30 @@ export async function getLastMonthSncSummary(): Promise<MonthlySncSummary> {
   };
 }
 
-
 // ────────────────────────────────────────────────────────────────
 // Lifecycle notifications for the dashboard
 // ────────────────────────────────────────────────────────────────
-//
-// Driven by:
-//   - teacher_status_events (append-only audit of teacher status changes)
-//   - student_status_events (append-only audit of student status changes)
-//
-// We only surface:
-//   1) Teacher current -> potential
-//   2) Teacher current -> inactive
-//   3) Teacher inactive -> potential
-//   4) Student current -> dormant
-//
-// All events must have is_auto = true (manual changes are handled explicitly).
-// ────────────────────────────────────────────────────────────────
+
+export async function getOpenStudentRecordQueriesCount(): Promise<number> {
+  const sb = getAdminClient();
+
+  const { count, error } = await sb
+    .from("student_record_queries")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "open");
+
+  if (error) {
+    logAdminError("getOpenStudentRecordQueriesCount error", error);
+    return 0;
+  }
+
+  return count ?? 0;
+}
 
 export async function getLifecycleNotifications(): Promise<
   LifecycleNotification[]
 > {
-  const sb = getAdminSupabase();
+  const sb = getAdminClient();
   const notifications: LifecycleNotification[] = [];
 
   // Show last 7 days of lifecycle events
@@ -464,17 +442,14 @@ export async function getLifecycleNotifications(): Promise<
   const { data: studentEvents, error: sErr } = studentEventsRes;
 
   if (tErr) {
-    console.error("teacher_status_events error", tErr);
+    logAdminError("teacher_status_events error", tErr);
   }
 
   if (sErr) {
-    console.error("student_status_events error", sErr);
+    logAdminError("student_status_events error", sErr);
   }
 
-  // ────────────────────────────────────────────────────────────
   // 1) Teacher status events
-  // ────────────────────────────────────────────────────────────
-
   if (teacherEvents && teacherEvents.length > 0) {
     const teacherIds = Array.from(
       new Set(
@@ -496,7 +471,7 @@ export async function getLifecycleNotifications(): Promise<
         .in("id", teacherIds);
 
       if (teachersErr) {
-        console.error(
+        logAdminError(
           "teachers for lifecycle events error",
           teachersErr,
         );
@@ -526,7 +501,6 @@ export async function getLifecycleNotifications(): Promise<
       let body: string | undefined;
       let variant: "info" | "warning" | "success" = "info";
 
-      // 1) current → potential
       if (key === "current->potential") {
         title = `Teacher ${teacherName} was auto-switched from current to potential`;
         body =
@@ -534,7 +508,6 @@ export async function getLifecycleNotifications(): Promise<
         variant = "info";
       }
 
-      // 2) current → inactive
       if (key === "current->inactive") {
         title = `Teacher ${teacherName} now has only dormant students`;
         body =
@@ -542,7 +515,6 @@ export async function getLifecycleNotifications(): Promise<
         variant = "warning";
       }
 
-      // 3) inactive → potential
       if (key === "inactive->potential") {
         title = `Teacher ${teacherName} now has no current or dormant students`;
         body =
@@ -562,10 +534,7 @@ export async function getLifecycleNotifications(): Promise<
     }
   }
 
-  // ────────────────────────────────────────────────────────────
   // 2) Student status events – current → dormant
-  // ────────────────────────────────────────────────────────────
-
   if (studentEvents && studentEvents.length > 0) {
     const studentIds = Array.from(
       new Set(
@@ -587,7 +556,7 @@ export async function getLifecycleNotifications(): Promise<
         .in("id", studentIds);
 
       if (stErr) {
-        console.error(
+        logAdminError(
           "students for lifecycle events error",
           stErr,
         );
@@ -610,7 +579,6 @@ export async function getLifecycleNotifications(): Promise<
       const oldStatus = ev.old_status as string;
       const newStatus = ev.new_status as string;
 
-      // 4) current → dormant
       if (oldStatus === "current" && newStatus === "dormant") {
         const studentName =
           nameByStudent.get(ev.student_id as string) ?? "A student";
@@ -627,7 +595,6 @@ export async function getLifecycleNotifications(): Promise<
     }
   }
 
-  // Sort combined, newest first, and cap the list
   notifications.sort(
     (a, b) =>
       new Date(b.createdAt).getTime() -

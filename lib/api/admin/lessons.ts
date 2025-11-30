@@ -1,8 +1,7 @@
 // lib/api/admin/lessons.ts
 //
 // Shared admin helpers for lessons & hazards.
-// IMPORTANT: all admin data access uses getAdminSupabase (service-role).
-
+// IMPORTANT: all admin data access uses getAdminClient (service-role wrapper).
 
 import { getAdminClient, type AdminClient, logAdminError } from "./_shared";
 
@@ -24,9 +23,9 @@ export function pendingLessonsBaseQuery(sb: AdminClient) {
  * Uses the same 'state = pending' condition as the queue.
  */
 export async function getPendingLessonsCount(): Promise<number> {
-  const supabase = getAdminClient();
+  const sb = getAdminClient();
 
-  const { count, error } = await supabase
+  const { count, error } = await sb
     .from("lessons")
     .select("*", { count: "exact", head: true })
     .eq("state", "pending");
@@ -54,9 +53,9 @@ export function lessonHazardsBaseQuery(sb: AdminClient) {
  * One row = one unresolved hazard instance.
  */
 export async function getLessonHazardsCount(): Promise<number> {
-  const supabase = getAdminClient();
+  const sb = getAdminClient();
 
-  const { count, error } = await supabase
+  const { count, error } = await sb
     .from("v_lesson_hazards")
     .select("*", { count: "exact", head: true });
 

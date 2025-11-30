@@ -5,18 +5,40 @@ import LowCreditBanner from "@/components/banners/LowCreditBanner";
 import ExpirySoonBanner from "@/components/banners/ExpirySoonBanner";
 import LowCreditByDeliveryBanner from "@/components/banners/LowCreditByDeliveryBanner";
 import CreditMeter from "@/components/misc/CreditMeter";
+import StudentNotificationPanel, {
+  type StudentDashboardNotification,
+} from "@/components/student/StudentNotificationPanel";
+import { CreditSnapshot } from "@/components/credit/CreditSnapshot";
+
 import { getServerSupabase } from "@/lib/supabase/server";
-import { formatMinutesAsHours, formatStudentDateTime } from "@/lib/formatters";
+import { formatStudentDateTime } from "@/lib/formatters";
 import { buildAwardLine } from "@/lib/awardReasons";
 import { loadStudentDashboard } from "@/lib/api/student/dashboard";
 import type { ProfileRow } from "@/lib/types/profiles";
 
 export const dynamic = "force-dynamic";
 
-export default async function StudentDashboard() {
+type SearchParams = Record<string, string | string[] | undefined>;
+
+type QueryNotificationRow = {
+  id: string;
+  admin_note: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export default async function StudentDashboard({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  // Next 16 passes searchParams as a Promise; we don't currently use it
+  await searchParams;
+
   const supabase = await getServerSupabase();
 
-  // Logged-in user
+  // 1) Logged-in user
   const {
     data: { user },
     error: userErr,
@@ -26,7 +48,7 @@ export default async function StudentDashboard() {
     throw new Error("No authenticated student found.");
   }
 
-  // Student linked to this profile
+  // 2) Student linked to this profile
   const { data: studentRow, error: sErr } = await supabase
     .from("students")
     .select("id")
@@ -48,12 +70,12 @@ export default async function StudentDashboard() {
 
   const studentId = studentRow.id as string;
 
-  // Profile timezone (student's local time zone)
+  // 3) Profile timezone (student's local time zone)
   const { data: profileRow, error: profileErr } = await supabase
-  .from("profiles")
-  .select("timezone")
-  .eq("id", user.id)
-  .single<Pick<ProfileRow, "timezone">>();
+    .from("profiles")
+    .select("timezone")
+    .eq("id", user.id)
+    .single<Pick<ProfileRow, "timezone">>();
 
   if (profileErr) {
     throw new Error(profileErr.message);
@@ -61,8 +83,31 @@ export default async function StudentDashboard() {
 
   const studentTimeZone = profileRow?.timezone ?? "Europe/London";
 
+  // 4) Unseen admin replies for this student (for notifications)
+  const { data: qData, error: qErr } = await supabase
+    .from("student_record_queries")
+    .select("id, admin_note, status, created_at, updated_at")
+    .eq("student_id", studentId)
+    .not("admin_note", "is", null)
+    .is("student_seen_at", null)
+    .order("created_at", { ascending: false });
 
-  // Load all dashboard data via shared API helper
+  if (qErr) {
+    throw new Error(qErr.message);
+  }
+
+  const notifications: StudentDashboardNotification[] =
+    ((qData ?? []) as QueryNotificationRow[]).map((q) => ({
+      id: q.id,
+      title:
+        q.status === "resolved"
+          ? "Your query has been resolved"
+          : "Update on your query",
+      body: q.admin_note ?? undefined,
+      createdAt: q.updated_at ?? q.created_at,
+    }));
+
+  // 5) Load all dashboard data via shared API helper
   const data = await loadStudentDashboard(studentId);
 
   const {
@@ -128,25 +173,15 @@ export default async function StudentDashboard() {
       isDynamicLow: r.isDynamicLow,
     }));
 
-  // Hours for display
-  const purchasedHours = formatMinutesAsHours(purchasedMin);
-  const awardedHours = formatMinutesAsHours(awardedMin);
-  const usedHours = formatMinutesAsHours(usedTotalMin);
-  const remainingHours = formatMinutesAsHours(remainingTotalMin);
-
-  const purchasedOnlineHours = formatMinutesAsHours(purchasedOnlineMin);
-  const purchasedF2fHours = formatMinutesAsHours(purchasedF2fMin);
-
-  const usedOnlineHours = formatMinutesAsHours(usedOnlineMin);
-  const usedF2fHours = formatMinutesAsHours(usedF2fMin);
-
-  const remainingOnlineHours = formatMinutesAsHours(remainingOnlineMin);
-  const remainingF2fHours = formatMinutesAsHours(remainingF2fMin);
-
-  
-
   return (
     <>
+      {/* Admin reply notifications */}
+      {notifications.length > 0 && (
+        <Section title="Updates" subtitle="Recent replies from the admin team.">
+          <StudentNotificationPanel initialNotifications={notifications} />
+        </Section>
+      )}
+
       {/* Top status + banners */}
       <Section
         title="Overview"
@@ -198,82 +233,27 @@ export default async function StudentDashboard() {
         <ExpirySoonBanner expiryDateUtc={nextMandatoryExpiry} />
       </Section>
 
-      {/* Snapshot cards */}
+      {/* Snapshot cards (shared component) */}
       <Section
         title="Credit snapshot"
         subtitle="How many hours you’ve purchased, used, and have remaining."
       >
-        <div className="grid gap-4 md:grid-cols-4">
-          {/* Purchased */}
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <div className="text-xs uppercase tracking-wide text-gray-500">
-              Purchased
-            </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900">
-              {purchasedHours} h
-            </div>
-            {hasBothDeliveries && (
-              <div className="mt-1 text-xs text-gray-500">
-                Online: {purchasedOnlineHours} h · F2F: {purchasedF2fHours} h
-              </div>
-            )}
-          </div>
-
-          {/* Awarded */}
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <div className="text-xs uppercase tracking-wide text-gray-500">
-              Awarded / bonus
-            </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900">
-              {awardedHours} h
-            </div>
-            {awardedLine && (
-              <div className="mt-1 text-xs text-gray-500">{awardedLine}</div>
-            )}
-          </div>
-
-          {/* Used */}
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <div className="text-xs uppercase tracking-wide text-gray-500">
-              Used
-            </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900">
-              {usedHours} h
-            </div>
-            {hasBothDeliveries && (
-              <div className="mt-1 text-xs text-gray-500">
-                Online: {usedOnlineHours} h · F2F: {usedF2fHours} h
-              </div>
-            )}
-            {usedAwardLine && (
-              <div className="mt-1 text-xs text-gray-500">
-                {usedAwardLine}
-              </div>
-            )}
-          </div>
-
-          {/* Remaining */}
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="text-xs uppercase tracking-wide text-gray-500">
-                Remaining
-              </div>
-            </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900">
-              {remainingHours} h
-            </div>
-            {hasBothDeliveries && (
-              <div className="mt-1 text-xs text-gray-500">
-                Online: {remainingOnlineHours} h · F2F: {remainingF2fHours} h
-              </div>
-            )}
-            {remainingAwardLine && (
-              <div className="mt-1 text-xs text-gray-500">
-                {remainingAwardLine}
-              </div>
-            )}
-          </div>
-        </div>
+        <CreditSnapshot
+          purchasedMin={purchasedMin}
+          awardedMin={awardedMin}
+          usedMin={usedTotalMin}
+          remainingMin={remainingTotalMin}
+          purchasedOnlineMin={purchasedOnlineMin}
+          purchasedF2fMin={purchasedF2fMin}
+          usedOnlineMin={usedOnlineMin}
+          usedF2fMin={usedF2fMin}
+          remainingOnlineMin={remainingOnlineMin}
+          remainingF2fMin={remainingF2fMin}
+          hasBothDeliveries={hasBothDeliveries}
+          awardedLine={awardedLine}
+          usedAwardLine={usedAwardLine}
+          remainingAwardLine={remainingAwardLine}
+        />
       </Section>
 
       {/* Visual meter */}

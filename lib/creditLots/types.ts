@@ -1,20 +1,17 @@
-
-
 //-------------------------------------------------------------------------
 // Credit Lot — Shared Types
 // ---------------------------------------------------------------------------
 
+import type { CreditLotState } from "@/lib/enums";
+
+// Canonical credit lot source type – used across colours, labels, ordering.
 export type CreditLotSource =
   | "invoice"
   | "award"
   | "adjustment"
   | "overdraft";
 
-export type CreditLotState =
-  | "open"
-  | "closed"
-  | "expired";
-
+// CreditLotState now comes from lib/enums.ts (includes "cancelled").
 export interface CreditLot {
   credit_lot_id: string;
   student_id: string;

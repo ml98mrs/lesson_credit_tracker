@@ -19,7 +19,10 @@ import type {
   VStudentDynamicCreditAlertByDeliveryRow,
 } from "@/lib/types/views/credit";
 import { computeStudentSncStatus } from "@/lib/domain/snc";
-import type { Delivery } from "@/lib/enums";
+import {
+  mapDeliveryAlertRow,
+  mapCreditDeliverySummaryRow,
+} from "@/lib/domain/students";
 
 // Convenience alias for the server Supabase client type
 type ServerSupabaseClient = Awaited<ReturnType<typeof getServerSupabase>>;
@@ -65,12 +68,7 @@ type CreditSummaryResult = {
 
 type DeliverySplitResult = {
   purchasedInvoiceMin: number;
-  purchasedOnlineMin: number;
-  purchasedF2fMin: number;
-  usedOnlineMin: number;
-  usedF2fMin: number;
-  remainingOnlineMin: number;
-  remainingF2fMin: number;
+  deliveryRow: VStudentCreditDeliverySummaryRow | null;
 };
 
 // ---- Internal helper functions -------------------------------------------
@@ -175,27 +173,17 @@ async function fetchDeliverySplit(
     throw new Error(deliveryErr.message);
   }
 
-  const breakdown =
-    deliveryRow ?? ({} as VStudentCreditDeliverySummaryRow);
+  const row = (deliveryRow ??
+    null) as VStudentCreditDeliverySummaryRow | null;
 
-  const purchasedInvoiceMin = breakdown.purchased_min ?? 0;
-  const purchasedOnlineMin = breakdown.purchased_online_min ?? 0;
-  const purchasedF2fMin = breakdown.purchased_f2f_min ?? 0;
-  const usedOnlineMin = breakdown.used_online_min ?? 0;
-  const usedF2fMin = breakdown.used_f2f_min ?? 0;
-  const remainingOnlineMin = breakdown.remaining_online_min ?? 0;
-  const remainingF2fMin = breakdown.remaining_f2f_min ?? 0;
+  const purchasedInvoiceMin = row?.purchased_min ?? 0;
 
   return {
     purchasedInvoiceMin,
-    purchasedOnlineMin,
-    purchasedF2fMin,
-    usedOnlineMin,
-    usedF2fMin,
-    remainingOnlineMin,
-    remainingF2fMin,
+    deliveryRow: row,
   };
 }
+
 
 async function fetchAwardReasons(
   supabase: ServerSupabaseClient,
@@ -251,19 +239,8 @@ async function fetchLowCreditAlertsByDelivery(
   const alertRowsTyped =
     (alertsRows ?? []) as unknown as VStudentDynamicCreditAlertByDeliveryRow[];
 
-  return alertRowsTyped.map(
-  (r): StudentDeliveryLowCreditAlert => ({
-    delivery: r.delivery as Delivery,   // <- assert non-null delivery
-    remainingMinutes: r.remaining_minutes ?? 0,
-    avgMonthHours: r.avg_month_hours,
-    bufferHours: r.buffer_hours,
-    isGenericLow: r.is_generic_low,
-    isDynamicLow: r.is_dynamic_low,
-    isLowAny: r.is_low_any,
-    isZeroPurchased: r.is_zero_purchased, // we'll add this to the view type next
-  }),
-);
-
+  // Domain helper converts view row → StudentDeliveryLowCreditAlert
+  return alertRowsTyped.map(mapDeliveryAlertRow);
 }
 
 async function fetchLastActivity(
@@ -318,31 +295,26 @@ export async function loadStudentDashboard(
     nextMandatoryExpiry,
   } = creditSummary;
 
-  const {
-    purchasedInvoiceMin,
-    purchasedOnlineMin,
-    purchasedF2fMin,
-    usedOnlineMin,
-    usedF2fMin,
-    remainingOnlineMin,
-    remainingF2fMin,
-  } = deliverySplit;
+    const { purchasedInvoiceMin, deliveryRow } = deliverySplit;
+
+  // Canonical per-delivery mapping lives in lib/domain/students.ts
+  const baseDeliverySummary = mapCreditDeliverySummaryRow(deliveryRow);
 
   const purchasedMin = purchasedInvoiceMin;
   const awardedMin = Math.max(grantedMin - purchasedMin, 0);
 
   const deliverySummary: StudentCreditDeliverySummary = {
+    ...baseDeliverySummary,
+    // Override top-level aggregates to match the spec:
+    // - purchasedMin = invoice minutes (purchased_min)
+    // - awardedMin   = total granted - purchased
+    // - used/remaining from v_student_credit_summary (all credit)
     purchasedMin,
     awardedMin,
     usedMin,
     remainingMin,
-    purchasedOnlineMin,
-    purchasedF2fMin,
-    usedOnlineMin,
-    usedF2fMin,
-    remainingOnlineMin,
-    remainingF2fMin,
   };
+
 
   const generatedAtIso = new Date().toISOString();
 

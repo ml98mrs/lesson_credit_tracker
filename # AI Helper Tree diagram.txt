@@ -19,7 +19,6 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
 │   │   │   ├── dashboard
-│   │   │   │   ├── NotificationPanel.tsx
 │   │   │   │   ├── page.tsx
 │   │   │   │   └── PendingTeacherExpensesCard.tsx
 │   │   │   ├── lessons
@@ -31,6 +30,11 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │       ├── page.tsx
 │   │   │   │       └── ReviewLessonClient.tsx
 │   │   │   ├── maintenance
+│   │   │   │   └── page.tsx
+│   │   │   ├── record-queries
+│   │   │   │   ├── [queryId]
+│   │   │   │   │   ├── _AdminRecordQueryForm.tsx
+│   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
 │   │   │   ├── students
 │   │   │   │   ├── [studentId]
@@ -100,9 +104,11 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   ├── dashboard
 │   │   │   │   └── page.tsx
 │   │   │   ├── lessons
-│   │   │   │   ├── page.tsx
-│   │   │   │   ├── pagebackup.tsx
-│   │   │   │   └── pagebackup2.tsx
+│   │   │   │   ├── download
+│   │   │   │   │   └── route.ts
+│   │   │   │   └── page.tsx
+│   │   │   ├── queries
+│   │   │   │   └── page.tsx
 │   │   │   └── uptake
 │   │   │       └── page.tsx
 │   │   └── layout.tsx
@@ -117,7 +123,7 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   ├── invoices
 │   │   │   │   ├── [invoiceId]
 │   │   │   │   │   └── page.tsx
-│   │   │   │   ├── current-month
+│   │   │   │   ├── previous-month
 │   │   │   │   │   └── page.tsx
 │   │   │   │   └── page.tsx
 │   │   │   ├── lessons
@@ -170,6 +176,8 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   │   │   │   └── route.ts
 │   │   │   │   └── write-off
 │   │   │   │       └── route.ts
+│   │   │   ├── record-queries
+│   │   │   │   └── route.ts
 │   │   │   ├── search
 │   │   │   │   └── route.ts
 │   │   │   ├── student-teachers
@@ -203,6 +211,15 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   ├── auth
 │   │   │   └── callback
 │   │   │       └── route.ts
+│   │   ├── export
+│   │   │   └── allocations
+│   │   │       └── [lotId]
+│   │   │           └── route.ts
+│   │   ├── student
+│   │   │   └── record-queries
+│   │   │       ├── mark-seen
+│   │   │       │   └── route.ts
+│   │   │       └── route.ts
 │   │   └── teacher
 │   │       ├── expenses
 │   │       │   └── route.ts
@@ -226,11 +243,14 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   ├── ExpenseStatusButtons.tsx
 │   │   ├── GenerateInvoiceButton.tsx
 │   │   ├── LessonHazards.tsx
-│   │   ├── LotAllocations.tsx
 │   │   ├── MaintenancePanel.tsx
+│   │   ├── NotificationPanel.tsx
 │   │   ├── SNCInfoPanel.tsx
+│   │   ├── StudentPricingSnapshot.tsx
+│   │   ├── StudentSncHistory.tsx
 │   │   ├── StudentStatusToggle.tsx
 │   │   ├── StudentTierSelector.tsx
+│   │   ├── StudentWarningStrip.tsx
 │   │   ├── TeacherRatesForm.tsx
 │   │   ├── TierBadge.tsx
 │   │   ├── WriteOffOverdraftButton.tsx
@@ -241,10 +261,16 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 │   │   ├── ExpirySoonBanner.tsx
 │   │   ├── LowCreditBanner.tsx
 │   │   └── LowCreditByDeliveryBanner.tsx
+│   ├── credit
+│   │   ├── CreditSnapshot.tsx
+│   │   └── LotAllocationsTable.tsx
 │   ├── lessons
 │   │   └── LessonTypeBadge.tsx
 │   ├── misc
 │   │   └── CreditMeter.tsx
+│   ├── student
+│   │   ├── StudentLessonQueryButton.tsx
+│   │   └── StudentNotificationPanel.tsx
 │   ├── teacher
 │   │   └── DeleteExpenseButton.tsx
 │   ├── ui
@@ -253,6 +279,8 @@ C:\Users\kagaw\dev\lesson_credit_tracker
 └── lib
     ├── api
     │   ├── admin
+    │   │   ├── old
+    │   │   │   └── dashboardbackup.ts
     │   │   ├── _shared.ts
     │   │   ├── creditLots.ts
     │   │   ├── dashboard.ts
@@ -260,21 +288,25 @@ C:\Users\kagaw\dev\lesson_credit_tracker
     │   │   ├── lessons.ts
     │   │   └── lowCredit.ts
     │   └── student
-    │       └── dashboard.ts
+    │       ├── dashboard.ts
+    │       └── lessons.ts
     ├── creditLots
     │   ├── colors.ts
     │   ├── labels.ts
     │   ├── ordering.ts
     │   └── types.ts
     ├── domain
-    │   ├── expiry.ts
+    │   ├── delivery.ts
+    │   ├── expiryPolicy.ts
     │   ├── hazards.ts
+    │   ├── lessons.ts
     │   ├── snc.ts
+    │   ├── students.ts
+    │   ├── teachers.ts
     │   └── tiers.ts
     ├── supabase
     │   ├── admin.ts
     │   ├── browser.ts
-    │   ├── client.ts
     │   ├── index.ts
     │   ├── middleware.ts
     │   ├── server.ts
@@ -288,6 +320,8 @@ C:\Users\kagaw\dev\lesson_credit_tracker
     │   ├── profiles.ts
     │   ├── students.ts
     │   └── teachers.ts
+    ├── xlsx
+    │   └── allocations.ts
     ├── awardReasons.ts
     ├── database.types.ts
     ├── enums.ts

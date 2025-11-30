@@ -22,12 +22,14 @@ import {
   getTeacherLifecycleSummary,
   getLifecycleNotifications,
   getLastMonthSncSummary, 
+  getOpenStudentRecordQueriesCount,
 } from "@/lib/api/admin/dashboard";
 
 import {
   NotificationPanel,
   type DashboardNotification,
-} from "./NotificationPanel";
+} from "@/components/admin/NotificationPanel";
+
 import PendingTeacherExpensesCard from "./PendingTeacherExpensesCard";
 export const dynamic = "force-dynamic";
 
@@ -43,7 +45,8 @@ async function getDashboardData() {
     lowCreditByDelivery,
     teacherLifecycleSummary,
     lifecycleNotifications,
-    monthlySncSummary, // 👈 NEW
+    monthlySncSummary, 
+    openStudentQueryCount,
   ] = await Promise.all([
     getPendingLessonsCount(),
     getLessonHazardsCount(),
@@ -55,7 +58,8 @@ async function getDashboardData() {
     getLowCreditStudentsCountByDelivery(),
     getTeacherLifecycleSummary(),
     getLifecycleNotifications(),
-    getLastMonthSncSummary(), // 👈 NEW
+    getLastMonthSncSummary(), 
+    getOpenStudentRecordQueriesCount(),
   ]);
 
   return {
@@ -66,7 +70,7 @@ async function getDashboardData() {
     expiringSoon,
     lowCreditStudentCount,
     lowCreditByDelivery,
-    monthlySnc: monthlySncSummary, // 👈 now real data
+    monthlySnc: monthlySncSummary, 
     freeSncLastMonthPremiumElite,
     sncAnomalyCount: 0,
     lifecycleSummary,
@@ -74,6 +78,7 @@ async function getDashboardData() {
     autoDormantCandidateCount: 0,
     writeOffCandidateCount: 0,
     notifications: lifecycleNotifications,
+    openStudentQueryCount, 
   };
 }
 
@@ -101,12 +106,22 @@ export default async function AdminDashboardPage() {
 
       {/* Overview & alerts (includes pending expenses card) */}
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Overview & alerts</h2>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <PendingTeacherExpensesCard />
-          {/* later: other alert cards can go here */}
-        </div>
-      </section>
+  <h2 className="text-lg font-semibold">Overview & alerts</h2>
+  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <PendingTeacherExpensesCard />
+
+    <DashboardCard
+      title="Student queries"
+      value={data.openStudentQueryCount}
+      description="Open queries raised by students about lessons or credit logs."
+      actionLabel="Review queries"
+      href="/admin/record-queries"
+    />
+
+    {/* later: other alert cards can go here */}
+  </div>
+</section>
+
 
       {/* 1. Today / operational KPIs */}
       <section className="space-y-2">

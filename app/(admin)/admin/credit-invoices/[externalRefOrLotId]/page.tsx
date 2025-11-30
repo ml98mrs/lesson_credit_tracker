@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import Section from "@/components/ui/Section";
-import { formatDateTimeUK, formatMinutesAsHours } from "@/lib/formatters";
+import { formatDateTimeLondon, formatMinutesAsHours } from "@/lib/formatters";
 import type { ProfilesEmbed } from "@/lib/types/profiles";
 import { readProfileFullName } from "@/lib/types/profiles";
 
@@ -278,7 +278,7 @@ export default async function Page({
         </div>
         <div>
           <span className="text-gray-500">Created:</span>{" "}
-          {lot.created_at ? formatDateTimeUK(lot.created_at) : "—"}
+          {lot.created_at ? formatDateTimeLondon(lot.created_at) : "—"}
         </div>
 
         <div>
@@ -296,7 +296,7 @@ export default async function Page({
 
         <div>
           <span className="text-gray-500">Start date:</span>{" "}
-          {lot.start_date ? formatDateTimeUK(lot.start_date) : "—"}
+          {lot.start_date ? formatDateTimeLondon(lot.start_date) : "—"}
         </div>
         <div>
           <span className="text-gray-500">Expiry policy:</span>{" "}
@@ -304,7 +304,7 @@ export default async function Page({
         </div>
         <div>
           <span className="text-gray-500">Expiry date:</span>{" "}
-          {lot.expiry_date ? formatDateTimeUK(lot.expiry_date) : "—"}
+          {lot.expiry_date ? formatDateTimeLondon(lot.expiry_date) : "—"}
         </div>
 
         <div className="sm:col-span-2">
@@ -349,7 +349,7 @@ export default async function Page({
                     </td>
                     <td className="py-2 pr-4">
                       {L?.occurred_at
-                        ? formatDateTimeUK(L.occurred_at)
+                        ? formatDateTimeLondon(L.occurred_at)
                         : "—"}
                     </td>
                     <td className="py-2 pr-4">

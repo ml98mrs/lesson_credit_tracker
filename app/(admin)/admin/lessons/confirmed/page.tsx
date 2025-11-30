@@ -3,13 +3,16 @@
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { formatDateTimeLondon } from "@/lib/formatters";
-import { formatLotLabel, type CreditLotSource } from "@/lib/creditLots/labels";
-import { readProfileFullName, type ProfilesEmbed } from "@/lib/types/profiles";
-import type {
-  Delivery,
-  LengthCat,
-  LessonState,
-} from "@/lib/enums";
+import { formatLotLabel } from "@/lib/creditLots/labels";
+import type { CreditLotSource } from "@/lib/creditLots/types";
+import {
+  AdminLessonListRow,
+  formatDeliveryLabel,
+  formatLessonLength,
+  buildAdminLessonNameMaps,
+  buildAdminNameOptionsFromMaps,
+  computeLessonDateRange,
+} from "@/lib/domain/lessons";
 
 export const dynamic = "force-dynamic";
 
@@ -27,17 +30,7 @@ type PageProps = {
   searchParams?: Promise<SearchParams>;
 };
 
-type LessonRow = {
-  id: string;
-  student_id: string;
-  teacher_id: string;
-  occurred_at: string; // UTC ISO string
-  duration_min: number;
-  delivery: Delivery;
-  length_cat: LengthCat;
-  state: LessonState;
-  notes: string | null;
-};
+type LessonRow = AdminLessonListRow;
 
 type AllocRow = {
   lesson_id: string;
@@ -49,16 +42,6 @@ type LotMetaRow = {
   source_type: CreditLotSource;
   external_ref: string | null;
   award_reason_code: string | null;
-};
-
-type StudentRow = {
-  id: string;
-  profiles: ProfilesEmbed;
-};
-
-type TeacherRow = {
-  id: string;
-  profiles: ProfilesEmbed;
 };
 
 export default async function ConfirmedLessonsPage({ searchParams }: PageProps) {
@@ -85,42 +68,17 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     )
     .eq("state", "confirmed");
 
-  // Date range:
-  //  • If both fromDate & toDate valid → use inclusive range.
-  //  • Else if month specified → use that calendar month.
-  let fromDate: Date | null = null;
-  let toDate: Date | null = null;
+  // Shared date-range logic (from lib/domain/lessons)
+  const { fromIso, toExclusiveIso } = computeLessonDateRange({
+    monthParam,
+    fromDateParam,
+    toDateParam,
+  });
 
-  if (fromDateParam && toDateParam) {
-    const fromCandidate = new Date(`${fromDateParam}T00:00:00.000Z`);
-    const toCandidate = new Date(`${toDateParam}T00:00:00.000Z`);
-
-    if (
-      !Number.isNaN(fromCandidate.getTime()) &&
-      !Number.isNaN(toCandidate.getTime()) &&
-      fromCandidate <= toCandidate
-    ) {
-      fromDate = fromCandidate;
-      // Inclusive end date: add 1 day to the "to" date
-      toDate = new Date(toCandidate.getTime() + 24 * 60 * 60 * 1000);
-    }
-  }
-
-  if (!fromDate && monthParam) {
-    const [yearStr, monthStr] = monthParam.split("-");
-    const year = Number(yearStr);
-    const month = Number(monthStr);
-
-    if (!Number.isNaN(year) && !Number.isNaN(month) && month >= 1 && month <= 12) {
-      fromDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-      toDate = new Date(Date.UTC(year, month, 1, 0, 0, 0)); // first day of next month
-    }
-  }
-
-  if (fromDate && toDate) {
+  if (fromIso && toExclusiveIso) {
     query = query
-      .gte("occurred_at", fromDate.toISOString())
-      .lt("occurred_at", toDate.toISOString());
+      .gte("occurred_at", fromIso)
+      .lt("occurred_at", toExclusiveIso);
   }
 
   // Exact lesson ID filter
@@ -208,57 +166,14 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
   }
 
   // --------------------------
-  // Student / teacher names via embeds + Profiles helpers
+  // Student / teacher names (via helper)
   // --------------------------
-  const studentIds = Array.from(new Set(lessons.map((l) => l.student_id)));
-  const teacherIds = Array.from(new Set(lessons.map((l) => l.teacher_id)));
+  const nameMaps = await buildAdminLessonNameMaps(sb, lessons);
+  const { studentNameById, teacherNameById } = nameMaps;
 
-  let studentRows: StudentRow[] = [];
-  let teacherRows: TeacherRow[] = [];
-
-  if (studentIds.length > 0) {
-    const { data, error } = await sb
-      .from("students")
-      .select("id, profiles(full_name)")
-      .in("id", studentIds);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    studentRows = (data ?? []) as StudentRow[];
-  }
-
-  if (teacherIds.length > 0) {
-    const { data, error } = await sb
-      .from("teachers")
-      .select("id, profiles(full_name)")
-      .in("id", teacherIds);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    teacherRows = (data ?? []) as TeacherRow[];
-  }
-
-  const studentNameById = new Map<string, string>();
-  for (const s of studentRows) {
-    const displayName =
-      readProfileFullName(s.profiles) ?? `${s.id.slice(0, 8)}…`;
-    studentNameById.set(s.id, displayName);
-  }
-
-  const teacherNameById = new Map<string, string>();
-  for (const t of teacherRows) {
-    const displayName =
-      readProfileFullName(t.profiles) ?? `${t.id.slice(0, 8)}…`;
-    teacherNameById.set(t.id, displayName);
-  }
-
-  // Datalist options for autocomplete
-  const studentOptions = Array.from(new Set(studentNameById.values())).sort();
-  const teacherOptions = Array.from(new Set(teacherNameById.values())).sort();
+  // Datalist options for autocomplete (via helper)
+  const { studentOptions, teacherOptions } =
+    buildAdminNameOptionsFromMaps(nameMaps);
 
   // --------------------------
   // In-memory filters by *name* (human-friendly)
@@ -331,9 +246,11 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
                       `${l.teacher_id.slice(0, 8)}…`}
                   </td>
                   <td className="py-2 pr-4">
-                    {l.delivery === "f2f" ? "F2F" : "Online"}
+                    {formatDeliveryLabel(l.delivery)}
                   </td>
-                  <td className="py-2 pr-4">{l.duration_min} min</td>
+                  <td className="py-2 pr-4">
+                    {formatLessonLength(l.length_cat, l.duration_min)}
+                  </td>
                   <td className="py-2 pr-4 text-xs">
                     {lessonLotsLabel.get(l.id) ?? "—"}
                   </td>

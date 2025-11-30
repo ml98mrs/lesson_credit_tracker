@@ -17,8 +17,10 @@ export function formatHoursLabel(mins: number | null | undefined): string {
 
 export function formatDeliveryLabel(d: Delivery | null): string {
   if (!d) return "—";
+
   if (d === "online") return "Online";
-  if (d === "f2f") return "Face to face";
+  if (d === "f2f") return "F2F"; // short, matches lesson tables + spec
+
   return d;
 }
 

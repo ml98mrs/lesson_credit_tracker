@@ -3,9 +3,9 @@
 // Read-only helpers for expiring credit.
 // Uses v_credit_lot_remaining so all expiry rules live in SQL.
 
-import { getAdminSupabase } from "@/lib/supabase/admin";
 import type { ExpiryPolicy as ExpiryPolicyEnum } from "@/lib/enums";
 import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
+import { getAdminClient, logAdminError } from "@/lib/api/admin/_shared";
 
 // Only "mandatory" and "advisory" are relevant for expiring-lot lists.
 export type ExpiryPolicy = Extract<
@@ -34,9 +34,9 @@ export type ExpiringStudentSummary = {
 export async function getExpiringLotsByPolicy(
   policy: ExpiryPolicy,
 ): Promise<ExpiringLotRow[]> {
-  const supabase = getAdminSupabase();
+  const sb = getAdminClient();
 
-  const { data, error } = await supabase
+  const { data, error } = await sb
     .from("v_credit_lot_remaining")
     .select(
       "credit_lot_id, student_id, minutes_remaining, expiry_date, expiry_policy, expiry_within_30d, state",
@@ -48,12 +48,12 @@ export async function getExpiringLotsByPolicy(
     .order("expiry_date", { ascending: true });
 
   if (error) {
-    console.error("Error fetching expiring lots", error);
+    logAdminError("Error fetching expiring lots", error);
     return [];
   }
 
   const rows =
-    (data ?? []) as VCreditLotRemainingRow[];
+    (data ?? []) as unknown as VCreditLotRemainingRow[];
 
   // Map from generic view row → narrowed ExpiringLotRow
   return rows.map(
@@ -94,12 +94,12 @@ export async function getExpiringStudentsByPolicy(
       byStudent.set(lot.student_id, {
         studentId: lot.student_id,
         lotCount: 1,
-        totalMinutes: lot.minutes_remaining ?? 0,
+        totalMinutes: lot.minutes_remaining,
         earliestExpiryDate: earliest,
       });
     } else {
       existing.lotCount += 1;
-      existing.totalMinutes += lot.minutes_remaining ?? 0;
+      existing.totalMinutes += lot.minutes_remaining;
       existing.earliestExpiryDate = earliest;
     }
   }

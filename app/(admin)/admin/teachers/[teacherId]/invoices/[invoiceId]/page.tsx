@@ -106,6 +106,7 @@ export default async function TeacherInvoiceAdminDetail({
 
   const typedInvoice = invoice as TeacherInvoice;
   const { month_start } = typedInvoice;
+  const invoiceIsPaid = typedInvoice.status === "paid";
   // Friendly invoice reference fallback
 function makeFriendlyInvoiceRef() {
   const dt = new Date(month_start + "T00:00:00Z");
@@ -506,11 +507,18 @@ supabase
                       </td>
 
                       <td className="whitespace-nowrap px-3 py-2 text-right text-[11px] text-gray-500">
-                        <ExpenseStatusButtons
-                          expenseId={exp.id}
-                          currentStatus={exp.status}
-                        />
-                      </td>
+  {invoiceIsPaid ? (
+    <span className="text-gray-400">
+      Locked (invoice paid)
+    </span>
+  ) : (
+    <ExpenseStatusButtons
+      expenseId={exp.id}
+      currentStatus={exp.status}
+    />
+  )}
+</td>
+
                     </tr>
                   ))
                 )}

@@ -1,13 +1,29 @@
 // app/(student)/student/credit/page.tsx
 
+import React from "react"; // 👈 needed for React.Fragment
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { isExpiryWarningOnly } from "@/lib/domain/expiryPolicy";
 
-import type { Delivery, DeliveryRestriction, ExpiryPolicy } from "@/lib/enums";
-import { formatLotLabel, CreditLotSource } from "@/lib/creditLots/labels";
-import { formatMinutesAsHours, formatDateTimeLondon, formatDeliveryLabel } from "@/lib/formatters";
+import type {
+  Delivery,
+  DeliveryRestriction,
+  ExpiryPolicy,
+} from "@/lib/enums";
 
+import {
+  formatMinutesAsHours,
+  formatDateTimeLondon,
+  } from "@/lib/formatters";
+
+import {
+  LotAllocationsTable,
+  type AllocationRow,
+} from "@/components/credit/LotAllocationsTable";
+import { formatLotLabel } from "@/lib/creditLots/labels";
+import type { CreditLotSource } from "@/lib/creditLots/types";
+import { formatDeliveryLabel } from "@/lib/domain/lessons";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +44,6 @@ type SearchParams = {
   delivery?: string;
 };
 
-
-
 export default async function StudentCreditPage({
   searchParams,
 }: {
@@ -37,7 +51,7 @@ export default async function StudentCreditPage({
 }) {
   const supabase = await getServerSupabase();
 
-  // 🔹 resolve searchParams (Next 16 passes a Promise)
+  // Next 16: searchParams is a Promise
   const sp = await searchParams;
   const creditType = sp.creditType || "";
   const deliveryFilter = sp.delivery as Delivery | undefined;
@@ -52,7 +66,7 @@ export default async function StudentCreditPage({
     throw new Error("No authenticated student found.");
   }
 
-  // 2) Student row linked to this auth user (via profiles.id)
+  // 2) Student linked to this profile
   const { data: studentRow, error: sErr } = await supabase
     .from("students")
     .select("id")
@@ -77,7 +91,7 @@ export default async function StudentCreditPage({
   const studentId = studentRow.id as string;
 
   // 3) Fetch this student's credit lots from the view, with filters
-  let query = supabase
+  let lotQuery = supabase
     .from("v_credit_lot_remaining")
     .select(
       [
@@ -95,27 +109,71 @@ export default async function StudentCreditPage({
     .eq("student_id", studentId);
 
   if (creditType === "invoice" || creditType === "award") {
-    query = query.eq("source_type", creditType);
+    lotQuery = lotQuery.eq("source_type", creditType);
   }
 
   if (deliveryFilter === "online" || deliveryFilter === "f2f") {
-    query = query.eq("delivery_restriction", deliveryFilter);
+    lotQuery = lotQuery.eq("delivery_restriction", deliveryFilter);
   }
 
-  query = query.order("start_date", { ascending: true });
+  lotQuery = lotQuery.order("start_date", { ascending: true });
 
-  const { data, error } = await query;
+  const { data: lotData, error: lotErr } = await lotQuery;
 
-  if (error) {
-    throw new Error(error.message);
+  if (lotErr) {
+    throw new Error(lotErr.message);
   }
 
-  const rows = (data ?? []) as unknown as CreditLotRow[];
+  const rows = (lotData ?? []) as unknown as CreditLotRow[];
+
   const totalRemaining = rows.reduce(
     (sum, r) => sum + (r.minutes_remaining ?? 0),
     0,
   );
 
+  // 4) Load per-lot allocations (richer detail, shared with admin)
+  const lotIds = rows.map((r) => r.credit_lot_id);
+  let allocationsByLot: Record<string, AllocationRow[]> = {};
+
+  if (lotIds.length > 0) {
+    const { data: allocs, error: allocErr } = await supabase
+      .from("v_lot_allocations_detail")
+      .select(
+        [
+          "id",
+          "credit_lot_id",
+          "lesson_id",
+          "minutes_allocated",
+          "created_at",
+          "lesson_occurred_at",
+          "lesson_duration_min",
+          "lesson_delivery",
+          "lesson_is_snc",
+          "lesson_snc_mode",
+          "student_full_name",
+          "teacher_full_name",
+        ].join(","),
+      )
+      .in("credit_lot_id", lotIds)
+      .returns<AllocationRow[]>();
+
+    if (allocErr) {
+      throw new Error(allocErr.message);
+    }
+
+    const allocationRows = allocs ?? [];
+
+    allocationsByLot = allocationRows.reduce<Record<string, AllocationRow[]>>(
+      (acc, a) => {
+        if (!acc[a.credit_lot_id]) acc[a.credit_lot_id] = [];
+        acc[a.credit_lot_id].push(a);
+        return acc;
+      },
+      {},
+    );
+  }
+
+  // 5) If no lots, show a simple summary
   if (rows.length === 0) {
     return (
       <Section
@@ -140,6 +198,14 @@ export default async function StudentCreditPage({
       title="Your credit"
       subtitle="Purchased and awarded hours, plus any expiry information."
     >
+      {/* Summary card */}
+      <div className="mb-4 rounded-2xl border p-4">
+        <div className="text-xs text-gray-500">Total remaining</div>
+        <div className="text-2xl font-semibold">
+          {formatMinutesAsHours(totalRemaining)} h
+        </div>
+      </div>
+
       {/* Filters */}
       <form className="mb-4 flex flex-wrap gap-3 text-xs" method="GET">
         {/* Credit type */}
@@ -193,7 +259,7 @@ export default async function StudentCreditPage({
         </div>
       </form>
 
-      {/* Table */}
+      {/* Lots + per-lot allocations */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
@@ -206,41 +272,57 @@ export default async function StudentCreditPage({
               <th className="py-2 pr-4">Expiry</th>
             </tr>
           </thead>
-         <tbody>
-  {rows.map((r) => (
-    <tr key={r.credit_lot_id} className="border-b">
-      <td className="py-2 pr-4">
-        {formatLotLabel(r.source_type, r.external_ref, null)}
-      </td>
+          <tbody>
+            {rows.map((r) => {
+              const lotAllocations = allocationsByLot[r.credit_lot_id] ?? [];
 
-      <td className="py-2 pr-4">
-        {formatDeliveryLabel(r.delivery_restriction)}
-      </td>
+              return (
+                <React.Fragment key={r.credit_lot_id}>
+                  {/* Main lot row */}
+                  <tr className="border-b">
+                    <td className="py-2 pr-4">
+                      {formatLotLabel(r.source_type, r.external_ref, null)}
+                    </td>
+                    <td className="py-2 px-3">
+  {r.delivery_restriction
+    ? formatDeliveryLabel(r.delivery_restriction)
+    : "—"}
+</td>
+                    <td className="py-2 pr-4">
+                      {formatMinutesAsHours(r.minutes_granted)} h
+                    </td>
+                    <td className="py-2 pr-4">
+                      {formatMinutesAsHours(r.minutes_allocated)} h
+                    </td>
+                    <td className="py-2 pr-4">
+                      {formatMinutesAsHours(r.minutes_remaining)} h
+                    </td>
+                    <td className="py-2 pr-4">
+  {!r.expiry_date || r.expiry_policy === "none" ? (
+    "No expiry"
+  ) : (
+    <>
+      {formatDateTimeLondon(r.expiry_date)}
+      {isExpiryWarningOnly(r.expiry_policy) && " – purely advisory"}
+    </>
+  )}
+</td>
 
-      <td className="py-2 pr-4">
-        {formatMinutesAsHours(r.minutes_granted)} h
-      </td>
-      <td className="py-2 pr-4">
-        {formatMinutesAsHours(r.minutes_allocated)} h
-      </td>
-      <td className="py-2 pr-4">
-        {formatMinutesAsHours(r.minutes_remaining)} h
-      </td>
-      <td className="py-2 pr-4">
-        {r.expiry_policy === "none" || !r.expiry_date ? (
-          "No expiry"
-        ) : r.expiry_policy === "advisory" ? (
-          <>
-            {formatDateTimeLondon(r.expiry_date)} – purely advisory
-          </>
-        ) : (
-          formatDateTimeLondon(r.expiry_date)
-        )}
-      </td>
-    </tr>
-  ))}
-</tbody>
+                  </tr>
 
+                  {/* Per-lot usage (shared with admin, student variant) */}
+                  <tr className="border-b">
+                    <td colSpan={6} className="bg-gray-50 py-2 pr-4">
+                      <LotAllocationsTable
+                        allocations={lotAllocations}
+                        variant="student"
+                      />
+                    </td>
+                  </tr>
+                </React.Fragment>
+              );
+            })}
+          </tbody>
         </table>
       </div>
     </Section>

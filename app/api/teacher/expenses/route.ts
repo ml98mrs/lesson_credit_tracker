@@ -6,6 +6,30 @@ export const dynamic = "force-dynamic";
 
 type Category = "drinks" | "teaching_resources" | "other";
 
+// Small helper to resolve the current teacher_id from a teacher-scoped client
+async function getCurrentTeacherIdFromSupabaseClient(supabase: any): Promise<string> {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    throw new Error("NOT_AUTHENTICATED_TEACHER");
+  }
+
+  const { data: teacherRow, error: teacherError } = await supabase
+    .from("teachers")
+    .select("id")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  if (teacherError || !teacherRow?.id) {
+    throw new Error("TEACHER_NOT_FOUND");
+  }
+
+  return teacherRow.id as string;
+}
+
 // ────────────────────────────────────────────────────────────
 // POST  /api/teacher/expenses   → log a new expense
 // ────────────────────────────────────────────────────────────
@@ -50,7 +74,11 @@ export async function POST(req: Request) {
     }
 
     // Require a student for every expense
-    if (!studentId || typeof studentId !== "string" || studentId.trim().length === 0) {
+    if (
+      !studentId ||
+      typeof studentId !== "string" ||
+      studentId.trim().length === 0
+    ) {
       return NextResponse.json(
         { error: "studentId is required for an expense." },
         { status: 400 },
@@ -79,6 +107,60 @@ export async function POST(req: Request) {
     const amountPennies = Math.round(amountPounds * 100);
 
     const supabase = await getTeacherSupabase();
+
+    // Resolve the current teacher_id from auth + teachers table
+    let teacherId: string;
+    try {
+      teacherId = await getCurrentTeacherIdFromSupabaseClient(supabase);
+    } catch (err: any) {
+      if (err?.message === "NOT_AUTHENTICATED_TEACHER") {
+        return NextResponse.json(
+          { error: "Not authenticated as a teacher." },
+          { status: 401 },
+        );
+      }
+      if (err?.message === "TEACHER_NOT_FOUND") {
+        return NextResponse.json(
+          { error: "Teacher record not found for this user." },
+          { status: 404 },
+        );
+      }
+      throw err;
+    }
+
+    // Compute month_start (YYYY-MM-01) for incurredAt
+    const monthStart = new Date(
+      incurredDate.getUTCFullYear(),
+      incurredDate.getUTCMonth(),
+      1,
+    );
+    const monthStartStr = monthStart.toISOString().slice(0, 10); // "YYYY-MM-01"
+
+    // Check if there is an already-paid invoice for THIS teacher & month
+    const { data: existingInvoice, error: invoiceError } = await supabase
+      .from("teacher_invoices")
+      .select("id, status, month_start")
+      .eq("teacher_id", teacherId)
+      .eq("month_start", monthStartStr)
+      .eq("status", "paid")
+      .maybeSingle();
+
+    if (invoiceError) {
+      return NextResponse.json(
+        { error: invoiceError.message },
+        { status: 400 },
+      );
+    }
+
+    if (existingInvoice) {
+      return NextResponse.json(
+        {
+          error:
+            "You can't log a new expense for a month where your invoice has already been paid. Please contact the office.",
+        },
+        { status: 400 },
+      );
+    }
 
     const { data, error } = await supabase.rpc("rpc_log_teacher_expense", {
       p_incurred_at: incurredDate.toISOString(),
@@ -187,4 +269,3 @@ export async function DELETE(req: Request) {
     );
   }
 }
-

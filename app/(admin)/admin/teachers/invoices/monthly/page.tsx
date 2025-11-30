@@ -11,6 +11,10 @@ import {
 } from "@/lib/teacherInvoices";
 import BulkMarkInvoicesPaidButton from "@/components/admin/BulkMarkInvoicesPaidButton";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
+import {
+  type ProfilesDisplayEmbed,
+  readProfileDisplayName,
+} from "@/lib/types/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -79,42 +83,35 @@ export default async function AdminMonthlyTeacherInvoicesPage() {
     invoiceByTeacher.set(inv.teacher_id, inv);
   }
 
-  // 3) Resolve teacher names (teachers → profiles)
-  const teacherNameById = new Map<string, string>();
+ // 3) Resolve teacher names (teachers → profiles)
+const teacherNameById = new Map<string, string>();
 
-  if (teacherIds.length > 0) {
-    const { data: teacherRows } = await supabase
-      .from("teachers")
-      .select("id, profile_id")
-      .in("id", teacherIds);
+if (teacherIds.length > 0) {
+  const { data: teacherRows, error: tErr } = await supabase
+    .from("teachers")
+    .select("id, profiles(full_name, preferred_name)")
+    .in("id", teacherIds);
 
-    const teachers = (teacherRows ?? []) as TeacherRow[];
-    const profileIds = Array.from(
-      new Set(
-        teachers
-          .map((t) => t.profile_id)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    );
-
-    let profiles: ProfileRow[] = [];
-    if (profileIds.length > 0) {
-      const { data: profileRows } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .in("id", profileIds);
-      profiles = (profileRows ?? []) as ProfileRow[];
-    }
-
-    for (const t of teachers) {
-      const profile = profiles.find((p) => p.id === t.profile_id);
-      teacherNameById.set(
-        t.id,
-        profile?.full_name || `Teacher ID: ${t.id}`,
-      );
-    }
+  if (tErr) {
+    // Soft-fail: keep going but fall back to teacher_id in the UI
+    console.error("Error loading teacher names for invoices:", tErr.message);
   }
 
+  type TeacherWithProfileRow = {
+    id: string;
+    profiles: ProfilesDisplayEmbed | null;
+  };
+
+  const teachers = (teacherRows ?? []) as TeacherWithProfileRow[];
+
+  for (const t of teachers) {
+    const displayName =
+      readProfileDisplayName(t.profiles ?? undefined) ??
+      `Teacher ID: ${t.id}`;
+
+    teacherNameById.set(t.id, displayName);
+  }
+}
   const generatedCount = summaryRows.filter(
     (r) => r.status === "generated",
   ).length;

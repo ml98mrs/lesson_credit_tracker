@@ -13,7 +13,7 @@ import type { AwardReasonCode, AWARD_REASON_CODES } from "@/lib/awardReasons";
 import {
   getExpiryPolicyLabel,
   getExpiryPolicyDescription,
-} from "@/lib/domain/expiry";
+} from "@/lib/domain/expiryPolicy";
 import { formatTierLabel } from "@/lib/domain/tiers";
 
 const EXPIRY_POLICIES: ExpiryPolicy[] = ["none", "advisory", "mandatory"];
@@ -182,7 +182,7 @@ export default function AddCreditModal({
 
       if (!minutesGranted || minutesGranted <= 0) {
         // UI label is "Total hours", but we pass minutesGranted (hours→minutes)
-        throw new Error("Total hours must be greater than 0.");
+        throw new Error("Total hours must be greater than 0 (minutes > 0).");
       }
       if (!startDate) throw new Error("Start date is required.");
 

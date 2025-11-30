@@ -75,7 +75,12 @@ Do **not** create local string unions that duplicate existing enum values.
 
 ### 3.5 Server Access
 - **Admin portal:** always use `getAdminSupabase` (service role, no RLS).
-- **Teacher/Student:** use `getServerSupabase` (session aware).
+- **Teacher/Student (SSR / route handlers):**
+  - Use `getServerSupabase` for general session-aware queries.
+  - Teacher routes that need to **write auth cookies** (e.g. sign-in/out flows)
+    may use `getTeacherSupabase()` from `lib/supabase/teacher.ts`,
+    which wraps the same anon key but wires `cookies().set/delete` correctly.
+
 
 ---
 
@@ -293,6 +298,34 @@ Most business rules live in SQL views / functions. The frontend uses a small set
 - SNC rules per tier (in SQL + SNC views).
 - Teacher rate configuration per tier (in rate views).
 
+#### 6.6.5 Delivery / lesson helpers — `lib/domain/lessons.ts`, `lib/domain/delivery.ts`
+
+**SQL source of truth**
+
+- `lessons.delivery` (enum: `online`, `f2f`)
+- Any future hybrid flags live in SQL / views.
+
+**Responsibilities**
+
+- `formatDeliveryLabel(delivery)`  
+  - Returns a **short, tabular** label for lesson delivery (e.g. `"Online"`, `"F2F"`).
+  - Used in:
+    - Admin lesson tables (queue, confirmed, Teacher 360 recent lessons).
+    - Allocation tables (`LotAllocationsTable`).
+    - Excel/XLSX exports where space is tight.
+- `formatDeliveryUiLabel(deliveryUi)`  
+  - UI-level label for delivery, including optional `"hybrid"` value.
+  - Returns full words: `"Online"`, `"Face to face"`, `"Hybrid"`, or `"—"` if missing.
+  - Used in:
+    - Student/teacher-facing components where we want friendlier copy.
+    - Any future hybrid-lesson UI.
+
+**Rule of thumb**
+
+- **Tables / compact views / exports** → `formatDeliveryLabel`.
+- **High-level UI copy / badges / filters with hybrid** → `formatDeliveryUiLabel`.
+
+
 **Responsibilities**
 
 - `formatTierLabel(tier)`  
@@ -376,8 +409,174 @@ These per-delivery rows power:
   - Per-delivery low credit (online vs F2F) when both exist.
 - Expiry warnings (next mandatory expiry within 30 days, via `v_credit_lot_remaining.next_expiry_date` and `expiry_within_30d`).
 
+Excellent — here is a **clean, polished, spec-quality rewrite** of the new feature exactly in the style, tone, structure, and level of abstraction of your existing master document.
+It fits seamlessly into section **7. Student Portal** with proper hierarchy and matches the concision/precision of the rest of the spec.
+No redundant detail; no implementation chatter; enough structure for the next AI helper to use reliably.
+
+You can paste this directly into **ps_english_credit_portal_spec.md**.
+
+I place it as **§7.4 Student Queries (Record Challenges)**.
 
 ---
+
+# ✅ **Proposed Spec Integration — Full Rewrite (Section 7.4)**
+
+## **7.4 Student Queries (Record Challenges)**
+
+### **Purpose**
+
+Students may occasionally believe a lesson log or a credit entry is incorrect (e.g. wrong duration, unexpected SNC charge, incorrect credit deduction).
+To support a transparent and auditable correction process without relying on email, the portal provides a structured **Student Query** feature.
+
+This system is **database-driven**: all workflow state, visibility, and ownership checks are implemented in SQL (tables, RLS, RPCs). The frontend acts as a thin UI shell.
+
+---
+
+### **7.4.1 Data Model**
+
+#### **Table: `student_record_queries`**
+
+Stores one query per disputed record.
+
+* `id` (uuid, PK)
+* `student_id` (uuid FK → students)
+* `lesson_id` (uuid FK → lessons, nullable)
+* `credit_lot_id` (uuid FK → credit_lots, nullable)
+* `source` (text; default: `student_portal`)
+* `status` (`open` | `in_review` | `resolved` | `dismissed`)
+* `body` (text; student’s message)
+* `admin_note` (text, nullable; admin reply)
+* `resolution_code` (text, nullable)
+* `student_seen_at` (timestamptz, nullable; notification acknowledgement)
+* `created_at`, `updated_at`, `resolved_at` (timestamps)
+
+Constraint:
+
+* Exactly **one** of `lesson_id` or `credit_lot_id` must be non-null.
+
+`updated_at` maintained by a standard `BEFORE UPDATE` trigger.
+
+---
+
+### **7.4.2 Access Control (RLS)**
+
+Student portal (session-aware via `getServerSupabase`):
+
+* **SELECT**: allowed only for rows where `student_id` matches the logged-in student.
+* **INSERT**: allowed only when `student_id` matches the logged-in student.
+* **UPDATE/DELETE**: not permitted.
+
+Admin portal uses `getAdminSupabase` (service role; RLS bypass).
+This preserves the portal’s “read-only for students” principle.
+
+---
+
+### **7.4.3 RPCs**
+
+#### **`mark_student_record_queries_seen(p_query_ids uuid[])`**
+
+Marks the listed queries as acknowledged (`student_seen_at = now()`), but **only** for rows owned by the calling student.
+Used by the student dashboard to clear notifications.
+
+---
+
+### **7.4.4 Student Workflow**
+
+#### **(1) Submitting a Query**
+
+Each lesson or credit row in the student portal exposes a **“Query”** button.
+
+* Student writes a short explanation.
+* A new row is inserted into `student_record_queries`.
+* Target is either `lesson_id` or `credit_lot_id`.
+* No edits are allowed after submission.
+
+This provides a structured, traceable alternative to emailing the school.
+
+---
+
+#### **(2) Viewing Admin Responses (Notifications)**
+
+The student dashboard automatically loads any **unread admin replies**, defined as:
+
+* `admin_note IS NOT NULL`
+* `student_seen_at IS NULL`
+
+These appear as dashboard notifications with:
+
+* Title reflecting `status` (e.g. “Your query has been resolved”)
+* Admin’s note
+* Timestamp (displayed in the student’s timezone)
+* A **“Mark as read”** action that calls the RPC
+
+Once marked read, the query is not shown again.
+
+---
+
+#### **(3) Query History**
+
+Page: **`/student/queries`**
+
+* Lists all queries submitted by the student.
+* Columns: created date, type (lesson/credit), status, student message, admin reply.
+* Entirely read-only.
+
+This supports transparency and reduces repeat queries.
+
+---
+
+### **7.4.5 Admin Workflow**
+
+#### **(1) Dashboard Integration**
+
+The Admin Dashboard includes a **“Student queries”** alert card showing:
+
+* Count of rows where `status = 'open'`
+* Link to `/admin/record-queries`
+
+This surfaces outstanding student issues at a glance.
+
+---
+
+#### **(2) Review & Response**
+
+Page: **`/admin/record-queries`** → lists all queries with filters
+Page: **`/admin/record-queries/[queryId]`** → detail & response form
+
+Admin actions:
+
+* Read student message
+* Add/update `admin_note`
+* Set `status` (e.g. `in_review`, `resolved`)
+* Optionally set `resolution_code`
+* Use **“Clear query”** to mark as `resolved` quickly
+
+All updates use `/api/admin/record-queries` and bypass RLS.
+
+---
+
+#### **(3) End of Cycle**
+
+Once an admin has responded:
+
+* Query is removed from the **admin dashboard** (no longer `status='open'`).
+* Query becomes an **unread notification** for the student.
+* Student marks it read → DB sets `student_seen_at` → notification disappears.
+* Full history remains in `/student/queries`.
+
+---
+
+### **7.4.6 Principles**
+
+* **SQL is authoritative** for workflow logic.
+  The DB defines what is unread, resolved, dismissed, or visible.
+* **Frontend is presentational**: shows database state, submits forms, triggers RPCs.
+* Prevents direct email back-and-forth; ensures all corrections live inside the system.
+* Ensures the student portal remains **strictly read-only** for core lesson and credit data.
+
+---
+
+
 
 ## 8. Admin Lesson Review Flow
 
@@ -475,3 +674,192 @@ These per-delivery rows power:
 - RPC signatures
 - Hazard definitions
 
+
+
+Here is a **clean, concise spec-quality note block** describing all significant updates made in this phase.
+This mirrors the tone and abstraction level of the existing master specification and can be added to the bottom of the doc (e.g. as **§A.6 Implementation Notes (2025-11 Updates)** or folded into the relevant sections).
+
+---
+
+
+
+
+
+
+# ✅ **Implementation Notes — Recent Structural Updates (Nov 2025)**
+
+*(Add to spec as a short appendix section)*
+
+The following updates modernise the Admin and Student portals, reducing duplication, improving consistency, and pushing more logic into SQL and shared components.
+
+---
+
+## **1. Shared CreditSnapshot Component (Admin / Teacher / Student)**
+
+**What changed**
+
+* All three portals previously contained near-duplicate “Purchased / Awarded / Used / Remaining” summary cards.
+* These have been consolidated into a single shared component:
+  **`<CreditSnapshot>`** in `components/credit/CreditSnapshot.tsx`.
+
+**Why it matters**
+
+* Ensures a single source of truth for summary formatting.
+* Reduces React code size and likelihood of divergence.
+* Enforces domain rule: *minutes in DB → hours (2dp) in UI*.
+
+**Usage**
+
+* `<CreditSnapshot>` now used on:
+
+  * Student Dashboard
+  * Student 360 (admin view)
+  * Teacher portal student detail page
+
+---
+
+## **2. Shared Lot Allocations Table (Admin + Student)**
+
+**What changed**
+
+* Old `LotAllocations` (admin-only, minimal fields) has been replaced with a richer, modernised:
+  **`<LotAllocationsTable>`**
+* Backed by new SQL view: **`v_lot_allocations_detail`** (lesson date, teacher/student name, delivery, SNC, minutes, splice detection).
+
+**Why it matters**
+
+* Admin and Student portals now use the same table structure.
+* Student portal hides admin-only actions (variant = `"student"`).
+* Admin keeps links to lesson review (variant = `"admin"`).
+
+**Key concept**
+
+* **Spliced lesson detection** (multiple allocations for the same lesson) now surfaced at UI level.
+
+---
+
+## **3. New Student Query / Notification System**
+
+**Core logic lives in SQL**, React is only a display layer.
+
+**What changed**
+
+* Added table: `student_record_queries`
+* Added RPC: `mark_student_record_queries_seen`
+* Student dashboard now shows **admin reply notifications**.
+* Student query history page added.
+* Admin dashboard now displays “open” student queries.
+* Admin detail page gained **“Clear query”** action.
+
+**Why it matters**
+
+* Complete, auditable feedback loop inside the system.
+* Student portal remains strictly read-only (RLS-safe).
+* All unread replies disappear once student acknowledges.
+
+---
+
+## **4. Student 360 Page Refactor (Admin)**
+
+**Major clean-up and reordering:**
+
+1. Credit Snapshot moved **to the top**, matching student dashboard.
+2. Low-credit / expiry warnings extracted into new
+   **`<StudentWarningStrip>`**.
+3. Tier / Status / Lifecycle grouped into a dedicated panel.
+4. Teacher assignments and pricing snapshot grouped together.
+5. Credit lots + per-lot allocations placed into their own panel.
+6. SNC history placed at bottom.
+
+**Why it matters**
+
+* Far clearer 360 view for admins.
+* Major reduction in file length.
+* All React formatting helpers removed or shared (e.g. delivery labels).
+
+---
+
+## **5. Removal of React Helper Functions From Pages**
+
+To follow the spec rule *“UI logic should not recreate domain logic”*:
+
+* Delivery formatting moved into shared formatters (`formatDeliveryLabel`).
+* Award lines built by shared helper (`buildAwardLine`).
+* Student 360 removed all page-local formatting helpers.
+* Avoids divergence between admin/teacher/student displays.
+
+---
+
+## **6. Consistent Time-zone Rules Applied Everywhere**
+
+* Student dashboard now uses **student’s profile timezone** for notifications.
+* All admin-side date displays use **formatDateTimeLondon**.
+* All new tables (allocations, notifications) follow the same rule.
+
+---
+
+## **7. SQL Is Now Even More Authoritative**
+
+These UI updates purposely rely on **SQL views**:
+
+* `v_credit_lot_remaining` – canonical per-lot totals & expiry flags
+* `v_student_credit_summary` – overall totals
+* `v_student_credit_delivery_summary` – per-delivery splits
+* `v_student_award_reason_summary` – award breakdown
+* `v_student_snc_lessons` – SNC history
+* **`v_lot_allocations_detail`** – NEW enriched allocation rows
+* `v_student_dynamic_credit_alerts` – overall low credit
+* `v_student_dynamic_credit_alerts_by_delivery` – per-delivery low credit
+
+UI shows only what SQL decides.
+
+---
+
+## **8. General Clean-up**
+
+* Large admin files shrunk by 30–40%.
+* All pages using searchParams updated for **Next.js 16 (Promise-based)**.
+* All pages handling allocations now rely on the new shared type:
+  **`AllocationRow`** from `LotAllocationsTable`.
+* Removed all redundant tables, duplicated layout, and old links.
+
+---
+
+Here’s a short set of update notes you can drop into a commit message or spec appendix.
+
+---
+
+### Update notes (domain + 360s + lessons)
+
+* Added **`lib/domain/lessons.ts`**:
+
+  * `AdminLessonListRow` shared type for admin lesson lists (queue, confirmed, etc.).
+  * `formatDeliveryLabel`, `formatLessonLength`, `formatLessonState` for consistent lesson display.
+  * `buildAdminLessonNameMaps` + `buildAdminNameOptionsFromMaps` to DRY student/teacher name loading + datalist options.
+
+* Added **`lib/domain/teachers.ts`**:
+
+  * `getTeacherStatusMeta` / `formatTeacherStatus` for consistent status badges (“Current / Inactive / Potential / Past”).
+  * `formatTeacherMoney` and `formatTeacherHourlyRate` for pennies → `£` and `£/h` formatting.
+
+* Extended **`lib/domain/students.ts`**:
+
+  * `formatStudentStatus` for unified “Current / Dormant / Past” labels.
+  * `mapCreditDeliverySummaryRow` to normalise `v_student_credit_delivery_summary` rows into a single domain type (all `?? 0` handled once). 
+
+* Refactored **Admin Lessons**:
+
+  * `/admin/lessons/queue` and `/admin/lessons/confirmed` now use `AdminLessonListRow`, `formatDeliveryLabel`, `formatLessonLength`, and `formatDateTimeLondon` for consistent lesson tables.
+  * `LotAllocationsTable` now also uses `formatDeliveryLabel` so “F2F / Online” is identical everywhere.
+
+* Refactored **Teacher 360 (`/admin/teachers/[teacherId]`)**:
+
+  * Uses `getTeacherStatusMeta` for the status badge and teacher rate helpers for `£/h`.
+  * Tightened types for assigned students using `StudentRow`.
+  * Recent lessons now reuse lesson domain shape (`AdminLessonListRow` subset) and display `state` via `formatLessonState`.
+
+* Refactored **Student 360 (`/admin/students/[studentId]`)**:
+
+  * Student status badge now uses `formatStudentStatus` + a single status → class mapping.
+  * Per-delivery invoice credit section now uses `mapCreditDeliverySummaryRow` instead of a local `StudentCreditDeliverySummary` + manual `?? 0` mapping.
+  * Continues to use shared `CreditSnapshot`, `StudentWarningStrip`, and `LotAllocationsTable` to keep Admin vs Student portal behaviour aligned with the spec.

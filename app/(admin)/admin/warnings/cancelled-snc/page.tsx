@@ -1,6 +1,6 @@
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { formatDateTimeUK } from "@/lib/formatters";
+import { formatDateTimeLondon } from "@/lib/formatters";
 import { Delivery, Tier, SncMode } from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
@@ -223,7 +223,7 @@ export default async function FreeSncPage({
               {rows.map((r) => (
                 <tr key={r.id} className="border-b">
                   <td className="py-2 pr-4">
-                    {formatDateTimeUK(r.occurred_at)}
+                    {formatDateTimeLondon(r.occurred_at)}
                   </td>
                   <td className="py-2 pr-4 font-mono text-xs">{r.id}</td>
                   <td className="py-2 pr-4">{readName(r.students)}</td>

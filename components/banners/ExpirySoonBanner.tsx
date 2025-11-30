@@ -7,7 +7,7 @@ import type { ExpiryPolicy } from "@/lib/enums";
 import {
   getExpiryPolicyLabel,
   getExpiryPolicyDescription,
-} from "@/lib/domain/expiry";
+} from "@/lib/domain/expiryPolicy";
 
 type ExpirySoonBannerProps = {
   /**

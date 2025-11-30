@@ -8,7 +8,7 @@ type Delivery = "online" | "f2f";
 
 export async function POST(req: Request) {
   try {
-    // 1) Parse and validate body
+    // 1) Parse and validate body (shape only)
     const body = await req.json().catch(() => ({}));
 
     const studentId = body?.studentId as string | undefined;
@@ -40,10 +40,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // 👇 your business rule: minimum 10 minutes
-    if (Number.isNaN(durationMin) || durationMin < 10) {
+    // Basic numeric sanity check; business rules live in rpc_log_lesson
+    if (Number.isNaN(durationMin) || durationMin <= 0) {
       return NextResponse.json(
-        { error: "durationMin must be at least 10 minutes" },
+        { error: "durationMin must be a positive number of minutes" },
         { status: 400 },
       );
     }
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     // 2) Teacher-scoped Supabase client (auth from cookies, handled in helper)
     const supabase = await getTeacherSupabase();
 
-    // 3) Call the RPC (teacher_id is resolved inside the RPC from auth)
+    // 3) Call the RPC (teacher_id + duration rules resolved inside the RPC)
     const { data, error } = await supabase.rpc("rpc_log_lesson", {
       p_student_id: studentId,
       p_occurred_at: occurredAt,

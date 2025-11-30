@@ -421,7 +421,7 @@ import Section from '@/components/ui/Section';
 export default function TeacherInvoicesIndex() { return <Section title="My invoices">(List)</Section>; }
 TSX
 
-write "app/(teacher)/teacher/invoices/current-month/page.tsx" <<'TSX'
+write "app/(teacher)/teacher/invoices/previous-month/page.tsx" <<'TSX'
 import Section from '@/components/ui/Section';
 export default function CurrentMonthInvoice() { return <Section title="Current month (draft)">(Auto-assembled)</Section>; }
 TSX

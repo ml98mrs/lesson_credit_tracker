@@ -1,27 +1,37 @@
-// lib/api/admin/creditLots.ts
+/// lib/api/admin/creditLots.ts
+
+import type {
+  LengthCat,
+  DeliveryRestriction,
+  ExpiryPolicy,
+} from "@/lib/enums";
+import type { AwardReasonCode } from "@/lib/awardReasons";
 
 export type ImportInvoicePayload = {
   studentId: string;
   externalRef: string;
-  minutesGranted: number; // minutes in DB
-  amountPennies: number;  // 🔴 NEW – total invoice amount in pennies
-  startDate: string; // "YYYY-MM-DD"
-  lengthRestriction?: "none" | "60" | "90" | "120";
-  deliveryRestriction?: "online" | "f2f" | null;
+  minutesGranted: number;  // minutes in DB
+  amountPennies: number;   // total invoice amount in pennies
+  startDate: string;       // "YYYY-MM-DD"
+
+  // Restrictions & expiry – all reuse canonical enums
+  lengthRestriction?: LengthCat;             // "60" | "90" | "120" | "none"
+  deliveryRestriction?: DeliveryRestriction; // "online" | "f2f" | null
   tierRestriction?: string | null;
   expiryDate?: string | null;
-  expiryPolicy?: "none" | "advisory" | "mandatory";
+  expiryPolicy?: ExpiryPolicy;               // "none" | "mandatory" | "advisory"
+
+  // Dynamic-expiry tuning (optional)
   lessonsPerMonth?: number | null;
   durationPerLessonMins?: number | null;
   buffer?: number | null;
 };
 
-
 export type AwardMinutesPayload = {
   studentId: string;
-  minutesGranted: number; // minutes in DB
-  startDate: string; // "YYYY-MM-DD"
-  awardReasonCode: "free_cancellation" | "goodwill" | "promo" | "trial";
+  minutesGranted: number;  // minutes in DB
+  startDate: string;       // "YYYY-MM-DD"
+  awardReasonCode: AwardReasonCode;
 };
 
 export type CreditLotResult =
@@ -29,7 +39,7 @@ export type CreditLotResult =
   | { ok: false; error: string };
 
 export async function importInvoiceCredit(
-  payload: ImportInvoicePayload
+  payload: ImportInvoicePayload,
 ): Promise<CreditLotResult> {
   const res = await fetch("/api/admin/credit-lots/import-invoice", {
     method: "POST",
@@ -62,7 +72,7 @@ export async function importInvoiceCredit(
 }
 
 export async function awardMinutesCredit(
-  payload: AwardMinutesPayload
+  payload: AwardMinutesPayload,
 ): Promise<CreditLotResult> {
   const res = await fetch("/api/admin/credit-lots/award-minutes", {
     method: "POST",

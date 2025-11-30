@@ -1,5 +1,6 @@
 // app/(admin)/admin/students/new/page.tsx
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import { readProfileDisplayName } from "@/lib/types/profiles";
 import NewStudentForm from "./NewStudentForm";
 
 export default async function NewStudentPage() {
@@ -23,6 +24,7 @@ export default async function NewStudentPage() {
 
   if (teachers && teachers.length > 0) {
     const profileIds = teachers.map((t) => t.profile_id);
+
     const { data: profiles, error: pErr } = await sb
       .from("profiles")
       .select("id, preferred_name, full_name")
@@ -36,19 +38,29 @@ export default async function NewStudentPage() {
       );
     }
 
-    const nameByProfile = new Map(
-      (profiles ?? []).map((p) => [
-        p.id,
-        (p.preferred_name as string | null) || (p.full_name as string),
-      ])
+    const nameByProfile = new Map<string, string>(
+      (profiles ?? []).map((p) => {
+        const id = p.id as string;
+        const profileObj = {
+          full_name: p.full_name as string | null,
+          preferred_name: p.preferred_name as string | null,
+        };
+
+        const displayName =
+          readProfileDisplayName(profileObj, id.slice(0, 8) + "…") ??
+          id.slice(0, 8) + "…";
+
+        return [id, displayName];
+      }),
     );
 
-    teacherOptions = teachers.map((t) => ({
-      id: t.id as string,
-      name:
-        nameByProfile.get(t.profile_id as string) ??
-        (t.id as string).slice(0, 8) + "…",
-    }));
+    teacherOptions = teachers.map((t) => {
+      const id = t.id as string;
+      const label =
+        nameByProfile.get(t.profile_id as string) ?? id.slice(0, 8) + "…";
+
+      return { id, name: label };
+    });
   }
 
   return (

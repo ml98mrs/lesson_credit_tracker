@@ -37,9 +37,46 @@ export const dynamic = "force-dynamic";
 export default async function TeacherExpensesPage() {
   const supabase = await getServerSupabase();
 
+  // Map logged-in user → teacher_id (same pattern as invoices)
+  const { data: u } = await supabase.auth.getUser();
+  const user = u?.user;
+
+  if (!user) {
+    return (
+      <Section
+        title="My expenses"
+        subtitle="Log expenses and see what’s been approved for your invoices."
+      >
+        <p className="text-sm text-gray-600">Please sign in as a teacher.</p>
+      </Section>
+    );
+  }
+
+  const { data: t, error: teacherError } = await supabase
+    .from("teachers")
+    .select("id")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  if (teacherError || !t?.id) {
+    return (
+      <Section
+        title="My expenses"
+        subtitle="Log expenses and see what’s been approved for your invoices."
+      >
+        <p className="text-sm text-red-600">
+          Error: teacher record not found for this login.
+        </p>
+      </Section>
+    );
+  }
+
+  const teacherId = t.id as string;
+
   const { data: summaries, error: summaryError } = await supabase
     .from("v_teacher_expenses_summary")
     .select("month_start, approved_pennies, pending_pennies, rejected_pennies")
+    .eq("teacher_id", teacherId)
     .order("month_start", { ascending: false })
     .limit(6);
 
@@ -48,6 +85,7 @@ export default async function TeacherExpensesPage() {
     .select(
       "id, incurred_at, amount_pennies, status, description, category, student_id",
     )
+    .eq("teacher_id", teacherId)
     .order("incurred_at", { ascending: false })
     .limit(20);
 

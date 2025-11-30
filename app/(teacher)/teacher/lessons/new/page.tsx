@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Section from "@/components/ui/Section";
-import { supabase } from "@/lib/supabase/client";
+import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { formatDateLondon } from "@/lib/formatters";
 import LessonTypeBadge from "@/components/lessons/LessonTypeBadge";
 import type { Delivery, LessonState } from "@/lib/enums";
@@ -10,6 +10,7 @@ import {
   readProfileFullName,
   type ProfilesEmbed,
 } from "@/lib/types/profiles";
+const supabase = getBrowserSupabase();
 
 type User = { id: string; email?: string | null };
 
@@ -239,10 +240,7 @@ export default function NewLesson() {
     if (!teacherId) return;
     if (!studentId) return setMsg("Please select a student.");
     if (!occurredAtISO) return setMsg("Please choose date and time.");
-    if (durationMin <= 0) return setMsg("Duration must be greater than 0.");
-    if (durationMin < 10) {
-      return setMsg("Duration must be at least 10 minutes.");
-    }
+    
 
     setSubmitting(true);
     try {

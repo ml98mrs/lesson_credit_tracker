@@ -3,10 +3,11 @@
 import Link from "next/link";
 
 import Section from "@/components/ui/Section";
+import { CreditSnapshot } from "@/components/credit/CreditSnapshot";
+
 import { getServerSupabase } from "@/lib/supabase/server";
 import {
   formatDateTimeLondon,
-  formatMinutesAsHours,
   formatPenniesAsPounds,
 } from "@/lib/formatters";
 import type { LessonState, SncMode, Delivery } from "@/lib/enums";
@@ -34,6 +35,28 @@ type StudentDashboardData = Awaited<
   ReturnType<typeof loadStudentDashboard>
 >;
 
+type SearchParams = {
+  [key: string]: string | string[] | undefined;
+};
+
+type TeacherCreditSnapshot = {
+  purchasedMin: number;
+  awardedMin: number;
+  usedMin: number;
+  remainingMin: number;
+  purchasedOnlineMin: number;
+  purchasedF2fMin: number;
+  usedOnlineMin: number;
+  usedF2fMin: number;
+  remainingOnlineMin: number;
+  remainingF2fMin: number;
+  hasBothDeliveries: boolean;
+  generatedAtLabel: string;
+  awardedLine: string | null;
+  usedAwardLine: string | null;
+  remainingAwardLine: string | null;
+};
+
 function getSncLabel(lesson: LessonEarningRow): string {
   if (!lesson.is_snc) return "No";
 
@@ -43,10 +66,6 @@ function getSncLabel(lesson: LessonEarningRow): string {
   return "SNC";
 }
 
-type SearchParams = {
-  [key: string]: string | string[] | undefined;
-};
-
 export default async function TeacherStudentDetail(props: {
   params: Promise<{ studentId: string }>;
   searchParams: Promise<SearchParams>;
@@ -55,6 +74,46 @@ export default async function TeacherStudentDetail(props: {
   const sp = await props.searchParams;
 
   const supabase = await getServerSupabase();
+
+  // -------------------------------------------------------------------------
+  // Map logged-in user → teacher_id (explicit teacher scoping)
+  // -------------------------------------------------------------------------
+  const { data: u } = await supabase.auth.getUser();
+  const user = u?.user;
+
+  if (!user) {
+    return (
+      <Section
+        title="Student detail"
+        subtitle="Summary, credit snapshot, and recent lessons with this student."
+      >
+        <p className="text-sm text-gray-600">
+          Please sign in as a teacher to view this page.
+        </p>
+      </Section>
+    );
+  }
+
+  const { data: t, error: teacherError } = await supabase
+    .from("teachers")
+    .select("id")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  if (teacherError || !t?.id) {
+    return (
+      <Section
+        title="Student detail"
+        subtitle="Summary, credit snapshot, and recent lessons with this student."
+      >
+        <p className="text-sm text-red-600">
+          Error: teacher record not found for this login.
+        </p>
+      </Section>
+    );
+  }
+
+  const teacherId = t.id as string;
 
   const getParam = (key: string): string =>
     typeof sp[key] === "string" ? (sp[key] as string) : "";
@@ -73,7 +132,7 @@ export default async function TeacherStudentDetail(props: {
 
   if (monthParam && yearParam) {
     // Month/year filter takes precedence over from/to
-    const month = Number(monthParam) - 1; // JS months 0-11
+    const month = Number(monthParam) - 1; // JS months 0–11
     const year = Number(yearParam);
 
     if (!Number.isNaN(month) && !Number.isNaN(year)) {
@@ -103,6 +162,7 @@ export default async function TeacherStudentDetail(props: {
     supabase
       .from("v_teacher_lessons")
       .select("student_name")
+      .eq("teacher_id", teacherId)
       .eq("student_id", studentId)
       .order("start_at", { ascending: false })
       .limit(1)
@@ -114,6 +174,7 @@ export default async function TeacherStudentDetail(props: {
         .select(
           "lesson_id, start_at, duration_min, delivery, state, is_snc, snc_mode, gross_pennies",
         )
+        .eq("teacher_id", teacherId)
         .eq("student_id", studentId);
 
       // Apply date filters
@@ -160,7 +221,10 @@ export default async function TeacherStudentDetail(props: {
         return { data, error: null as null | string };
       } catch (e) {
         const err = e as Error;
-        return { data: null as StudentDashboardData | null, error: err.message };
+        return {
+          data: null as StudentDashboardData | null,
+          error: err.message,
+        };
       }
     })(),
   ]);
@@ -182,28 +246,10 @@ export default async function TeacherStudentDetail(props: {
   const toDefault = toParam;
 
   // Derived credit snapshot (if we successfully loaded it)
-    let creditSnapshot: {
-    purchasedHours: string;
-    awardedHours: string;
-    usedHours: string;
-    remainingHours: string;
-    purchasedOnlineHours: string;
-    purchasedF2fHours: string;
-    usedOnlineHours: string;
-    usedF2fHours: string;
-    remainingOnlineHours: string;
-    remainingF2fHours: string;
-    hasBothDeliveries: boolean;
-    generatedAtLabel: string;
-    awardedLine: string | null;
-    usedAwardLine: string | null;
-    remainingAwardLine: string | null;
-  } | null = null;
+  let creditSnapshot: TeacherCreditSnapshot | null = null;
 
-
-   if (studentDashboardData) {
+  if (studentDashboardData) {
     const {
-      grantedMin,
       usedMin,
       remainingMin,
       deliverySummary,
@@ -229,7 +275,7 @@ export default async function TeacherStudentDetail(props: {
     const hasBothDeliveries =
       purchasedOnlineMin > 0 && purchasedF2fMin > 0;
 
-    // 🔹 award reason lines (same pattern as student dashboard)
+    // Award reason lines (same pattern as student dashboard)
     const awardRowsForLines = awardReasons.map((r) => ({
       award_reason_code: r.awardReasonCode,
       granted_award_min: r.grantedAwardMin,
@@ -239,19 +285,22 @@ export default async function TeacherStudentDetail(props: {
 
     const awardedLine = buildAwardLine(awardRowsForLines, "granted");
     const usedAwardLine = buildAwardLine(awardRowsForLines, "used");
-    const remainingAwardLine = buildAwardLine(awardRowsForLines, "remaining");
+    const remainingAwardLine = buildAwardLine(
+      awardRowsForLines,
+      "remaining",
+    );
 
     creditSnapshot = {
-      purchasedHours: formatMinutesAsHours(purchasedMin),
-      awardedHours: formatMinutesAsHours(awardedMin),
-      usedHours: formatMinutesAsHours(usedTotalMin),
-      remainingHours: formatMinutesAsHours(remainingTotalMin),
-      purchasedOnlineHours: formatMinutesAsHours(purchasedOnlineMin),
-      purchasedF2fHours: formatMinutesAsHours(purchasedF2fMin),
-      usedOnlineHours: formatMinutesAsHours(usedOnlineMin),
-      usedF2fHours: formatMinutesAsHours(usedF2fMin),
-      remainingOnlineHours: formatMinutesAsHours(remainingOnlineMin),
-      remainingF2fHours: formatMinutesAsHours(remainingF2fMin),
+      purchasedMin,
+      awardedMin,
+      usedMin: usedTotalMin,
+      remainingMin: remainingTotalMin,
+      purchasedOnlineMin,
+      purchasedF2fMin,
+      usedOnlineMin,
+      usedF2fMin,
+      remainingOnlineMin,
+      remainingF2fMin,
       hasBothDeliveries,
       generatedAtLabel: formatDateTimeLondon(generatedAtIso),
       awardedLine,
@@ -259,7 +308,6 @@ export default async function TeacherStudentDetail(props: {
       remainingAwardLine,
     };
   }
-
 
   return (
     <Section
@@ -281,6 +329,19 @@ export default async function TeacherStudentDetail(props: {
                 <span className="font-semibold">{studentName}</span>.
               </p>
             )}
+            <p className="text-xs text-gray-500">
+              This page is your teacher view of a single student: what you&apos;ve
+              logged, how much you&apos;re paid, and roughly what they see on
+              their own dashboard.
+            </p>
+          </div>
+          <div className="flex flex-col items-start gap-2 text-xs text-gray-600 sm:items-end">
+            <Link
+              href="/teacher/students"
+              className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            >
+              ← Back to student list
+            </Link>
           </div>
         </div>
 
@@ -325,82 +386,22 @@ export default async function TeacherStudentDetail(props: {
 
           {studentDashboardData && creditSnapshot && (
             <div className="px-4 py-3">
-              <div className="grid gap-4 md:grid-cols-4">
-                {/* Purchased */}
-                <div className="rounded-2xl border bg-white p-3 text-xs shadow-sm">
-                  <div className="text-[11px] uppercase tracking-wide text-gray-500">
-                    Purchased
-                  </div>
-                  <div className="mt-1 text-xl font-semibold text-gray-900">
-                    {creditSnapshot.purchasedHours} h
-                  </div>
-                  {creditSnapshot.hasBothDeliveries && (
-                    <div className="mt-1 text-[11px] text-gray-500">
-                      Online: {creditSnapshot.purchasedOnlineHours} h · F2F:{" "}
-                      {creditSnapshot.purchasedF2fHours} h
-                    </div>
-                  )}
-                </div>
-
-              {/* Awarded */}
-<div className="rounded-2xl border bg-white p-3 text-xs shadow-sm">
-  <div className="text-[11px] uppercase tracking-wide text-gray-500">
-    Awarded / bonus
-  </div>
-  <div className="mt-1 text-xl font-semibold text-gray-900">
-    {creditSnapshot.awardedHours} h
-  </div>
-  {creditSnapshot.awardedLine && (
-    <div className="mt-1 text-[11px] text-gray-500">
-      {creditSnapshot.awardedLine}
-    </div>
-  )}
-</div>
-
-
-               {/* Used */}
-<div className="rounded-2xl border bg-white p-3 text-xs shadow-sm">
-  <div className="text-[11px] uppercase tracking-wide text-gray-500">
-    Used
-  </div>
-  <div className="mt-1 text-xl font-semibold text-gray-900">
-    {creditSnapshot.usedHours} h
-  </div>
-  {creditSnapshot.hasBothDeliveries && (
-    <div className="mt-1 text-[11px] text-gray-500">
-      Online: {creditSnapshot.usedOnlineHours} h · F2F:{" "}
-      {creditSnapshot.usedF2fHours} h
-    </div>
-  )}
-  {creditSnapshot.usedAwardLine && (
-    <div className="mt-1 text-[11px] text-gray-500">
-      {creditSnapshot.usedAwardLine}
-    </div>
-  )}
-</div>
-
-               {/* Remaining */}
-<div className="rounded-2xl border bg-white p-3 text-xs shadow-sm">
-  <div className="text-[11px] uppercase tracking-wide text-gray-500">
-    Remaining
-  </div>
-  <div className="mt-1 text-xl font-semibold text-gray-900">
-    {creditSnapshot.remainingHours} h
-  </div>
-  {creditSnapshot.hasBothDeliveries && (
-    <div className="mt-1 text-[11px] text-gray-500">
-      Online: {creditSnapshot.remainingOnlineHours} h · F2F:{" "}
-      {creditSnapshot.remainingF2fHours} h
-    </div>
-  )}
-  {creditSnapshot.remainingAwardLine && (
-    <div className="mt-1 text-[11px] text-gray-500">
-      {creditSnapshot.remainingAwardLine}
-    </div>
-  )}
-</div>
-
-              </div>
+              <CreditSnapshot
+                purchasedMin={creditSnapshot.purchasedMin}
+                awardedMin={creditSnapshot.awardedMin}
+                usedMin={creditSnapshot.usedMin}
+                remainingMin={creditSnapshot.remainingMin}
+                purchasedOnlineMin={creditSnapshot.purchasedOnlineMin}
+                purchasedF2fMin={creditSnapshot.purchasedF2fMin}
+                usedOnlineMin={creditSnapshot.usedOnlineMin}
+                usedF2fMin={creditSnapshot.usedF2fMin}
+                remainingOnlineMin={creditSnapshot.remainingOnlineMin}
+                remainingF2fMin={creditSnapshot.remainingF2fMin}
+                hasBothDeliveries={creditSnapshot.hasBothDeliveries}
+                awardedLine={creditSnapshot.awardedLine}
+                usedAwardLine={creditSnapshot.usedAwardLine}
+                remainingAwardLine={creditSnapshot.remainingAwardLine}
+              />
             </div>
           )}
         </div>
@@ -509,7 +510,7 @@ export default async function TeacherStudentDetail(props: {
                   defaultValue={deliveryFilter}
                   className="h-7 rounded border px-2 text-xs"
                 >
-                  <option value="">All</option>
+                  <option value="">Any</option>
                   <option value="online">Online</option>
                   <option value="f2f">Face to face</option>
                 </select>

@@ -1,28 +1,14 @@
 // app/api/teacher/students/assigned/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { getTeacherSupabase } from "@/lib/supabase/teacher";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const cookieStore = await cookies(); //
+  // 1) Teacher-scoped Supabase client (auth from cookies handled in helper)
+  const supabase = await getTeacherSupabase();
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        // For this read-only route we don't need to set/remove cookies,
-        // but the client expects these functions to exist.
-        set() {},
-        remove() {},
-      },
-    }
-  );
-
-  // 1) Who is the current user?
+  // 2) Who is the current user?
   const {
     data: { user },
     error: userErr,
@@ -31,11 +17,11 @@ export async function GET() {
   if (userErr || !user) {
     return NextResponse.json(
       { error: "Not authenticated" },
-      { status: 401 }
+      { status: 401 },
     );
   }
 
-  // 2) Find the teacher row for this profile
+  // 3) Find the teacher row for this profile
   const { data: teacherRow, error: teacherErr } = await supabase
     .from("teachers")
     .select("id")
@@ -45,13 +31,13 @@ export async function GET() {
   if (teacherErr || !teacherRow) {
     return NextResponse.json(
       { error: "Teacher record not found" },
-      { status: 404 }
+      { status: 404 },
     );
   }
 
   const teacherId = teacherRow.id as string;
 
-  // 3) Get student_ids from the linking table
+  // 4) Get student_ids from the linking table
   const { data: linkRows, error: linkErr } = await supabase
     .from("student_teacher")
     .select("student_id")
@@ -60,7 +46,7 @@ export async function GET() {
   if (linkErr) {
     return NextResponse.json(
       { error: linkErr.message || "Failed to load assigned students" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
@@ -70,7 +56,7 @@ export async function GET() {
     return NextResponse.json({ students: [] });
   }
 
-  // 4) Load students + profile names, current + dormant only
+  // 5) Load students + profile names, current + dormant only
   const { data: studentRows, error: studentErr } = await supabase
     .from("students")
     .select("id,status,profiles(full_name)")
@@ -80,7 +66,7 @@ export async function GET() {
   if (studentErr) {
     return NextResponse.json(
       { error: studentErr.message || "Failed to load students" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 

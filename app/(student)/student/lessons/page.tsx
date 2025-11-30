@@ -1,31 +1,20 @@
 // app/(student)/student/lessons/page.tsx
 
-import Link from "next/link";
 import Section from "@/components/ui/Section";
+import Link from "next/link";
 import { getServerSupabase } from "@/lib/supabase/server";
-import {
-  formatDeliveryLabel,
-  formatStudentDateTime,
-} from "@/lib/formatters";
-import type { Delivery, SncMode } from "@/lib/enums";
+import { formatStudentDateTime } from "@/lib/formatters";
+import { formatDeliveryLabel } from "@/lib/domain/lessons";
+import type { Delivery } from "@/lib/enums";
 import type { ProfileRow } from "@/lib/types/profiles";
+import StudentLessonQueryButton from "@/components/student/StudentLessonQueryButton";
+import {
+  fetchStudentLessons,
+  type StudentLessonsFilter,
+  type StudentLessonRow as LessonRow,
+} from "@/lib/api/student/lessons";
 
 export const dynamic = "force-dynamic";
-
-// DB delivery enum is 'online' | 'f2f'; we keep "hybrid" as a local UI-only extension.
-type LessonDelivery = Delivery | "hybrid";
-
-type LessonRow = {
-  lesson_id: string;
-  occurred_at: string;
-  duration_min: number;
-  delivery: LessonDelivery;
-  is_snc: boolean;
-  snc_mode: SncMode | string;
-  state: string;
-  teacher_full_name: string;
-  allocation_summary: string | null;
-};
 
 type SearchParams = {
   from?: string;
@@ -38,10 +27,12 @@ type SearchParams = {
   invoice?: string;
 };
 
-const formatLessonDelivery = (d: LessonDelivery) => {
+const formatLessonDelivery = (d: LessonRow["delivery"]) => {
   if (d === "hybrid") return "Hybrid";
-  return formatDeliveryLabel(d);
+  // At runtime non-hybrid values are the DB enum ('online' | 'f2f')
+  return formatDeliveryLabel(d as Delivery);
 };
+
 
 const renderSncBadge = (lesson: LessonRow) => {
   if (!lesson.is_snc) {
@@ -135,101 +126,65 @@ export default async function StudentLessons({
   const dateTo = sp.to || undefined;
   const teacherFilter = sp.teacher || undefined;
   const deliveryFilter = sp.delivery as Delivery | undefined;
-  const sncFilter = sp.snc || undefined;
+  const rawSnc = sp.snc;
   const invoiceFilter = sp.invoice || undefined;
 
-  // Build date bounds (month/year takes precedence over from/to)
-  let fromIso: string | undefined;
-  let toIso: string | undefined;
+  // Narrow SNC filter to the allowed union
+  const sncFilter: StudentLessonsFilter["snc"] =
+    rawSnc === "snc" ||
+    rawSnc === "free" ||
+    rawSnc === "charged" ||
+    rawSnc === "none" ||
+    rawSnc === ""
+      ? (rawSnc as StudentLessonsFilter["snc"])
+      : undefined;
 
-  if (monthParam && yearParam) {
-    const month = Number(monthParam) - 1; // JS months 0–11
-    const year = Number(yearParam);
+  // Build query string for download link (reuse current filters)
+  const qs = new URLSearchParams();
+  if (monthParam) qs.set("month", monthParam);
+  if (yearParam) qs.set("year", yearParam);
+  if (dateFrom) qs.set("from", dateFrom);
+  if (dateTo) qs.set("to", dateTo);
+  if (teacherFilter) qs.set("teacher", teacherFilter);
+  if (deliveryFilter) qs.set("delivery", deliveryFilter);
+  if (sncFilter) qs.set("snc", sncFilter);
+  if (invoiceFilter) qs.set("invoice", invoiceFilter);
 
-    if (!Number.isNaN(month) && !Number.isNaN(year)) {
-      const start = new Date(Date.UTC(year, month, 1, 0, 0, 0));
-      const end = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0)); // exclusive
-      fromIso = start.toISOString();
-      toIso = end.toISOString();
-    }
-  } else {
-    if (dateFrom) {
-      const fromDate = new Date(dateFrom);
-      fromIso = fromDate.toISOString();
-    }
-    if (dateTo) {
-      const to = new Date(dateTo);
-      to.setDate(to.getDate() + 1); // inclusive end of "to" day
-      toIso = to.toISOString();
-    }
-  }
+  const downloadHref =
+    qs.toString().length > 0
+      ? `/student/lessons/download?${qs.toString()}`
+      : "/student/lessons/download";
 
-  // 5) Build filtered query
-  let query = supabase
-    .from("v_student_lessons")
-    .select(
-      "lesson_id,occurred_at,duration_min,delivery,is_snc,snc_mode,state,teacher_full_name,allocation_summary",
-    )
-    .eq("student_id", studentId)
-    .eq("state", "confirmed");
+  // 5) Shared lessons fetch (via lib/api/student/lessons)
+  const filterObj: StudentLessonsFilter = {
+    month: monthParam,
+    year: yearParam,
+    from: dateFrom,
+    to: dateTo,
+    teacher: teacherFilter,
+    delivery: deliveryFilter,
+    snc: sncFilter,
+    invoice: invoiceFilter,
+  };
 
-  // Date range using derived bounds
-  if (fromIso) {
-    query = query.gte("occurred_at", fromIso);
-  }
-  if (toIso) {
-    query = query.lt("occurred_at", toIso);
-  }
-
-  if (teacherFilter) {
-    query = query.ilike("teacher_full_name", `%${teacherFilter}%`);
-  }
-
-  if (deliveryFilter) {
-    query = query.eq("delivery", deliveryFilter);
-  }
-
-  if (invoiceFilter) {
-    // Uses allocation_summary, which typically includes invoice details
-    query = query.ilike("allocation_summary", `%${invoiceFilter}%`);
-  }
-
-  if (sncFilter === "snc") {
-    query = query.eq("is_snc", true);
-  } else if (sncFilter === "free") {
-    query = query.eq("snc_mode", "free");
-  } else if (sncFilter === "charged") {
-    query = query.eq("snc_mode", "charged");
-  } else if (sncFilter === "none") {
-    query = query.eq("is_snc", false);
-  }
-  // sncFilter === "" or undefined → no extra filter
-
-  query = query.order("occurred_at", { ascending: false });
-
-  const { data, error } = await query;
-
-  if (error) throw new Error(error.message);
-
-  const lessons = (data ?? []) as unknown as LessonRow[];
+  const lessons = await fetchStudentLessons(supabase, studentId, filterObj);
 
   const lessonCount = lessons.length;
-  const hasFilters =
-    !!(
-      monthParam ||
-      yearParam ||
-      dateFrom ||
-      dateTo ||
-      teacherFilter ||
-      deliveryFilter ||
-      sncFilter ||
-      invoiceFilter
-    );
+  const hasFilters = !!(
+    monthParam ||
+    yearParam ||
+    dateFrom ||
+    dateTo ||
+    teacherFilter ||
+    deliveryFilter ||
+    sncFilter ||
+    invoiceFilter
+  );
 
   return (
     <Section
       title="Lessons"
-      subtitle="Confirmed lessons for your account. It is likely to exclude lessons taken this month. "
+      subtitle="Confirmed lessons for your account. It is likely to exclude lessons taken this month."
     >
       {/* Filters */}
       <form
@@ -388,6 +343,12 @@ export default async function StudentLessons({
           >
             Clear
           </Link>
+          <Link
+            href={downloadHref}
+            className="rounded border px-3 py-1 text-[11px] text-gray-700 hover:bg-gray-50"
+          >
+            Download Excel
+          </Link>
           <span className="ml-auto text-[11px] text-gray-500">
             Showing <span className="font-semibold">{lessonCount}</span>{" "}
             lesson{lessonCount === 1 ? "" : "s"}
@@ -417,32 +378,50 @@ export default async function StudentLessons({
                 <th className="py-2 pr-4">Duration (min)</th>
                 <th className="py-2 pr-4">Credit</th>
                 <th className="py-2 pr-4">SNC</th>
+                <th className="py-2 pr-4 text-right">Query</th>
               </tr>
             </thead>
             <tbody>
-              {lessons.map((lesson) => (
-                <tr key={lesson.lesson_id} className="border-b">
-                  <td className="py-2 pr-4">
-                    {formatStudentDateTime(
-                      lesson.occurred_at,
-                      studentTimeZone,
-                    )}
-                  </td>
-                  <td className="py-2 pr-4">{lesson.teacher_full_name}</td>
-                  <td className="py-2 pr-4">
-                    {formatLessonDelivery(lesson.delivery)}
-                  </td>
-                  <td className="py-2 pr-4">{lesson.duration_min}</td>
-                  <td className="py-2 pr-4">
-                    {lesson.allocation_summary
-                      ? lesson.allocation_summary
-                      : lesson.is_snc && lesson.snc_mode === "free"
-                      ? "Free SNC (no credit used)"
-                      : "—"}
-                  </td>
-                  <td className="py-2 pr-4">{renderSncBadge(lesson)}</td>
-                </tr>
-              ))}
+              {lessons.map((lesson) => {
+                const lessonSummary = `${formatStudentDateTime(
+                  lesson.occurred_at,
+                  studentTimeZone,
+                )} – ${lesson.duration_min} min – ${
+                  lesson.teacher_full_name
+                }`;
+
+                return (
+                  <tr key={lesson.lesson_id} className="border-b">
+                    <td className="py-2 pr-4">
+                      {formatStudentDateTime(
+                        lesson.occurred_at,
+                        studentTimeZone,
+                      )}
+                    </td>
+                    <td className="py-2 pr-4">{lesson.teacher_full_name}</td>
+                    <td className="py-2 pr-4">
+                      {formatLessonDelivery(lesson.delivery)}
+                    </td>
+                    <td className="py-2 pr-4">{lesson.duration_min}</td>
+                    <td className="py-2 pr-4">
+                      {lesson.allocation_summary
+                        ? lesson.allocation_summary
+                        : lesson.is_snc && lesson.snc_mode === "free"
+                        ? "Free SNC (no credit used)"
+                        : "—"}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {renderSncBadge(lesson)}
+                    </td>
+                    <td className="py-2 pl-4 text-right">
+                      <StudentLessonQueryButton
+                        lessonId={lesson.lesson_id}
+                        summary={lessonSummary}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

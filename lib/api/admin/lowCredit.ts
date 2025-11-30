@@ -1,7 +1,7 @@
 // lib/api/admin/lowCredit.ts
 //
 // Shared admin helpers for low-credit logic.
-// IMPORTANT: all admin data access uses getAdminSupabase (service-role).
+// IMPORTANT: all admin data access uses getAdminClient (service-role).
 
 import {
   getAdminClient,
@@ -12,6 +12,7 @@ import type {
   VStudentDynamicCreditAlertRow,
   VStudentDynamicCreditAlertByDeliveryRow,
 } from "@/lib/types/views/credit";
+import type { Delivery } from "@/lib/enums";
 
 // DB-shaped row from v_student_dynamic_credit_alerts
 export type LowCreditAlertRow = VStudentDynamicCreditAlertRow;
@@ -19,7 +20,7 @@ export type LowCreditAlertRow = VStudentDynamicCreditAlertRow;
 // Domain-facing, camelCase shape for per-delivery alerts
 export type LowCreditByDeliveryRow = {
   studentId: string;
-  delivery: "online" | "f2f" | null;
+  delivery: Delivery; // "online" | "f2f"
   remainingMinutes: number | null;
   remainingHours: number | null;
   avgMonthHours: number | null;
@@ -28,6 +29,23 @@ export type LowCreditByDeliveryRow = {
   isDynamicLow: boolean;
   isLowAny: boolean;
 };
+
+export type LowCreditCountsByDelivery = {
+  online: number;
+  f2f: number;
+};
+
+/**
+ * Normalise a numeric field that may come back as string or number.
+ * Returns null if value is null/undefined or cannot be parsed.
+ */
+function normaliseHours(
+  value: string | number | null | undefined,
+): number | null {
+  if (value == null) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
 
 /**
  * Base query for low-credit alerts.
@@ -73,6 +91,9 @@ export async function getLowCreditStudentsCount(): Promise<number> {
 /**
  * Low-credit alert for a single student (overall, not per-delivery).
  * Returns null if the student is not low-credit.
+ *
+ * NOTE: This returns the raw view row shape (hours as strings),
+ * which is fine for internal admin-only uses.
  */
 export async function getLowCreditAlertForStudent(
   studentId: string,
@@ -141,20 +162,15 @@ export async function getLowCreditAlertsByDeliveryForStudent(
       studentId: row.student_id,
       delivery: row.delivery,
       remainingMinutes: row.remaining_minutes,
-      remainingHours: row.remaining_hours,
-      avgMonthHours: row.avg_month_hours,
-      bufferHours: row.buffer_hours,
+      remainingHours: normaliseHours(row.remaining_hours),
+      avgMonthHours: normaliseHours(row.avg_month_hours),
+      bufferHours: normaliseHours(row.buffer_hours),
       isGenericLow: row.is_generic_low,
       isDynamicLow: row.is_dynamic_low,
       isLowAny: row.is_low_any,
     }),
   );
 }
-
-export type LowCreditCountsByDelivery = {
-  online: number;
-  f2f: number;
-};
 
 /**
  * All per-delivery low-credit alerts across students.
@@ -196,9 +212,9 @@ export async function getAllLowCreditAlertsByDelivery(): Promise<
       studentId: row.student_id,
       delivery: row.delivery,
       remainingMinutes: row.remaining_minutes,
-      remainingHours: row.remaining_hours,
-      avgMonthHours: row.avg_month_hours,
-      bufferHours: row.buffer_hours,
+      remainingHours: normaliseHours(row.remaining_hours),
+      avgMonthHours: normaliseHours(row.avg_month_hours),
+      bufferHours: normaliseHours(row.buffer_hours),
       isGenericLow: row.is_generic_low,
       isDynamicLow: row.is_dynamic_low,
       isLowAny: row.is_low_any,

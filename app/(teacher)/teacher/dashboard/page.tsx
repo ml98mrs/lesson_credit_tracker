@@ -93,26 +93,31 @@ export default async function TeacherDashboardPage() {
   const invoiceMonthLabel = formatMonthLabel(invoiceMonthKey);
   const generatedAtLabel = formatDateTimeLondon(new Date().toISOString());
 
-  // 1) Pending lessons + invoice summary + assigned-student links
-  const [
-    { count: pendingCountRaw, error: pendingError },
-    { data: invoiceSummaryData, error: invoiceError },
-    { data: linkRows, error: linksError },
-  ] = await Promise.all([
-    sb
-      .from("v_teacher_lessons")
-      .select("id", { count: "exact", head: true })
-      .eq("teacher_id", teacherId)
-      .eq("state", "pending"),
-    sb
-      .from("v_teacher_invoice_summary")
-      .select(
-        "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
-      )
-      .eq("month_start", invoiceMonthKey)
-      .maybeSingle<InvoiceSummaryRow>(),
-    sb.from("student_teacher").select("student_id").eq("teacher_id", teacherId),
-  ]);
+// 1) Pending lessons + invoice summary + assigned-student links
+const [
+  { count: pendingCountRaw, error: pendingError },
+  { data: invoiceSummaryData, error: invoiceError },
+  { data: linkRows, error: linksError },
+] = await Promise.all([
+  sb
+    .from("v_teacher_lessons")
+    .select("id", { count: "exact", head: true })
+    .eq("teacher_id", teacherId)
+    .eq("state", "pending"),
+  sb
+    .from("v_teacher_invoice_summary")
+    .select(
+      "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
+    )
+    .eq("teacher_id", teacherId)        // 👈 important fix
+    .eq("month_start", invoiceMonthKey)
+    .maybeSingle<InvoiceSummaryRow>(),
+  sb
+    .from("student_teacher")
+    .select("student_id")
+    .eq("teacher_id", teacherId),
+]);
+
 
   const pendingCount = pendingCountRaw ?? 0;
   const invoiceSummary = (invoiceSummaryData ?? null) as InvoiceSummaryRow | null;
@@ -129,27 +134,31 @@ export default async function TeacherDashboardPage() {
   let dormantStudentsCount = 0;
 
   if (!linksError && linkRows && linkRows.length > 0) {
-    const studentIds = Array.from(
-      new Set(linkRows.map((r) => r.student_id).filter(Boolean)),
-    ) as string[];
+  const studentIds = Array.from(
+    new Set(
+      linkRows
+        .map((r: { student_id: string | null }) => r.student_id) // 👈 typed `r`
+        .filter(Boolean),
+    ),
+  ) as string[];
 
-    if (studentIds.length > 0) {
-      const { data: studentRows, error: studentsError } = await sb
-        .from("students")
-        .select("id, status")
-        .in("id", studentIds);
+  if (studentIds.length > 0) {
+    const { data: studentRows, error: studentsError } = await sb
+      .from("students")
+      .select("id, status")
+      .in("id", studentIds);
 
-      if (!studentsError && studentRows) {
-        const typed = studentRows as StudentStatusRow[];
-        currentStudentsCount = typed.filter(
-          (s) => s.status === "current",
-        ).length;
-        dormantStudentsCount = typed.filter(
-          (s) => s.status === "dormant",
-        ).length;
-      }
+    if (!studentsError && studentRows) {
+      const typed = studentRows as StudentStatusRow[];
+      currentStudentsCount = typed.filter(
+        (s) => s.status === "current",
+      ).length;
+      dormantStudentsCount = typed.filter(
+        (s) => s.status === "dormant",
+      ).length;
     }
   }
+}
 
   return (
     <Section
@@ -298,7 +307,7 @@ export default async function TeacherDashboardPage() {
             )}
 
             <Link
-              href="/teacher/invoices/current-month"
+              href="/teacher/invoices/previous-month"
               className="mt-3 inline-flex text-xs font-medium text-blue-600 hover:text-blue-800"
             >
               View full invoice breakdown

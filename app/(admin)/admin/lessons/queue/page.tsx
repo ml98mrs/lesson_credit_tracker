@@ -1,28 +1,22 @@
 // app/(admin)/admin/lessons/queue/page.tsx
 import Link from "next/link";
 import Section from "@/components/ui/Section";
-import { formatDateTimeUK } from "@/lib/formatters";
+import { formatDateTimeLondon } from "@/lib/formatters";
 import LessonTypeBadge from "@/components/lessons/LessonTypeBadge";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { pendingLessonsBaseQuery } from "@/lib/api/admin/lessons";
-import type { ProfilesEmbed } from "@/lib/types/profiles";
-import { readProfileFullName } from "@/lib/types/profiles";
-import type { Delivery, LengthCat, LessonState } from "@/lib/enums";
+import {
+  AdminLessonListRow,
+  formatDeliveryLabel,
+  formatLessonLength,
+  buildAdminLessonNameMaps,
+} from "@/lib/domain/lessons";
 
 export const dynamic = "force-dynamic";
 
 // ---- Types --------------------------------------------------------------
-type Lesson = {
-  id: string;
-  student_id: string;
-  teacher_id: string;
-  occurred_at: string;
-  duration_min: number;
-  delivery: Delivery;
-  length_cat: LengthCat;
-  state: LessonState;
-  notes: string | null;
-  is_snc: boolean;
+type Lesson = AdminLessonListRow & {
+  is_snc: boolean; // queue needs SNC badge
 };
 
 type SearchParams = {
@@ -56,52 +50,17 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
 
   const rows = (lessons ?? []) as Lesson[];
 
-  // 2) Build name maps for students & teachers (one query each)
-  const studentIds = Array.from(new Set(rows.map((r) => r.student_id)));
-  const teacherIds = Array.from(new Set(rows.map((r) => r.teacher_id)));
-
-  const studentNames = new Map<string, string>();
-  const teacherNames = new Map<string, string>();
-
-  if (studentIds.length > 0) {
-    const { data: sdata } = await sb
-      .from("students")
-      .select("id, profiles(full_name)")
-      .in("id", studentIds);
-
-    const srows = (sdata ?? []) as { id: string; profiles: ProfilesEmbed }[];
-
-    for (const s of srows) {
-      studentNames.set(
-        s.id,
-        readProfileFullName(s.profiles) ?? "(no name)",
-      );
-    }
-  }
-
-  if (teacherIds.length > 0) {
-    const { data: tdata } = await sb
-      .from("teachers")
-      .select("id, profiles(full_name)")
-      .in("id", teacherIds);
-
-    const trows = (tdata ?? []) as { id: string; profiles: ProfilesEmbed }[];
-
-    for (const t of trows) {
-      teacherNames.set(
-        t.id,
-        readProfileFullName(t.profiles) ?? "(no name)",
-      );
-    }
-  }
+  // 2) Build name maps for students & teachers (shared helper)
+  const { studentNameById, teacherNameById } =
+    await buildAdminLessonNameMaps(sb, rows);
 
   // 3) In-memory name filters (human-friendly, case-insensitive)
   const studentNameFilter = studentNameFilterRaw.toLowerCase();
   const teacherNameFilter = teacherNameFilterRaw.toLowerCase();
 
   const filteredRows = rows.filter((r) => {
-    const sName = (studentNames.get(r.student_id) ?? "").toLowerCase();
-    const tName = (teacherNames.get(r.teacher_id) ?? "").toLowerCase();
+    const sName = (studentNameById.get(r.student_id) ?? "").toLowerCase();
+    const tName = (teacherNameById.get(r.teacher_id) ?? "").toLowerCase();
 
     if (studentNameFilter && !sName.includes(studentNameFilter)) return false;
     if (teacherNameFilter && !tName.includes(teacherNameFilter)) return false;
@@ -144,21 +103,19 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
                 <tr key={r.id} className="border-b hover:bg-gray-50">
                   <td className="py-2 pr-4 font-mono text-xs">{r.id}</td>
                   <td className="py-2 pr-4">
-                    {formatDateTimeUK(r.occurred_at)}
+                    {formatDateTimeLondon(r.occurred_at)}
                   </td>
                   <td className="py-2 pr-4">
-                    {studentNames.get(r.student_id) ?? r.student_id}
+                    {studentNameById.get(r.student_id) ?? r.student_id}
                   </td>
                   <td className="py-2 pr-4">
-                    {teacherNames.get(r.teacher_id) ?? r.teacher_id}
+                    {teacherNameById.get(r.teacher_id) ?? r.teacher_id}
                   </td>
                   <td className="py-2 pr-4">
-                    {r.delivery === "f2f" ? "F2F" : "Online"}
+                    {formatDeliveryLabel(r.delivery)}
                   </td>
                   <td className="py-2 pr-4">
-                    {r.length_cat === "none"
-                      ? "—"
-                      : `${r.length_cat} min`}
+                    {formatLessonLength(r.length_cat, r.duration_min)}
                   </td>
                   <td className="py-2 pr-4">{r.duration_min} min</td>
                   <td className="py-2 pr-4">

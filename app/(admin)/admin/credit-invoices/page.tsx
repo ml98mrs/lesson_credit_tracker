@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import Section from "@/components/ui/Section";
-import { formatDateTimeUK, formatMinutesAsHours } from "@/lib/formatters";
+import { formatDateTimeLondon, formatMinutesAsHours } from "@/lib/formatters";
 import type { ProfilesEmbed } from "@/lib/types/profiles";
 import { readProfileFullName } from "@/lib/types/profiles";
 import {
@@ -532,7 +532,7 @@ export default async function Page({
                       <td className="py-2 pr-4">{policyBadge}</td>
                       <td className="py-2 pr-4">
                         {lot.expiry_date
-                          ? formatDateTimeUK(lot.expiry_date)
+                          ? formatDateTimeLondon(lot.expiry_date)
                           : "—"}
                       </td>
                       <td className="py-2 pr-4">

@@ -97,7 +97,7 @@ export default async function TeacherInvoicesIndex() {
           Sorry — we couldn’t load your invoice data right now.
         </p>
         <Link
-          href="/teacher/invoices/current-month"
+          href="/teacher/invoices/previous-month"
           className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
         >
           Go to invoice month snapshot
@@ -168,7 +168,7 @@ export default async function TeacherInvoicesIndex() {
                 </div>
               </div>
               <Link
-                href="/teacher/invoices/current-month"
+                href="/teacher/invoices/previous-month"
                 className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-blue-700"
               >
                 View invoice month breakdown

@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
+import { useState } from "react";
 
-export type NotificationVariant = 'info' | 'warning' | 'success';
+export type NotificationVariant = "info" | "warning" | "success";
 
 export type DashboardNotification = {
   id: string; // unique per notification instance
@@ -17,13 +17,17 @@ type NotificationPanelProps = {
 };
 
 const variantAccent: Record<NotificationVariant, string> = {
-  info: 'border-sky-300',
-  warning: 'border-amber-300',
-  success: 'border-emerald-300',
+  info: "border-sky-300",
+  warning: "border-amber-300",
+  success: "border-emerald-300",
 };
 
-export function NotificationPanel({ initialNotifications }: NotificationPanelProps) {
-  const [notifications, setNotifications] = useState<DashboardNotification[]>(initialNotifications);
+export function NotificationPanel({
+  initialNotifications,
+}: NotificationPanelProps) {
+  const [notifications, setNotifications] = useState<DashboardNotification[]>(
+    initialNotifications,
+  );
 
   const handleClear = (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
@@ -44,7 +48,7 @@ export function NotificationPanel({ initialNotifications }: NotificationPanelPro
 
       <div className="space-y-3">
         {notifications.map((n) => {
-          const variant = n.variant ?? 'info';
+          const variant = n.variant ?? "info";
 
           return (
             <article
@@ -52,23 +56,23 @@ export function NotificationPanel({ initialNotifications }: NotificationPanelPro
               className={`flex items-start justify-between gap-3 rounded-lg border-l-4 bg-white p-3 shadow-sm ${variantAccent[variant]}`}
             >
               <div className="flex-1">
-                <div className="text-sm font-medium text-slate-900">{n.title}</div>
+                <div className="text-sm font-medium text-slate-900">
+                  {n.title}
+                </div>
 
                 {n.body && (
-                  <p className="mt-1 text-xs text-slate-600">
-                    {n.body}
-                  </p>
+                  <p className="mt-1 text-xs text-slate-600">{n.body}</p>
                 )}
 
                 {n.createdAt && (
                   <p className="mt-1 text-[11px] text-slate-400">
-                    {new Date(n.createdAt).toLocaleString('en-GB', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}{' '}
+                    {new Date(n.createdAt).toLocaleString("en-GB", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}{" "}
                     London time
                   </p>
                 )}

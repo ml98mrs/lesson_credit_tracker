@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Section from '@/components/ui/Section';
-import { supabase } from '@/lib/supabase/client';
+import { getBrowserSupabase } from '@/lib/supabase/browser';
+
+const supabase = getBrowserSupabase(); // browser client, helper-based
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState(''); 
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -18,14 +20,19 @@ export default function LoginPage() {
     setMsg(null);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       if (signInError) {
         setMsg(signInError.message);
         return;
       }
 
       // 1) Bridge client session -> server cookies
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       await fetch('/api/auth/callback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -55,7 +62,6 @@ export default function LoginPage() {
       } else if (role === 'student') {
         router.replace('/student/dashboard');
       } else {
-        // Fallback: go somewhere safe
         router.replace('/teacher/dashboard');
       }
     } catch (err: any) {
@@ -114,14 +120,16 @@ export default function LoginPage() {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
 
-          <button type="button" onClick={onSignOut} className="px-3 py-2 rounded border">
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="px-3 py-2 rounded border"
+          >
             Sign out
           </button>
         </div>
 
         {msg && <p className="text-sm text-rose-700 mt-2">{msg}</p>}
-
-        
       </form>
     </Section>
   );

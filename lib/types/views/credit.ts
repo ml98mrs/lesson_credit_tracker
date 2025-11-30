@@ -12,10 +12,10 @@ import type { Delivery, ExpiryPolicy, CreditLotState } from "@/lib/enums";
 
 export type VStudentDynamicCreditAlertRow = {
   student_id: string;
-  remaining_minutes: number | null;
-  remaining_hours: number | null;
-  avg_month_hours: number | null;
-  buffer_hours: number | null;
+  remaining_minutes: number | null;   // int4 -> number
+  remaining_hours: string | null;     // numeric -> string
+  avg_month_hours: string | null;     // numeric -> string
+  buffer_hours: string | null;        // numeric -> string
   is_generic_low: boolean;
   is_dynamic_low: boolean;
   is_low_any: boolean;
@@ -23,15 +23,15 @@ export type VStudentDynamicCreditAlertRow = {
 
 export type VStudentDynamicCreditAlertByDeliveryRow = {
   student_id: string;
-  delivery: Delivery | null;
+  delivery: Delivery;              // 🔄 tighten: no `| null`
   remaining_minutes: number | null;
-  remaining_hours: number | null;
-  avg_month_hours: number | null;
-  buffer_hours: number | null;
+  remaining_hours: string | null;  // numeric -> string
+  avg_month_hours: string | null;
+  buffer_hours: string | null;
   is_generic_low: boolean;
   is_dynamic_low: boolean;
   is_low_any: boolean;
-  is_zero_purchased: boolean; // NEW – matches view column
+  is_zero_purchased: boolean;      // already there
 };
 
 export type VCreditLotRemainingRow = {
