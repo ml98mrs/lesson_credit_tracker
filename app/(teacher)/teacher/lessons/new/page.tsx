@@ -224,7 +224,7 @@ export default function NewLesson() {
       setLoading(false);
       await refreshRecent(tId);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // ---------------------------------------------------------------------------
