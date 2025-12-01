@@ -41,10 +41,18 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, tier });
-  } catch (e: any) {
+  } catch (e: unknown) {
+  if (e instanceof Error) {
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
-      { status: 500 }
+      { error: e.message },
+      { status: 500 },
     );
   }
+
+  return NextResponse.json(
+    { error: "Unknown error" },
+    { status: 500 },
+  );
+}
+
 }

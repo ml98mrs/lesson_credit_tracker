@@ -41,11 +41,16 @@ export default function GenerateInvoiceButton({
       } else {
         router.refresh();
       }
-    } catch (e: any) {
-      setError(e.message || "Error generating invoice");
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: unknown) {
+  if (e instanceof Error) {
+    setError(e.message || "Error generating invoice");
+  } else {
+    setError("Error generating invoice");
+  }
+} finally {
+  setLoading(false);
+}
+
   }
 
   return (

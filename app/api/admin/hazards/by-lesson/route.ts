@@ -1,11 +1,11 @@
-//app\api\admin\hazards\by-lesson\route.ts//
+// app/api/admin/hazards/by-lesson/route.ts
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const lessonId = url.searchParams.get("lessonId");
@@ -29,9 +29,12 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({ hazards: data ?? [] });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }

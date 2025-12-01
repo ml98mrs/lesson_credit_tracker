@@ -140,8 +140,12 @@ export default async function Page({
     } else {
       lots = data ?? [];
     }
-  } catch (e: any) {
-    errorMsg = e?.message ?? "Unknown error while loading credit invoices";
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      errorMsg = e.message;
+    } else {
+      errorMsg = "Unknown error while loading credit invoices";
+    }
   }
 
   //

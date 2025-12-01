@@ -48,10 +48,15 @@ const handleChange = (next: Status) => {
         if (!res.ok || json?.ok === false) {
           throw new Error(json?.error || "Failed to update status");
         }
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to update status");
-        setStatus(previous); // revert on failure
-      }
+     } catch (e: unknown) {
+  if (e instanceof Error) {
+    setError(e.message ?? "Failed to update status");
+  } else {
+    setError("Failed to update status");
+  }
+  setStatus(previous);
+}
+
     });
   };
 

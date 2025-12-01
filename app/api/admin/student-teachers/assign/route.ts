@@ -36,11 +36,26 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    console.error("Assign student->teacher unexpected error", err);
+} catch (err: unknown) {
+  console.error("Assign student->teacher unexpected error", err);
+
+  if (err instanceof Error) {
     return NextResponse.json(
-      { error: "Unexpected server error", details: err?.message ?? String(err) },
-      { status: 500 }
+      {
+        error: "Unexpected server error",
+        details: err.message,
+      },
+      { status: 500 },
     );
   }
+
+  return NextResponse.json(
+    {
+      error: "Unexpected server error",
+      details: String(err),
+    },
+    { status: 500 },
+  );
+}
+
 }

@@ -8,18 +8,32 @@ import {
   importInvoiceCredit,
   awardMinutesCredit,
 } from "@/lib/api/admin/creditLots";
-import type { Delivery, LengthCat, Tier, ExpiryPolicy } from "@/lib/enums";
-import type { AwardReasonCode, AWARD_REASON_CODES } from "@/lib/awardReasons";
+import type {
+  LengthCat,
+  Tier,
+  ExpiryPolicy,
+  DeliveryRestriction, 
+} from "@/lib/enums";
+import { TIER_VALUES, formatTierLabel } from "@/lib/domain/tiers";
 import {
+  type DeliveryUi,
+  DELIVERY_RESTRICTION_VALUES,
+  formatDeliveryRestrictionLabel,
+} from "@/lib/domain/delivery";
+import {
+  AWARD_REASON_CODES,
+  type AwardReasonCode,
+  getAwardReasonLabel,
+} from "@/lib/awardReasons";
+import {
+  LENGTH_RESTRICTIONS,
+  formatLengthRestrictionLabel,
+} from "@/lib/domain/lengths";
+import {
+  EXPIRY_POLICIES,
   getExpiryPolicyLabel,
   getExpiryPolicyDescription,
 } from "@/lib/domain/expiryPolicy";
-import { formatTierLabel } from "@/lib/domain/tiers";
-
-const EXPIRY_POLICIES: ExpiryPolicy[] = ["none", "advisory", "mandatory"];
-
-type DeliveryRestriction = Delivery | null; // online | f2f | (null = hybrid/unrestricted)
-type TierRestriction = Tier | null;
 
 type Props = {
   studentId: string;
@@ -114,39 +128,52 @@ export default function AddCreditModal({
   const [deliveryRestriction, setDeliveryRestriction] =
     useState<DeliveryRestriction>(null); // null = hybrid/unrestricted
   const [tierRestriction, setTierRestriction] =
-    useState<TierRestriction>(null);
+  useState<Tier | null>(null);
   const [expiryPolicy, setExpiryPolicy] =
     useState<ExpiryPolicy>("none");
-  const [expiryDateOverride, setExpiryDateOverride] = useState<string>("");
 
-  // Expiry knobs S/L/D/M/B
-  const [lessonsPerMonth, setLessonsPerMonth] = useState<number | "">("");
-  const [durationPerLessonMins, setDurationPerLessonMins] = useState<
-    number | ""
-  >("");
-  const [buffer, setBuffer] = useState<number | "">(""); // 0.5 means +50%
+  // Expiry knobs S/L/D/M/B – store as strings, parse when needed
+  const [lessonsPerMonth, setLessonsPerMonth] = useState<string>("");
+  const [durationPerLessonMins, setDurationPerLessonMins] =
+    useState<string>("");
+  const [buffer, setBuffer] = useState<string>(""); // "0.5" means +50%
 
   const expiryPreview = useMemo(() => {
+    const lpmStr =
+      typeof lessonsPerMonth === "string"
+        ? lessonsPerMonth
+        : String(lessonsPerMonth ?? "");
+    const dStr =
+      typeof durationPerLessonMins === "string"
+        ? durationPerLessonMins
+        : String(durationPerLessonMins ?? "");
+    const bStr =
+      typeof buffer === "string" ? buffer : String(buffer ?? "");
+
+    const lessonsPerMonthNum = lpmStr.trim() ? Number(lpmStr) : null;
+    const durationPerLessonMinsNum = dStr.trim() ? Number(dStr) : null;
+    const bufferNum = bStr.trim() ? Number(bStr) : null;
+
     return computeExpiryPreview({
       startDate,
       minutesGranted: minutesGranted || null,
-      lessonsPerMonth:
-        lessonsPerMonth === "" ? null : (lessonsPerMonth as number),
-      durationPerLessonMins:
-        durationPerLessonMins === ""
-          ? null
-          : (durationPerLessonMins as number),
-      buffer: buffer === "" ? null : (buffer as number),
+      lessonsPerMonth: lessonsPerMonthNum,
+      durationPerLessonMins: durationPerLessonMinsNum,
+      buffer: bufferNum,
     });
   }, [startDate, minutesGranted, lessonsPerMonth, durationPerLessonMins, buffer]);
 
+
   // Award tab state
-  const [awardReasonCode, setAwardReasonCode] = useState<AwardReasonCode>("goodwill");
+  const [awardReasonCode, setAwardReasonCode] =
+    useState<AwardReasonCode>("goodwill");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
-  const [lastCreditLotId, setLastCreditLotId] = useState<string | null>(null);
+  const [lastCreditLotId, setLastCreditLotId] = useState<string | null>(
+    null,
+  );
 
   // Clear messages + last lot ID when switching tabs
   React.useEffect(() => {
@@ -164,7 +191,7 @@ export default function AddCreditModal({
     }
   }, [onClose, studentId]);
 
-  async function submitInvoice(e: React.FormEvent) {
+  async function submitInvoice(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
@@ -193,21 +220,28 @@ export default function AddCreditModal({
       // Always send a valid LengthCat
       const cleanLengthRestriction: LengthCat = lengthRestriction ?? "none";
 
+      const lessonsPerMonthNum = lessonsPerMonth.trim()
+        ? Number(lessonsPerMonth)
+        : null;
+      const durationPerLessonMinsNum = durationPerLessonMins.trim()
+        ? Number(durationPerLessonMins)
+        : null;
+      const bufferNum = buffer.trim() ? Number(buffer) : null;
+
       const result = await importInvoiceCredit({
         studentId,
         externalRef,
         minutesGranted,
         startDate,
         lengthRestriction: cleanLengthRestriction,
-        deliveryRestriction: deliveryRestriction,
-        tierRestriction: tierRestriction,
-        expiryDate: expiryDateOverride || null,
+        deliveryRestriction,
+        tierRestriction,
+        // let the server compute expiry based on S/L/D/B; preview is UI-only
+        expiryDate: null,
         expiryPolicy,
-        lessonsPerMonth:
-          lessonsPerMonth === "" ? null : Number(lessonsPerMonth),
-        durationPerLessonMins:
-          durationPerLessonMins === "" ? null : Number(durationPerLessonMins),
-        buffer: buffer === "" ? null : Number(buffer),
+        lessonsPerMonth: lessonsPerMonthNum,
+        durationPerLessonMins: durationPerLessonMinsNum,
+        buffer: bufferNum,
         amountPennies,
       });
 
@@ -225,14 +259,18 @@ export default function AddCreditModal({
       if (onClose) {
         onClose();
       }
-    } catch (err: any) {
-      setError(err?.message ?? "Unknown error");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Unknown error");
+      } else {
+        setError("Unknown error");
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function submitAward(e: React.FormEvent) {
+  async function submitAward(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
@@ -240,10 +278,15 @@ export default function AddCreditModal({
     setLastCreditLotId(null);
 
     try {
-      if (!awardReasonCode) throw new Error("Award reason is required.");
-      if (!minutesGranted || minutesGranted <= 0)
+      if (!awardReasonCode) {
+        throw new Error("Award reason is required.");
+      }
+      if (!minutesGranted || minutesGranted <= 0) {
         throw new Error("Total hours must be greater than 0.");
-      if (!startDate) throw new Error("Start date is required.");
+      }
+      if (!startDate) {
+        throw new Error("Start date is required.");
+      }
 
       const result = await awardMinutesCredit({
         studentId,
@@ -266,8 +309,12 @@ export default function AddCreditModal({
       if (onClose) {
         onClose();
       }
-    } catch (err: any) {
-      setError(err?.message ?? "Unknown error");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Unknown error");
+      } else {
+        setError("Unknown error");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -293,6 +340,7 @@ export default function AddCreditModal({
         {/* Tabs */}
         <div className="mb-4 flex gap-2">
           <button
+            type="button"
             className={`rounded-full px-3 py-1 text-sm ${
               tab === "invoice" ? "bg-black text-white" : "bg-gray-100"
             }`}
@@ -301,6 +349,7 @@ export default function AddCreditModal({
             Invoice
           </button>
           <button
+            type="button"
             className={`rounded-full px-3 py-1 text-sm ${
               tab === "award" ? "bg-black text-white" : "bg-gray-100"
             }`}
@@ -327,6 +376,8 @@ export default function AddCreditModal({
             <span className="text-sm text-gray-600">Total hours (H)</span>
             <input
               type="number"
+              name="totalHours"
+              autoComplete="off"
               min={0.01}
               step={0.25}
               value={hours}
@@ -342,98 +393,109 @@ export default function AddCreditModal({
         {tab === "invoice" ? (
           <form onSubmit={submitInvoice} className="mt-6 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-  <label className="flex flex-col gap-1">
-    <span className="text-sm text-gray-600">Xero #</span>
-    <div className="flex overflow-hidden rounded-md border">
-      <span className="flex items-center bg-gray-50 px-2 text-sm text-gray-500">
-        INV-
-      </span>
-      <input
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]{4,5}"
-        maxLength={5}
-        value={invoiceNumber}
-        onChange={(e) => {
-          const digits = e.target.value.replace(/\D/g, "");
-          setInvoiceNumber(digits.slice(0, 5));
-        }}
-        className="flex-1 border-0 p-2 outline-none"
-      />
-    </div>
-    <span className="text-xs text-gray-500"></span>
-  </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-gray-600">Xero #</span>
+                <div className="flex overflow-hidden rounded-md border">
+                  <span className="flex items-center bg-gray-50 px-2 text-sm text-gray-500">
+                    INV-
+                  </span>
+                  <input
+                    type="text"
+                    name="invoiceNumber"
+                    autoComplete="off"
+                    inputMode="numeric"
+                    pattern="[0-9]{4,5}"
+                    maxLength={5}
+                    value={invoiceNumber}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "");
+                      setInvoiceNumber(digits.slice(0, 5));
+                    }}
+                    className="flex-1 border-0 p-2 outline-none"
+                  />
+                </div>
+                <span className="text-xs text-gray-500">
+                  4–5 digit Xero invoice number.
+                </span>
+              </label>
 
-  <label className="flex flex-col gap-1">
-    <span className="text-sm text-gray-600">Invoice total (£)</span>
-    <input
-      type="number"
-      min={0.01}
-      step={0.01}
-      value={invoiceAmount}
-      onChange={(e) => setInvoiceAmount(e.target.value)}
-      className="rounded-md border p-2"
-    />
-    <span className="text-xs text-gray-500">
-      {amountPennies || 0} pennies
-    </span>
-  </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-gray-600">Invoice total (£)</span>
+                <input
+                  type="number"
+                  name="invoiceAmount"
+                  autoComplete="off"
+                  min={0.01}
+                  step={0.01}
+                  value={invoiceAmount}
+                  onChange={(e) => setInvoiceAmount(e.target.value)}
+                  className="rounded-md border p-2"
+                />
+                <span className="text-xs text-gray-500">
+                  {amountPennies || 0} pennies
+                </span>
+              </label>
 
-  <label className="flex flex-col gap-1">
-    <span className="text-sm text-gray-600">Expiry enforcement</span>
-    <select
-      value={expiryPolicy}
-      onChange={(e) =>
-        setExpiryPolicy(e.target.value as ExpiryPolicy)
-      }
-      className="rounded-md border p-2"
-    >
-      {EXPIRY_POLICIES.map((policy) => (
-        <option key={policy} value={policy}>
-          {getExpiryPolicyLabel(policy)}
-        </option>
-      ))}
-    </select>
-    <span className="text-xs text-gray-500">
-      {getExpiryPolicyDescription(expiryPolicy)}
-    </span>
-  </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-gray-600">Expiry enforcement</span>
+                <select
+                  value={expiryPolicy}
+                  onChange={(e) =>
+                    setExpiryPolicy(e.target.value as ExpiryPolicy)
+                  }
+                  className="rounded-md border p-2"
+                >
+                  {EXPIRY_POLICIES.map((policy) => (
+                    <option key={policy} value={policy}>
+                      {getExpiryPolicyLabel(policy)}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-gray-500">
+                  {getExpiryPolicyDescription(expiryPolicy)}
+                </span>
+              </label>
 
-  <label className="flex flex-col gap-1">
-    <span className="text-sm text-gray-600">Length restriction</span>
-    <select
-      value={lengthRestriction}
-      onChange={(e) =>
-        setLengthRestriction(e.target.value as LengthCat)
-      }
-      className="rounded-md border p-2"
-    >
-      <option value="none">none</option>
-      <option value="60">60</option>
-      <option value="90">90</option>
-      <option value="120">120</option>
-    </select>
-  </label>
+              <label className="flex flex-col gap-1">
+  <span className="text-sm text-gray-600">Length restriction</span>
+  <select
+    value={lengthRestriction}
+    onChange={(e) =>
+      setLengthRestriction(e.target.value as LengthCat)
+    }
+    className="rounded-md border p-2"
+  >
+    {LENGTH_RESTRICTIONS.map((len) => (
+      <option key={len} value={len}>
+        {formatLengthRestrictionLabel(len)}
+      </option>
+    ))}
+  </select>
+</label>
 
-  <label className="flex flex-col gap-1">
-    <span className="text-sm text-gray-600">
-      Delivery restriction
-    </span>
-    <select
-      value={deliveryRestriction ?? ""}
-      onChange={(e) => {
-        const value = e.target.value as Delivery | "";
-        setDeliveryRestriction(value === "" ? null : value);
-      }}
-      className="rounded-md border p-2"
-    >
-      <option value="">hybrid (online &amp; f2f)</option>
-      <option value="online">online only</option>
-      <option value="f2f">face to face only</option>
-    </select>
-  </label>
 
-  <label className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1">
+  <span className="text-sm text-gray-600">Delivery restriction</span>
+  <select
+    // null in DB = "hybrid" in UI
+    value={(deliveryRestriction ?? "hybrid") as DeliveryUi}
+    onChange={(e) => {
+      const value = e.target.value as DeliveryUi;
+      // map "hybrid" back to null for DB
+      setDeliveryRestriction(value === "hybrid" ? null : value);
+    }}
+    className="rounded-md border p-2"
+  >
+    {DELIVERY_RESTRICTION_VALUES.map((value) => (
+      <option key={value} value={value}>
+        {formatDeliveryRestrictionLabel(value)}
+      </option>
+    ))}
+  </select>
+</label>
+
+
+              <label className="flex flex-col gap-1">
     <span className="text-sm text-gray-600">Tier restriction</span>
     <select
       value={tierRestriction ?? ""}
@@ -444,31 +506,16 @@ export default function AddCreditModal({
       className="rounded-md border p-2"
     >
       <option value="">(none)</option>
-      {(["basic", "premium", "elite"] as Tier[]).map((tier) => (
+      {TIER_VALUES.map((tier) => (
         <option key={tier} value={tier}>
           {formatTierLabel(tier)}
         </option>
       ))}
     </select>
   </label>
+            </div>
 
-  <div className="mt-3 text-sm text-gray-700">
-    Expiry preview{" "}
-    <span className="text-xs text-gray-500">
-      ({getExpiryPolicyLabel(expiryPolicy)})
-    </span>
-    :{" "}
-    <span className="font-medium">
-      {expiryDateOverride
-        ? `${expiryDateOverride} (override)`
-        : expiryPreview ?? "—"}
-    </span>
-  </div>
-</div>
-
-
-    
-            <div className="rounded-lg border p-3">
+                        <div className="rounded-lg border p-3">
               <div className="mb-2 font-medium">Expiry calculation</div>
               <div className="grid grid-cols-3 gap-3">
                 <label className="flex flex-col gap-1">
@@ -477,15 +524,11 @@ export default function AddCreditModal({
                   </span>
                   <input
                     type="number"
+                    name="lessonsPerMonth"
+                    autoComplete="off"
                     min={1}
-                    value={lessonsPerMonth as any}
-                    onChange={(e) =>
-                      setLessonsPerMonth(
-                        e.target.value === ""
-                          ? ""
-                          : parseInt(e.target.value, 10),
-                      )
-                    }
+                    value={lessonsPerMonth}
+                    onChange={(e) => setLessonsPerMonth(e.target.value)}
                     className="rounded-md border p-2"
                   />
                 </label>
@@ -494,14 +537,8 @@ export default function AddCreditModal({
                     Minutes per lesson (D)
                   </span>
                   <select
-                    value={durationPerLessonMins as any}
-                    onChange={(e) =>
-                      setDurationPerLessonMins(
-                        e.target.value === ""
-                          ? ""
-                          : parseInt(e.target.value, 10),
-                      )
-                    }
+                    value={durationPerLessonMins}
+                    onChange={(e) => setDurationPerLessonMins(e.target.value)}
                     className="rounded-md border p-2"
                   >
                     <option value="">(select)</option>
@@ -516,13 +553,11 @@ export default function AddCreditModal({
                   </span>
                   <input
                     type="number"
-                    step="0.1"
-                    value={buffer as any}
-                    onChange={(e) =>
-                      setBuffer(
-                        e.target.value === "" ? "" : Number(e.target.value),
-                      )
-                    }
+                    name="expiryBuffer"
+                    autoComplete="off"
+                    step={0.1}
+                    value={buffer}
+                    onChange={(e) => setBuffer(e.target.value)}
                     className="rounded-md border p-2"
                     placeholder="0.5"
                   />
@@ -532,9 +567,7 @@ export default function AddCreditModal({
               <div className="mt-3 text-sm text-gray-700">
                 Expiry preview:{" "}
                 <span className="font-medium">
-                  {expiryDateOverride
-                    ? `${expiryDateOverride} (override)`
-                    : expiryPreview ?? "—"}
+                  {expiryPreview ?? "—"}
                 </span>
               </div>
             </div>
@@ -575,28 +608,28 @@ export default function AddCreditModal({
               </button>
             </div>
           </form>
-       ) : (
-  <form onSubmit={submitAward} className="mt-6 space-y-4">
-    <div className="grid grid-cols-2 gap-3">
-      <label className="flex flex-col gap-1">
-        <span className="text-sm text-gray-600">
-          Award reason (required)
-        </span>
-        <select
-          value={awardReasonCode}
-          onChange={(e) =>
-            setAwardReasonCode(e.target.value as AwardReasonCode)
-          }
-          className="rounded-md border p-2"
-        >
-          {/* simple explicit options, or map AWARD_REASON_CODES if you like */}
-          <option value="free_cancellation">Free cancellation</option>
-          <option value="goodwill">Goodwill</option>
-          <option value="promo">Promo</option>
-          <option value="trial">Trial</option>
-        </select>
-      </label>
-    </div>
+        ) : (
+          <form onSubmit={submitAward} className="mt-6 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-sm text-gray-600">
+                  Award reason
+                </span>
+                <select
+  value={awardReasonCode}
+  onChange={(e) =>
+    setAwardReasonCode(e.target.value as AwardReasonCode)
+  }
+  className="rounded-md border p-2"
+>
+  {AWARD_REASON_CODES.map((code) => (
+    <option key={code} value={code}>
+      {getAwardReasonLabel(code)}
+    </option>
+  ))}
+</select>
+              </label>
+            </div>
 
             <div className="rounded-lg border p-3 text-sm text-gray-700">
               Awards <strong>never expire</strong>. They will be consumed{" "}

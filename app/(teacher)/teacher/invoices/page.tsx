@@ -11,7 +11,6 @@ import {
 } from "@/lib/teacherInvoices";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
 
-
 export const dynamic = "force-dynamic";
 
 type InvoiceSummaryRow = {
@@ -32,9 +31,10 @@ type TeacherInvoiceRow = {
 export default async function TeacherInvoicesIndex() {
   const supabase = await getServerSupabase();
 
-  // Map logged-in user → teacher_id (match other teacher pages)
+  // Map logged-in user → teacher_id
   const { data: u } = await supabase.auth.getUser();
   const user = u?.user;
+
   if (!user) {
     return (
       <Section
@@ -87,6 +87,10 @@ export default async function TeacherInvoicesIndex() {
       .limit(12),
   ]);
 
+  // Latest invoice month = previous calendar month (shared helper)
+  const invoiceMonthKey = getInvoiceMonthKey();
+  const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
+
   if (summaryError || invoiceError) {
     return (
       <Section
@@ -97,7 +101,7 @@ export default async function TeacherInvoicesIndex() {
           Sorry — we couldn’t load your invoice data right now.
         </p>
         <Link
-          href="/teacher/invoices/previous-month"
+          href={`/teacher/invoices/previous-month?monthStart=${invoiceMonthKey}`}
           className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700"
         >
           Go to invoice month snapshot
@@ -113,10 +117,6 @@ export default async function TeacherInvoicesIndex() {
   for (const inv of invoiceRows) {
     invoiceByMonth.set(inv.month_start, inv);
   }
-
-  // Latest invoice month = previous calendar month (shared helper)
-  const invoiceMonthKey = getInvoiceMonthKey();
-  const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
 
   const invoiceSummary = summaryRows.find(
     (row) => row.month_start === invoiceMonthKey,
@@ -168,7 +168,7 @@ export default async function TeacherInvoicesIndex() {
                 </div>
               </div>
               <Link
-                href="/teacher/invoices/previous-month"
+                href={`/teacher/invoices/previous-month?monthStart=${invoiceMonthKey}`}
                 className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-blue-700"
               >
                 View invoice month breakdown

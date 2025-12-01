@@ -53,13 +53,22 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, data });
-  } catch (err: any) {
-    console.error("POST /admin/teachers/rates/override error", err);
+  } catch (err: unknown) {
+  console.error("POST /admin/teachers/rates/override error", err);
+
+  if (err instanceof Error) {
     return NextResponse.json(
       { message: err.message || "Invalid input" },
       { status: 400 },
     );
   }
+
+  return NextResponse.json(
+    { message: "Invalid input" },
+    { status: 400 },
+  );
+}
+
 }
 
 export async function DELETE(req: Request) {
@@ -86,11 +95,20 @@ export async function DELETE(req: Request) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
-    console.error("DELETE /admin/teachers/rates/override error", err);
+  } catch (err: unknown) {
+  console.error("DELETE /admin/teachers/rates/override error", err);
+
+  if (err instanceof Error) {
     return NextResponse.json(
       { message: err.message || "Invalid input" },
       { status: 400 },
     );
   }
+
+  return NextResponse.json(
+    { message: "Invalid input" },
+    { status: 400 },
+  );
+}
+
 }

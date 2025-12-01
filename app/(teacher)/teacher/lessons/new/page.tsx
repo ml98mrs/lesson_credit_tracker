@@ -260,11 +260,16 @@ export default function NewLesson() {
       setNotes("");
 
       await refreshRecent(teacherId);
-    } catch (err: any) {
-      setMsg(err?.message || "Failed to log lesson.");
-    } finally {
-      setSubmitting(false);
-    }
+ } catch (err: unknown) {
+  if (err instanceof Error) {
+    setMsg(err.message || "Failed to log lesson.");
+  } else {
+    setMsg("Failed to log lesson.");
+  }
+} finally {
+  setSubmitting(false);
+}
+
   }
 
   // ---------------------------------------------------------------------------

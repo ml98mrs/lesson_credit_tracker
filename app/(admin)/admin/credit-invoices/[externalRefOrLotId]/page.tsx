@@ -77,27 +77,33 @@ export default async function Page({
     "created_at",
   ].join(",");
 
-  let lot: CreditLot | null = null;
+   let lot: CreditLot | null = null;
   let lotErrMsg: string | null = null;
 
   try {
-    const baseQuery = sb.from("credit_lots").select(selectColumns).limit(1);
+    const baseQuery = sb.from("credit_lots").select(selectColumns);
 
-    const { data, error } = (await (isUUID(key)
-      ? baseQuery.eq("id", key)
-      : baseQuery.eq("external_ref", key).eq("source_type", "invoice"))) as {
-      data: any;
-      error: any;
-    };
+    const { data, error } = isUUID(key)
+      ? await baseQuery.eq("id", key).maybeSingle<CreditLot>()
+      : await baseQuery
+          .eq("external_ref", key)
+          .eq("source_type", "invoice")
+          .maybeSingle<CreditLot>();
 
     if (error) {
       lotErrMsg = error.message;
-    } else if (Array.isArray(data) && data.length > 0) {
-      lot = data[0] as CreditLot;
+    } else {
+      lot = data;
     }
-  } catch (e: any) {
-    lotErrMsg = e?.message ?? "Unknown error while loading lot";
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      lotErrMsg = e.message;
+    } else {
+      lotErrMsg = "Unknown error while loading lot";
+    }
   }
+
+
 
   if (lotErrMsg) {
     return (
@@ -127,18 +133,15 @@ export default async function Page({
   let studentName: string | null = null;
 
   try {
-    const { data, error } = (await sb
-      .from("students")
-      .select("id, profiles(full_name)")
-      .eq("id", lot.student_id)
-      .maybeSingle()) as {
-      data: StudentWithProfile | null;
-      error: any;
-    };
+const { data, error } = await sb
+  .from("students")
+  .select("id, profiles(full_name)")
+  .eq("id", lot.student_id)
+  .maybeSingle<StudentWithProfile>();
 
-    if (!error && data) {
-      studentName = readProfileFullName(data.profiles) ?? null;
-    }
+if (!error && data) {
+  studentName = readProfileFullName(data.profiles) ?? null;
+}
   } catch {
     // fall back to student_id
     studentName = null;
@@ -149,20 +152,26 @@ export default async function Page({
   //
   // 2) Remaining minutes (view is optional)
   //
-  let minutesRemaining: number | null = null;
-  try {
-    const { data, error } = await sb
-      .from("v_credit_lot_remaining")
-      .select("credit_lot_id, minutes_remaining")
-      .eq("credit_lot_id", lot.id)
-      .maybeSingle();
+  type RemainingRow = {
+  credit_lot_id: string;
+  minutes_remaining: number | null;
+};
 
-    if (!error && data) {
-      minutesRemaining = (data as any).minutes_remaining ?? null;
-    }
-  } catch {
-    minutesRemaining = null;
+let minutesRemaining: number | null = null;
+try {
+  const { data, error } = await sb
+    .from("v_credit_lot_remaining")
+    .select("credit_lot_id, minutes_remaining")
+    .eq("credit_lot_id", lot.id)
+    .maybeSingle<RemainingRow>();
+
+  if (!error && data) {
+    minutesRemaining = data.minutes_remaining ?? null;
   }
+} catch {
+  minutesRemaining = null;
+}
+
 
   //
   // 3) Allocations for this lot
@@ -170,20 +179,25 @@ export default async function Page({
   let allocations: Allocation[] = [];
   let allocErrMsg: string | null = null;
 
-  try {
-    const { data, error } = await sb
-      .from("allocations")
-      .select("id, lesson_id, credit_lot_id, minutes_allocated")
-      .eq("credit_lot_id", lot.id);
+try {
+  const { data, error } = await sb
+    .from("allocations")
+    .select("id, lesson_id, credit_lot_id, minutes_allocated")
+    .eq("credit_lot_id", lot.id);
 
-    if (error) {
-      allocErrMsg = error.message;
-    } else {
-      allocations = (data ?? []) as Allocation[];
-    }
-  } catch (e: any) {
-    allocErrMsg = e?.message ?? "Unknown error while loading allocations";
+  if (error) {
+    allocErrMsg = error.message;
+  } else {
+    allocations = (data ?? []) as Allocation[];
   }
+} catch (e: unknown) {
+  if (e instanceof Error) {
+    allocErrMsg = e.message;
+  } else {
+    allocErrMsg = "Unknown error while loading allocations";
+  }
+}
+
 
   //
   // 4) Lesson dates (only if we have allocations) + sort allocations

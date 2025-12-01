@@ -8,6 +8,14 @@ type PostBody = {
   body?: string;
 };
 
+type InsertPayload = {
+  student_id: string;
+  body: string;
+  source: "student_portal";
+  lesson_id?: string;
+  credit_lot_id?: string;
+};
+
 export async function POST(req: Request) {
   const supabase = await getServerSupabase();
 
@@ -63,7 +71,7 @@ export async function POST(req: Request) {
 
   const studentId = studentRow.id as string;
 
-  const insertPayload: any = {
+  const insertPayload: InsertPayload = {
     student_id: studentId,
     body: body.trim(),
     source: "student_portal",

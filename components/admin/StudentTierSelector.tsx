@@ -36,11 +36,16 @@ export default function StudentTierSelector({ studentId, initialTier }: Props) {
         throw new Error(j.error || "Failed to update tier");
       }
       setMsg("Tier updated");
-    } catch (err: any) {
-      setMsg(err.message || "Error updating tier");
-    } finally {
-      setSaving(false);
-    }
+    } catch (err: unknown) {
+  if (err instanceof Error) {
+    setMsg(err.message || "Error updating tier");
+  } else {
+    setMsg("Error updating tier");
+  }
+} finally {
+  setSaving(false);
+}
+
   }
 
   return (

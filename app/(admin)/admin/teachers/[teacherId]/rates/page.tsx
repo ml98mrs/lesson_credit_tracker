@@ -31,12 +31,34 @@ type AssignedStudentOption = {
   name: string;
 };
 
+type StudentProfileLite = {
+  preferred_name: string | null;
+  full_name: string | null;
+};
+
+type OverrideRowRaw = {
+  teacher_id: string;
+  student_id: string;
+  f2f_rate_pennies: number;
+  students?: {
+    profiles?: StudentProfileLite[] | null;
+  } | null;
+};
+
+type StudentTeacherLinkRow = {
+  student_id: string;
+};
+
+type StudentWithProfilesRow = {
+  id: string;
+  profiles: StudentProfileLite[] | null;
+};
+
 export default async function TeacherRatesPage({
   params,
 }: {
   params: Promise<{ teacherId: string }>;
 }) {
-  // ✅ Unwrap the Promise
   const { teacherId } = await params;
   if (!teacherId) notFound();
 
@@ -104,32 +126,24 @@ export default async function TeacherRatesPage({
     throw new Error(ovErr.message);
   }
 
-  const overrides: OverrideRow[] =
-    (overrideRows ?? []).map((row: any) => {
-      const studentProfiles = row.students?.profiles;
-      let studentName = "(student)";
+  const rawOverrides = (overrideRows ?? []) as OverrideRowRaw[];
 
-      if (Array.isArray(studentProfiles) && studentProfiles.length > 0) {
-        const p = studentProfiles[0];
-        studentName =
-          (p.preferred_name as string | null) ??
-          (p.full_name as string | null) ??
-          "(student)";
-      } else if (studentProfiles) {
-        const p = studentProfiles;
-        studentName =
-          (p.preferred_name as string | null) ??
-          (p.full_name as string | null) ??
-          "(student)";
-      }
+  const overrides: OverrideRow[] = rawOverrides.map((row) => {
+    const profiles = row.students?.profiles ?? [];
+    const p = profiles[0] ?? null;
 
-      return {
-        teacher_id: row.teacher_id as string,
-        student_id: row.student_id as string,
-        student_name: studentName,
-        f2f_rate_pennies: row.f2f_rate_pennies as number,
-      };
-    }) ?? [];
+    const studentName =
+      (p?.preferred_name as string | null) ??
+      (p?.full_name as string | null) ??
+      "(student)";
+
+    return {
+      teacher_id: row.teacher_id,
+      student_id: row.student_id,
+      student_name: studentName,
+      f2f_rate_pennies: row.f2f_rate_pennies,
+    };
+  });
 
   // 4) Assigned students (for override selection)
   const { data: linkRows, error: linkErr } = await sb
@@ -141,7 +155,8 @@ export default async function TeacherRatesPage({
     throw new Error(linkErr.message);
   }
 
-  const studentIds = (linkRows ?? []).map((l: any) => l.student_id as string);
+  const typedLinks = (linkRows ?? []) as StudentTeacherLinkRow[];
+  const studentIds = typedLinks.map((l) => l.student_id);
 
   let assignedStudents: AssignedStudentOption[] = [];
 
@@ -155,19 +170,20 @@ export default async function TeacherRatesPage({
       throw new Error(studentsErr.message);
     }
 
-    assignedStudents =
-      (students ?? []).map((s: any) => {
-        const p = s.profiles;
-        const name =
-          (p?.preferred_name as string | null) ??
-          (p?.full_name as string | null) ??
-          "(student)";
+    const studentRows = (students ?? []) as StudentWithProfilesRow[];
 
-        return {
-          id: s.id as string,
-          name,
-        };
-      }) ?? [];
+    assignedStudents = studentRows.map((s) => {
+      const p = s.profiles?.[0] ?? null;
+      const name =
+        (p?.preferred_name as string | null) ??
+        (p?.full_name as string | null) ??
+        "(student)";
+
+      return {
+        id: s.id,
+        name,
+      };
+    });
   }
 
   return (

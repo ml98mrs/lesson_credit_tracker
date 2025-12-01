@@ -7,6 +7,46 @@ const QuerySchema = z.object({
   q: z.string().min(1).max(100),
 });
 
+type ProfileRow = {
+  id: string;
+  full_name: string | null;
+  preferred_name: string | null;
+};
+
+type StudentRow = {
+  id: string;
+  profile_id: string;
+};
+
+type TeacherRow = {
+  id: string;
+  profile_id: string;
+};
+
+type InvoiceLotRow = {
+  id: string;
+  student_id: string;
+  external_ref: string | null;
+  external_ref_norm: string | null;
+  source_type: string;
+};
+
+type NamedResult = { id: string; name: string };
+
+type InvoiceSearchResult = {
+  id: string;
+  invoiceRef: string;
+  studentId: string;
+  studentName: string | null;
+};
+
+type PostgrestErrorLike = { message: string };
+
+type SimpleQueryResult<T> = {
+  data: T[] | null;
+  error: PostgrestErrorLike | null;
+};
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -16,7 +56,7 @@ export async function GET(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json(
         { students: [], teachers: [], invoices: [], debug: "bad query" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -37,18 +77,14 @@ export async function GET(req: NextRequest) {
       .from("profiles")
       .select("id, full_name, preferred_name")
       .eq("role", "student")
-      .or(
-        `full_name.ilike.%${q}%,preferred_name.ilike.%${q}%`
-      )
+      .or(`full_name.ilike.%${q}%,preferred_name.ilike.%${q}%`)
       .limit(10);
 
     const teachersProfilesPromise = sb
       .from("profiles")
       .select("id, full_name, preferred_name")
       .eq("role", "teacher")
-      .or(
-        `full_name.ilike.%${q}%,preferred_name.ilike.%${q}%`
-      )
+      .or(`full_name.ilike.%${q}%,preferred_name.ilike.%${q}%`)
       .limit(10);
 
     const [studentsProfilesRes, teachersProfilesRes] = await Promise.all([
@@ -64,32 +100,42 @@ export async function GET(req: NextRequest) {
       console.error("Admin search profile error", debug);
       return NextResponse.json(
         { students: [], teachers: [], invoices: [], debug },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const studentProfiles = studentsProfilesRes.data ?? [];
-    const teacherProfiles = teachersProfilesRes.data ?? [];
+    const studentProfiles = (studentsProfilesRes.data ??
+      []) as ProfileRow[];
+    const teacherProfiles = (teachersProfilesRes.data ??
+      []) as ProfileRow[];
 
     // --- 2) map profiles → students/teachers via profile_id ------------------
     const studentProfileIds = studentProfiles.map((p) => p.id);
     const teacherProfileIds = teacherProfiles.map((p) => p.id);
 
-    const [{ data: studentRows, error: sErr }, { data: teacherRows, error: tErr }] =
-      await Promise.all([
-        studentProfileIds.length
-          ? sb
-              .from("students")
-              .select("id, profile_id")
-              .in("profile_id", studentProfileIds)
-          : Promise.resolve({ data: [], error: null }),
-        teacherProfileIds.length
-          ? sb
-              .from("teachers")
-              .select("id, profile_id")
-              .in("profile_id", teacherProfileIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
+    const [
+      { data: studentRowsRaw, error: sErr },
+      { data: teacherRowsRaw, error: tErr },
+    ] = await Promise.all([
+      studentProfileIds.length
+        ? sb
+            .from("students")
+            .select("id, profile_id")
+            .in("profile_id", studentProfileIds)
+        : Promise.resolve<{ data: StudentRow[]; error: null }>({
+            data: [],
+            error: null,
+          }),
+      teacherProfileIds.length
+        ? sb
+            .from("teachers")
+            .select("id, profile_id")
+            .in("profile_id", teacherProfileIds)
+        : Promise.resolve<{ data: TeacherRow[]; error: null }>({
+            data: [],
+            error: null,
+          }),
+    ]);
 
     if (sErr || tErr) {
       const debug = {
@@ -99,92 +145,103 @@ export async function GET(req: NextRequest) {
       console.error("Admin search student/teacher join error", debug);
       return NextResponse.json(
         { students: [], teachers: [], invoices: [], debug },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
+    const studentRows = (studentRowsRaw ?? []) as StudentRow[];
+    const teacherRows = (teacherRowsRaw ?? []) as TeacherRow[];
+
     const studentIdByProfile = new Map<string, string>();
-    (studentRows ?? []).forEach((s: any) => {
-      studentIdByProfile.set(s.profile_id as string, s.id as string);
+    studentRows.forEach((s) => {
+      studentIdByProfile.set(s.profile_id, s.id);
     });
 
     const teacherIdByProfile = new Map<string, string>();
-    (teacherRows ?? []).forEach((t: any) => {
-      teacherIdByProfile.set(t.profile_id as string, t.id as string);
+    teacherRows.forEach((t) => {
+      teacherIdByProfile.set(t.profile_id, t.id);
     });
 
-    const students = studentProfiles
-      .map((p: any) => {
-        const sid = studentIdByProfile.get(p.id as string);
+    const students: NamedResult[] = studentProfiles
+      .map((p) => {
+        const sid = studentIdByProfile.get(p.id);
         if (!sid) return null; // profile with no student row – skip
         const name =
-          (p.preferred_name as string | null) ||
-          (p.full_name as string) ||
+          p.preferred_name ??
+          p.full_name ??
           "—";
         return { id: sid, name };
       })
-      .filter(Boolean) as { id: string; name: string }[];
+      .filter((v): v is NamedResult => v !== null);
 
-    const teachers = teacherProfiles
-      .map((p: any) => {
-        const tid = teacherIdByProfile.get(p.id as string);
+    const teachers: NamedResult[] = teacherProfiles
+      .map((p) => {
+        const tid = teacherIdByProfile.get(p.id);
         if (!tid) return null;
         const name =
-          (p.preferred_name as string | null) ||
-          (p.full_name as string) ||
+          p.preferred_name ??
+          p.full_name ??
           "—";
         return { id: tid, name };
       })
-      .filter(Boolean) as { id: string; name: string }[];
+      .filter((v): v is NamedResult => v !== null);
 
-    // --- 3) Invoice search (unchanged) --------------------------------------
+    // --- 3) Invoice search ---------------------------------------------------
     const isLikelyInvoiceNumber = /^\d{4,}$/.test(q);
     const qNorm = q.toUpperCase();
 
-    let invoicesRes:
-      | { data: any[] | null; error: null }
-      | { data: null; error: any } = { data: [], error: null };
+    let invoices: InvoiceSearchResult[] = [];
 
     if (isLikelyInvoiceNumber) {
-      invoicesRes = await sb
+      const rawInvoicesRes = await sb
         .from("credit_lots")
-        .select("id, student_id, external_ref, external_ref_norm, source_type")
+        .select(
+          "id, student_id, external_ref, external_ref_norm, source_type",
+        )
         .eq("source_type", "invoice")
         .ilike("external_ref_norm", `%${qNorm}%`)
         .order("external_ref_norm", { ascending: true })
         .limit(5);
-    }
 
-    if (invoicesRes.error) {
-      const debug = { invoicesError: invoicesRes.error.message };
-      console.error("Admin search invoice error", debug);
-      return NextResponse.json(
-        { students: [], teachers: [], invoices: [], debug },
-        { status: 500 }
-      );
-    }
+      const invoicesRes = rawInvoicesRes as SimpleQueryResult<InvoiceLotRow>;
 
-    const invoices = (invoicesRes.data ?? []).map((lot: any) => ({
-      id: lot.id as string,
-      invoiceRef:
-        (lot.external_ref as string | null) ??
-        (lot.external_ref_norm as string | null) ??
-        "",
-      studentId: lot.student_id as string,
-      studentName: null as string | null,
-    }));
+      if (invoicesRes.error) {
+        const debug = { invoicesError: invoicesRes.error.message };
+        console.error("Admin search invoice error", debug);
+        return NextResponse.json(
+          { students: [], teachers: [], invoices: [], debug },
+          { status: 500 },
+        );
+      }
+
+      const lotRows = (invoicesRes.data ?? []) as InvoiceLotRow[];
+
+      invoices = lotRows.map((lot) => ({
+        id: lot.id,
+        invoiceRef:
+          lot.external_ref ??
+          lot.external_ref_norm ??
+          "",
+        studentId: lot.student_id,
+        studentName: null,
+      }));
+    }
 
     return NextResponse.json({ students, teachers, invoices, debug: null });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Admin search unexpected error", err);
+
+    const message =
+      err instanceof Error ? err.message : "unexpected error";
+
     return NextResponse.json(
       {
         students: [],
         teachers: [],
         invoices: [],
-        debug: err?.message ?? "unexpected error",
+        debug: message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -80,10 +80,18 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
+ } catch (e: unknown) {
+  if (e instanceof Error) {
     return NextResponse.json(
-      { ok: false, error: e?.message ?? "Unexpected error" },
+      { ok: false, error: e.message },
       { status: 500 },
     );
   }
+
+  return NextResponse.json(
+    { ok: false, error: "Unexpected error" },
+    { status: 500 },
+  );
+}
+
 }

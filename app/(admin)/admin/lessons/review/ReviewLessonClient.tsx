@@ -148,13 +148,18 @@ export default function ReviewLessonClient() {
         throw new Error(j.error || "Failed to load preview");
       }
 
-      setPreview(j as PreviewPlan);
-    } catch (e: any) {
-      setPreview(null);
-      setPreviewErr(e.message);
-    } finally {
-      setPreviewLoading(false);
-    }
+setPreview(j as PreviewPlan);
+} catch (e: unknown) {
+  setPreview(null);
+  if (e instanceof Error) {
+    setPreviewErr(e.message);
+  } else {
+    setPreviewErr("Unknown error while generating preview");
+  }
+} finally {
+  setPreviewLoading(false);
+}
+
   }
 
   // --- Initial load -----------------------------------------------------
@@ -281,11 +286,15 @@ export default function ReviewLessonClient() {
         length_cat: editLength,
         duration_min: newDuration || lesson.duration_min,
       });
-    } catch (e: any) {
-      setConfirmMsg(e.message);
-    } finally {
-      setConfirming(false);
-    }
+  } catch (e: unknown) {
+  if (e instanceof Error) {
+    setConfirmMsg(e.message);
+  } else {
+    setConfirmMsg("Unknown error while confirming");
+  }
+} finally {
+  setConfirming(false);
+}
   }
 
   const isPending = lesson?.state === "pending";

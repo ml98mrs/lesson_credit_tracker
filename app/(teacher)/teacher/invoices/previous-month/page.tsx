@@ -1,4 +1,5 @@
 // app/(teacher)/teacher/invoices/previous-month/page.tsx
+// Invoice month snapshot (defaults to previous calendar month if no ?monthStart= is provided)
 
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
@@ -12,7 +13,6 @@ import {
   type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
-
 
 export const dynamic = "force-dynamic";
 
@@ -52,10 +52,18 @@ type StudentNameRow = {
   full_name: string;
 };
 
-export default async function TeacherCurrentMonthInvoicePage() {
-  const supabase = await getServerSupabase();
-  const monthKey = getInvoiceMonthKey();
+export default async function TeacherInvoiceMonthSnapshotPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ monthStart?: string }>;
+}) {
+  const { monthStart } = await searchParams;
+
+  // If no monthStart provided, default to previous calendar month
+  const monthKey = monthStart ?? getInvoiceMonthKey();
   const monthLabel = formatInvoiceMonthLabel(monthKey);
+
+  const supabase = await getServerSupabase();
 
   // Map logged-in user → teacher_id (same pattern as other teacher pages)
   const { data: u } = await supabase.auth.getUser();
@@ -65,7 +73,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
     return (
       <Section
         title="Invoice month snapshot"
-        subtitle={`${monthLabel} · previous calendar month`}
+        subtitle={monthLabel}
       >
         <p className="text-sm text-gray-600">Please sign in as a teacher.</p>
       </Section>
@@ -82,7 +90,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
     return (
       <Section
         title="Invoice month snapshot"
-        subtitle={`${monthLabel} · previous calendar month`}
+        subtitle={monthLabel}
       >
         <p className="text-sm text-red-600">
           Error: teacher record not found for this login.
@@ -138,7 +146,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
     return (
       <Section
         title="Invoice month snapshot"
-        subtitle={`${monthLabel} · previous month`}
+        subtitle={monthLabel}
       >
         <p className="text-sm text-red-600">
           Sorry — there was a problem loading your invoice month snapshot.
@@ -189,7 +197,7 @@ export default async function TeacherCurrentMonthInvoicePage() {
   return (
     <Section
       title="Invoice month snapshot"
-      subtitle={`${monthLabel} · previous calendar month`}
+      subtitle={monthLabel}
     >
       <div className="space-y-6">
         {/* Top summary = invoice month totals */}

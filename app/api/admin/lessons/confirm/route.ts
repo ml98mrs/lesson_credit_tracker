@@ -1,11 +1,18 @@
 // app/api/admin/lessons/confirm/route.ts
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+type ConfirmLessonPlan = {
+  isSnc?: boolean | null;
+  is_snc?: boolean | null;
+  isFreeSnc?: boolean | null;
+  is_free_snc?: boolean | null;
+} | null;
+
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const lessonId = body?.lessonId as string | undefined;
@@ -37,12 +44,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-        // SNC-aware status message
-    const plan = data as any;
+    // SNC-aware status message
+    const plan: ConfirmLessonPlan = data as ConfirmLessonPlan;
 
     // Prefer camelCase from planner / rpc_confirm_lesson, but tolerate legacy snake_case
-    const isSnc = !!(plan.isSnc ?? plan.is_snc);
-    const isFreeSnc = !!(plan.isFreeSnc ?? plan.is_free_snc);
+    const isSnc = !!(plan?.isSnc ?? plan?.is_snc);
+    const isFreeSnc = !!(plan?.isFreeSnc ?? plan?.is_free_snc);
 
     let statusMessage = "Lesson confirmed.";
 
@@ -57,11 +64,13 @@ export async function POST(req: Request) {
       result: data,
       statusMessage,
     });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }
 }
-

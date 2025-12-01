@@ -1,5 +1,5 @@
 // app/api/admin/hazards/resolve/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 
@@ -23,9 +23,13 @@ const resolveHazardSchema = z
     }
   });
 
-export async function POST(req: Request) {
+type ResolveHazardInput = z.infer<typeof resolveHazardSchema>;
+
+export const dynamic = "force-dynamic";
+
+export async function POST(req: NextRequest) {
   try {
-    const json = await req.json();
+    const json: unknown = await req.json();
     const parsed = resolveHazardSchema.safeParse(json);
 
     if (!parsed.success) {
@@ -35,7 +39,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const { hazardType, lessonId, allocationId, note } = parsed.data;
+    const { hazardType, lessonId, allocationId, note }: ResolveHazardInput =
+      parsed.data;
 
     const supabase = getAdminSupabase();
 
@@ -52,10 +57,14 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(data ?? { ok: true });
-  } catch (e: any) {
-    console.error("POST /api/admin/hazards/resolve failed", e);
+  } catch (err: unknown) {
+    console.error("POST /api/admin/hazards/resolve failed", err);
+
+    const message =
+      err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }

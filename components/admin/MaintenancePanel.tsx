@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 
-type JsonValue = any;
+type JsonValue = unknown;
 
 export default function MaintenancePanel() {
   const [inactiveMonths, setInactiveMonths] = useState<number>(3);
@@ -28,10 +28,19 @@ export default function MaintenancePanel() {
         }),
       });
 
-      const json = await res.json().catch(() => ({} as any));
+      const json: JsonValue = await res.json().catch(
+        () => ({} as JsonValue),
+      );
       setDormantResult(json);
-    } catch (e: any) {
-      setDormantResult({ ok: false, error: e?.message ?? "Unknown error" });
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        setDormantResult({
+          ok: false,
+          error: e.message ?? "Unknown error",
+        });
+      } else {
+        setDormantResult({ ok: false, error: "Unknown error" });
+      }
     } finally {
       setRunningDormant(false);
     }
@@ -50,10 +59,19 @@ export default function MaintenancePanel() {
         }),
       });
 
-      const json = await res.json().catch(() => ({} as any));
+      const json: JsonValue = await res.json().catch(
+        () => ({} as JsonValue),
+      );
       setCleanupResult(json);
-    } catch (e: any) {
-      setCleanupResult({ ok: false, error: e?.message ?? "Unknown error" });
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        setCleanupResult({
+          ok: false,
+          error: e.message ?? "Unknown error",
+        });
+      } else {
+        setCleanupResult({ ok: false, error: "Unknown error" });
+      }
     } finally {
       setRunningCleanup(false);
     }
@@ -62,7 +80,7 @@ export default function MaintenancePanel() {
   return (
     <div className="space-y-8">
       {/* Dormant job */}
-      <div className="rounded-2xl border p-4 space-y-3">
+      <div className="space-y-3 rounded-2xl border p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold">
@@ -83,7 +101,9 @@ export default function MaintenancePanel() {
               type="number"
               min={1}
               value={inactiveMonths}
-              onChange={(e) => setInactiveMonths(Number(e.target.value) || 1)}
+              onChange={(e) =>
+                setInactiveMonths(Number(e.target.value) || 1)
+              }
               className="w-16 rounded-md border px-2 py-1 text-sm"
             />
             <span>months</span>
@@ -99,15 +119,16 @@ export default function MaintenancePanel() {
           </button>
         </div>
 
-        {dormantResult && (
-          <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-gray-50 p-2 text-[11px] text-gray-800">
-            {JSON.stringify(dormantResult, null, 2)}
-          </pre>
-        )}
+        {dormantResult !== null && (
+  <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-gray-50 p-2 text-[11px] text-gray-800">
+    {JSON.stringify(dormantResult, null, 2)}
+  </pre>
+)}
+
       </div>
 
       {/* Cleanup job */}
-      <div className="rounded-2xl border p-4 space-y-3">
+      <div className="space-y-3 rounded-2xl border p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold">
@@ -129,7 +150,9 @@ export default function MaintenancePanel() {
               type="number"
               min={1}
               value={cleanupMonths}
-              onChange={(e) => setCleanupMonths(Number(e.target.value) || 1)}
+              onChange={(e) =>
+                setCleanupMonths(Number(e.target.value) || 1)
+              }
               className="w-16 rounded-md border px-2 py-1 text-sm"
             />
             <span>months</span>
@@ -159,11 +182,12 @@ export default function MaintenancePanel() {
           </button>
         </div>
 
-        {cleanupResult && (
-          <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-gray-50 p-2 text-[11px] text-gray-800">
-            {JSON.stringify(cleanupResult, null, 2)}
-          </pre>
-        )}
+       {cleanupResult !== null && (
+  <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-gray-50 p-2 text-[11px] text-gray-800">
+    {JSON.stringify(cleanupResult, null, 2)}
+  </pre>
+)}
+
       </div>
     </div>
   );

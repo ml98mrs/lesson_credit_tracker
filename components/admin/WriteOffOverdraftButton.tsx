@@ -43,9 +43,14 @@ export default function WriteOffOverdraftButton({
         }
 
         router.refresh();
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to write off overdraft");
-      }
+      } catch (e: unknown) {
+  if (e instanceof Error) {
+    setError(e.message ?? "Failed to write off overdraft");
+  } else {
+    setError("Failed to write off overdraft");
+  }
+}
+
     });
   };
 

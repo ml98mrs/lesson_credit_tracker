@@ -37,9 +37,14 @@ export default function ExpenseStatusButtons({
         // 🔁 Re-run the current route's server components,
         // which will re-query all the Supabase views.
         router.refresh();
-      } catch (e: any) {
-        setError(e?.message || "Failed to update");
-      }
+     } catch (e: unknown) {
+  if (e instanceof Error) {
+    setError(e.message || "Failed to update");
+  } else {
+    setError("Failed to update");
+  }
+}
+
     });
   }
 

@@ -217,15 +217,6 @@ export default async function AdminDashboardPage() {
           </div>
         </section>
 
-        {/* 4. Quick actions (currently placeholder-only; no DB writes) */}
-        {/* <section className="space-y-2">
-          <h2 className="text-lg font-semibold">Quick actions</h2>
-          <div className="flex flex-wrap gap-2">
-            <QuickActionButton label="Add credit to a student" />
-            <QuickActionButton label="Review SNC warnings" />
-            <QuickActionButton label="Open maintenance tools" />
-          </div>
-        </section> */}
       </main>
     </div>
   );

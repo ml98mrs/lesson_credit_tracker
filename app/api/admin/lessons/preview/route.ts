@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 
@@ -9,9 +9,11 @@ const bodySchema = z.object({
   override: z.boolean().optional(),
 });
 
-export async function POST(req: Request) {
+type PreviewLessonInput = z.infer<typeof bodySchema>;
+
+export async function POST(req: NextRequest) {
   try {
-    const json = await req.json();
+    const json: unknown = await req.json();
     const parsed = bodySchema.safeParse(json);
 
     if (!parsed.success) {
@@ -21,7 +23,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { lessonId, override } = parsed.data;
+    const { lessonId, override }: PreviewLessonInput = parsed.data;
 
     const sb = getAdminSupabase();
 
@@ -40,10 +42,14 @@ export async function POST(req: Request) {
 
     // data is the JSONB returned by the planner
     return NextResponse.json(data ?? {});
-  } catch (e: any) {
-    console.error("POST /api/admin/lessons/preview failed", e);
+  } catch (err: unknown) {
+    console.error("POST /api/admin/lessons/preview failed", err);
+
+    const message =
+      err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }

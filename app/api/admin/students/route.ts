@@ -91,14 +91,26 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ studentId }, { status: 201 });
-  } catch (err: any) {
-    console.error("Create student: unexpected server error", err);
+  } catch (err: unknown) {
+  console.error("Create student: unexpected server error", err);
+
+  if (err instanceof Error) {
     return NextResponse.json(
       {
         error: "Unexpected server error",
-        details: err?.message ?? String(err),
+        details: err.message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
+
+  return NextResponse.json(
+    {
+      error: "Unexpected server error",
+      details: String(err),
+    },
+    { status: 500 },
+  );
+}
+
 }

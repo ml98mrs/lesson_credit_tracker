@@ -84,11 +84,16 @@ export default function TeacherRatesForm({
       }
 
       setBaseMessage("Base rates saved.");
-    } catch (err: any) {
-      setBaseMessage(err.message || "Error saving base rates.");
-    } finally {
-      setSavingBase(false);
-    }
+    } catch (err: unknown) {
+  if (err instanceof Error) {
+    setBaseMessage(err.message || "Error saving base rates.");
+  } else {
+    setBaseMessage("Error saving base rates.");
+  }
+} finally {
+  setSavingBase(false);
+}
+
   }
 
   async function saveOverride(e: React.FormEvent) {
@@ -113,11 +118,16 @@ export default function TeacherRatesForm({
       }
 
       setOverrideMessage("Override saved. Reload the page to see changes.");
-    } catch (err: any) {
-      setOverrideMessage(err.message || "Error saving override.");
-    } finally {
-      setSavingOverride(false);
-    }
+   } catch (err: unknown) {
+  if (err instanceof Error) {
+    setOverrideMessage(err.message || "Error saving override.");
+  } else {
+    setOverrideMessage("Error saving override.");
+  }
+} finally {
+  setSavingOverride(false);
+}
+
   }
 
   async function deleteOverride(studentId: string) {
@@ -136,9 +146,14 @@ export default function TeacherRatesForm({
       }
 
       setOverrideMessage("Override deleted. Reload the page to see changes.");
-    } catch (err: any) {
-      setOverrideMessage(err.message || "Error deleting override.");
-    }
+    } catch (err: unknown) {
+  if (err instanceof Error) {
+    setOverrideMessage(err.message || "Error deleting override.");
+  } else {
+    setOverrideMessage("Error deleting override.");
+  }
+}
+
   }
 
   return (

@@ -110,23 +110,26 @@ export async function POST(req: Request) {
 
     // Resolve the current teacher_id from auth + teachers table
     let teacherId: string;
-    try {
-      teacherId = await getCurrentTeacherIdFromSupabaseClient(supabase);
-    } catch (err: any) {
-      if (err?.message === "NOT_AUTHENTICATED_TEACHER") {
-        return NextResponse.json(
-          { error: "Not authenticated as a teacher." },
-          { status: 401 },
-        );
-      }
-      if (err?.message === "TEACHER_NOT_FOUND") {
-        return NextResponse.json(
-          { error: "Teacher record not found for this user." },
-          { status: 404 },
-        );
-      }
-      throw err;
+try {
+  teacherId = await getCurrentTeacherIdFromSupabaseClient(supabase);
+} catch (err: unknown) {
+  if (err instanceof Error) {
+    if (err.message === "NOT_AUTHENTICATED_TEACHER") {
+      return NextResponse.json(
+        { error: "Not authenticated as a teacher." },
+        { status: 401 },
+      );
     }
+    if (err.message === "TEACHER_NOT_FOUND") {
+      return NextResponse.json(
+        { error: "Teacher record not found for this user." },
+        { status: 404 },
+      );
+    }
+  }
+  throw err;
+}
+
 
     // Compute month_start (YYYY-MM-01) for incurredAt
     const monthStart = new Date(
@@ -175,12 +178,20 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, result: data }, { status: 200 });
-  } catch (e: any) {
+  } catch (e: unknown) {
+  if (e instanceof Error) {
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: e.message },
       { status: 500 },
     );
   }
+
+  return NextResponse.json(
+    { error: "Unknown error" },
+    { status: 500 },
+  );
+}
+
 }
 
 // ────────────────────────────────────────────────────────────
@@ -262,10 +273,18 @@ export async function DELETE(req: Request) {
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
+  } catch (e: unknown) {
+  if (e instanceof Error) {
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: e.message },
       { status: 500 },
     );
   }
+
+  return NextResponse.json(
+    { error: "Unknown error" },
+    { status: 500 },
+  );
+}
+
 }

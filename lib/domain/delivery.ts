@@ -18,3 +18,24 @@ export function formatDeliveryUiLabel(d?: DeliveryUi | null): string {
       return d;
   }
 }
+// For restriction dropdown specifically:
+export const DELIVERY_RESTRICTION_VALUES: DeliveryUi[] = [
+  "online",
+  "f2f",
+  "hybrid",
+];
+
+export function formatDeliveryRestrictionLabel(
+  d: DeliveryUi | null | undefined,
+): string {
+  switch (d) {
+    case "online":
+      return "online only";
+    case "f2f":
+      return "face to face only";
+    case "hybrid":
+      return "hybrid (online & f2f)";
+    default:
+      return "—";
+  }
+}

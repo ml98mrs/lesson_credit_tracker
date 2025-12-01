@@ -4,7 +4,7 @@ import {
   LessonMarginRow,
   buildTeacherSummary,
 } from "@/lib/types/analytics";
-import { formatPercent } from "@/lib/formatters";
+
 
 // UI helpers – money & percentages
 function formatPounds(pennies: number | null | undefined): string {

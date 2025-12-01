@@ -54,9 +54,14 @@ export default function WriteOffRemainingButton({
         }
 
         router.refresh();
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to write off credit");
-      }
+      } catch (e: unknown) {
+  if (e instanceof Error) {
+    setError(e.message ?? "Failed to write off credit");
+  } else {
+    setError("Failed to write off credit");
+  }
+}
+
     });
   };
 

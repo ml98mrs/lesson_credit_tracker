@@ -42,11 +42,16 @@ export default function ResolveHazardButton({
       }
 
       // (optional) we can add a reload/refresh later
-    } catch (e: any) {
-      setErr(e.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: unknown) {
+  if (e instanceof Error) {
+    setErr(e.message);
+  } else {
+    setErr("An unknown error occurred");
+  }
+} finally {
+  setLoading(false);
+}
+
   }
 
   return (

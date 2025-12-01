@@ -117,9 +117,10 @@ export default async function AdminStudentPage({
 
   if (sErr || !student) notFound();
 
-
+  // Tier is null for "No package (legacy rules)"
   const studentTier: Tier = (student.tier ?? null) as Tier;
   const studentStatus: StudentStatus = (student.status ?? "current") as StudentStatus;
+  const isLegacyTier = !studentTier;
 
   // 🔹 Domain-driven label + badge styling
   const studentStatusLabel = formatStudentStatus(studentStatus);
@@ -404,9 +405,6 @@ export default async function AdminStudentPage({
   const lifetimeFreeSncs = sncStatus?.freeSncs ?? 0;
   const lifetimeChargedSncs = sncStatus?.chargedSncs ?? 0;
   const hasLifetimeFreeSnc = sncStatus?.hasFreeSncUsed ?? false;
-
-  // Tier is null for "No package (legacy rules)"
-  const isLegacyTier = !studentTier;
 
   // --- 9) Totals & breakdowns (via views, to stay in sync with student portal) ---
 

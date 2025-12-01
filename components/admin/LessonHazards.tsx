@@ -128,11 +128,16 @@ async function onResolve(h: LessonHazard) {
           )
       )
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
+  if (e instanceof Error) {
     setErr(e.message);
-  } finally {
-    setResolvingKey(null);
+  } else {
+    setErr("An unknown error occurred");
   }
+} finally {
+  setResolvingKey(null);
+}
+
 }
   if (loading && hazards.length === 0) {
     return (

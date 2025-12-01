@@ -57,12 +57,17 @@ export default function StudentTeacherAssignments({
       });
       setSelectedTeacherId("");
       router.refresh();
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message ?? "Failed to assign teacher.");
-    } finally {
-      setBusyId(null);
-    }
+    } catch (err: unknown) {
+  console.error(err);
+  if (err instanceof Error) {
+    setError(err.message ?? "Failed to assign teacher.");
+  } else {
+    setError("Failed to assign teacher.");
+  }
+} finally {
+  setBusyId(null);
+}
+
   }
 
   async function handleUnassign(teacherId: string) {
@@ -74,12 +79,18 @@ export default function StudentTeacherAssignments({
         teacherId,
       });
       router.refresh();
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message ?? "Failed to unassign teacher.");
-    } finally {
-      setBusyId(null);
-    }
+   } catch (err: unknown) {
+  console.error(err);
+
+  if (err instanceof Error) {
+    setError(err.message ?? "Failed to unassign teacher.");
+  } else {
+    setError("Failed to unassign teacher.");
+  }
+} finally {
+  setBusyId(null);
+}
+
   }
 
   return (

@@ -6,39 +6,9 @@
  * This endpoint powers the Admin “Review lesson” page.
  * It is READ-ONLY: no writes, no confirmation. It just assembles
  * everything the UI needs to preview a lesson before confirm/decline.
- *
- * What it returns (high level):
- * - `lesson`       → core lesson fields, including `is_snc` and `snc_mode`
- * - `lots`         → OPEN credit lots from `v_credit_lot_remaining`
- * - `studentName`  → resolved via profiles
- * - `teacherName`  → resolved via profiles
- * - `sncStats`     → per-student SNC stats from
- *                    v_student_snc_status_previous_month
- * - `studentTier`  → student.tier at time of review (basic / premium / elite / null)
- *
- * Call graph:
- *
- *   Review page
- *     → GET /api/admin/lessons/review?lessonId=…
- *         → lessons (single row)
- *         → students + profiles (name + tier)
- *         → teachers + profiles (name)
- *         → v_credit_lot_remaining (open lots)
- *         → v_student_snc_status_previous_month (if is_snc = true)
- *
- * SNC business rules (implemented in SQL, NOT here):
- * - `snc_mode = 'none'`    → normal lesson (not an SNC)
- * - `snc_mode = 'free'`    → free SNC (no allocations written)
- * - `snc_mode = 'charged'` → SNC that deducts minutes
- *
- * Hazards:
- * - DB-backed hazards are exposed via v_lesson_hazards and
- *   consumed by dedicated endpoints (e.g. /api/admin/hazards/by-lesson),
- *   not through this review API. The Review page uses the LessonHazards
- *   component for hazards instead of this route.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import {
   Delivery,
@@ -67,7 +37,7 @@ type Lesson = {
   length_cat: LengthCat;
   state: LessonState;
   is_snc: boolean;
-  snc_mode: "none" | "free" | "charged"; // or SncMode if you want
+  snc_mode: "none" | "free" | "charged";
   notes: string | null;
 };
 
@@ -97,7 +67,7 @@ type SncStats = {
 
 // ---- Handler -------------------------------------------------------------
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
@@ -215,11 +185,6 @@ export async function GET(req: Request) {
     const lots = (lotsRows ?? []) as unknown as LotRow[];
 
     // 4) SNC stats (previous-month summary) – only if this lesson is marked SNC
-    //
-    // Note: this uses v_student_snc_status_previous_month, which aggregates
-    // SNCs for the *previous calendar month* in Europe/London time.
-    // That matches the operational review cadence (processing last month’s
-    // logs around the 7th/8th of the current month).
     let sncStats: SncStats | null = null;
 
     if (lesson.is_snc) {
@@ -245,9 +210,12 @@ export async function GET(req: Request) {
       sncStats,
       studentTier,
     });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }

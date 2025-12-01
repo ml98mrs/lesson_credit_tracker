@@ -1,6 +1,10 @@
-// lib/awardReasons.ts (or wherever this lives)
+// lib/awardReasons.ts
 
 import { formatMinutesAsHours } from "@/lib/formatters";
+
+// ---------------------------------------------------------------------------
+// Core award reason codes + labels
+// ---------------------------------------------------------------------------
 
 export const AWARD_REASON_CODES = [
   "free_cancellation",
@@ -19,12 +23,19 @@ export const AWARD_REASON_LABELS: Record<AwardReasonCode, string> = {
   trial: "Trial",
 };
 
-// Safe helper: falls back to the raw code if we don’t know it
+// Overloads:
+// - strict: known AwardReasonCode
+// - loose: arbitrary string from DB / views
+export function getAwardReasonLabel(code: AwardReasonCode): string;
+export function getAwardReasonLabel(code: string): string;
 export function getAwardReasonLabel(code: string): string {
   return AWARD_REASON_LABELS[code as AwardReasonCode] ?? code;
 }
 
-// Minimal shape of the summary rows coming from v_student_award_reason_summary
+// ---------------------------------------------------------------------------
+// Summary helpers (e.g. v_student_award_reason_summary)
+// ---------------------------------------------------------------------------
+
 type AwardReasonSummaryRow = {
   award_reason_code: string;
   granted_award_min: number;
@@ -34,7 +45,7 @@ type AwardReasonSummaryRow = {
 
 /**
  * Build a compact line like:
- *   "Goodwill: 1.50 h • Trial: 0.75 h"
+ *   "(Goodwill: 1.50 h • Trial: 0.75 h)"
  *
  * Returns null if there is nothing > 0 for that kind.
  */

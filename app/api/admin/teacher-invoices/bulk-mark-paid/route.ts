@@ -44,10 +44,18 @@ export async function POST(req: Request) {
       { ok: true, updatedCount: count },
       { status: 200 },
     );
-  } catch (e: any) {
+  } catch (e: unknown) {
+  if (e instanceof Error) {
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: e.message },
       { status: 500 },
     );
   }
+
+  return NextResponse.json(
+    { error: "Unknown error" },
+    { status: 500 },
+  );
+}
+
 }

@@ -1,4 +1,5 @@
-//app\(admin)\admin\teachers\invoices\monthly\page.tsx
+// app/(admin)/admin/teachers/invoices/monthly/page.tsx
+// Admin monthly teacher invoices overview (defaults to previous calendar month if no ?monthStart= is provided)
 
 import Link from "next/link";
 import Section from "@/components/ui/Section";
@@ -7,7 +8,7 @@ import { formatPenniesAsPounds } from "@/lib/formatters";
 import {
   getInvoiceMonthKey,
   formatInvoiceMonthLabel,
-    type InvoiceStatus,
+  type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import BulkMarkInvoicesPaidButton from "@/components/admin/BulkMarkInvoicesPaidButton";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
@@ -37,21 +38,18 @@ type InvoiceRow = {
   paid_at: string | null;
 };
 
-type TeacherRow = {
-  id: string;
-  profile_id: string | null;
-};
+export default async function AdminMonthlyTeacherInvoicesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ monthStart?: string }>;
+}) {
+  const { monthStart } = await searchParams;
 
-type ProfileRow = {
-  id: string;
-  full_name: string | null;
-};
+  // If no monthStart provided, default to previous calendar month
+  const monthKey = monthStart ?? getInvoiceMonthKey();
+  const monthLabel = formatInvoiceMonthLabel(monthKey);
 
-export default async function AdminMonthlyTeacherInvoicesPage() {
   const supabase = await getAdminSupabase();
-
-  const monthStart = getInvoiceMonthKey(); // previous calendar month
-  const monthLabel = formatInvoiceMonthLabel(monthStart);
 
   // 1) All teacher summaries for this invoice month
   const { data: summaryData, error: summaryError } = await supabase
@@ -59,7 +57,7 @@ export default async function AdminMonthlyTeacherInvoicesPage() {
     .select(
       "teacher_id, month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
     )
-    .eq("month_start", monthStart)
+    .eq("month_start", monthKey)
     .order("teacher_id", { ascending: true });
 
   const summaryRows = (summaryData ?? []) as SummaryRow[];
@@ -75,7 +73,7 @@ export default async function AdminMonthlyTeacherInvoicesPage() {
     .select(
       "id, teacher_id, month_start, status, invoice_ref, created_at, paid_at",
     )
-    .eq("month_start", monthStart);
+    .eq("month_start", monthKey);
 
   const invoiceRows = (invoicesData ?? []) as InvoiceRow[];
   const invoiceByTeacher = new Map<string, InvoiceRow>();
@@ -83,42 +81,43 @@ export default async function AdminMonthlyTeacherInvoicesPage() {
     invoiceByTeacher.set(inv.teacher_id, inv);
   }
 
- // 3) Resolve teacher names (teachers → profiles)
-const teacherNameById = new Map<string, string>();
+  // 3) Resolve teacher names (teachers → profiles)
+  const teacherNameById = new Map<string, string>();
 
-if (teacherIds.length > 0) {
-  const { data: teacherRows, error: tErr } = await supabase
-    .from("teachers")
-    .select("id, profiles(full_name, preferred_name)")
-    .in("id", teacherIds);
+  if (teacherIds.length > 0) {
+    const { data: teacherRows, error: tErr } = await supabase
+      .from("teachers")
+      .select("id, profiles(full_name, preferred_name)")
+      .in("id", teacherIds);
 
-  if (tErr) {
-    // Soft-fail: keep going but fall back to teacher_id in the UI
-    console.error("Error loading teacher names for invoices:", tErr.message);
+    if (tErr) {
+      // Soft-fail: keep going but fall back to teacher_id in the UI
+      console.error("Error loading teacher names for invoices:", tErr.message);
+    }
+
+    type TeacherWithProfileRow = {
+      id: string;
+      profiles: ProfilesDisplayEmbed | null;
+    };
+
+    const teachers = (teacherRows ?? []) as TeacherWithProfileRow[];
+
+    for (const t of teachers) {
+      const displayName =
+        readProfileDisplayName(t.profiles ?? undefined) ??
+        `Teacher ID: ${t.id}`;
+
+      teacherNameById.set(t.id, displayName);
+    }
   }
 
-  type TeacherWithProfileRow = {
-    id: string;
-    profiles: ProfilesDisplayEmbed | null;
-  };
-
-  const teachers = (teacherRows ?? []) as TeacherWithProfileRow[];
-
-  for (const t of teachers) {
-    const displayName =
-      readProfileDisplayName(t.profiles ?? undefined) ??
-      `Teacher ID: ${t.id}`;
-
-    teacherNameById.set(t.id, displayName);
-  }
-}
   const generatedCount = summaryRows.filter(
     (r) => r.status === "generated",
   ).length;
 
   return (
     <Section
-      title="Teacher invoices – last month"
+      title="Teacher invoices – monthly overview"
       subtitle={`All teacher invoice summaries for ${monthLabel}. Use this view when running monthly payroll.`}
     >
       {summaryError && (
@@ -133,7 +132,7 @@ if (teacherIds.length > 0) {
           <span className="font-medium">{monthLabel}</span>.
         </p>
         <BulkMarkInvoicesPaidButton
-          monthStart={monthStart}
+          monthStart={monthKey}
           generatedCount={generatedCount}
         />
       </div>

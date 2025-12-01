@@ -14,9 +14,12 @@ const AwardSchema = z.object({
   awardReasonCode: z.enum(AWARD_REASON_CODES),
 });
 
+type AwardInput = z.infer<typeof AwardSchema>;
+type AwardMinutesResult = { id?: string } | null;
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body: unknown = await req.json();
     const parsed = AwardSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -26,11 +29,11 @@ export async function POST(req: NextRequest) {
           error: "Invalid request",
           issues: parsed.error.flatten(),
         },
-        { status: 422 }
+        { status: 422 },
       );
     }
 
-    const p = parsed.data;
+    const p: AwardInput = parsed.data;
     const supabase = getAdminSupabase();
 
     const { data, error } = await supabase.rpc("rpc_award_minutes", {
@@ -46,11 +49,11 @@ export async function POST(req: NextRequest) {
           ok: false,
           error: error.message ?? "Error awarding minutes",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
-    const lot = data as { id?: string } | null;
+    const lot: AwardMinutesResult = data as AwardMinutesResult;
     const creditLotId = lot?.id;
 
     if (!creditLotId) {
@@ -60,7 +63,7 @@ export async function POST(req: NextRequest) {
           error:
             "Award minutes RPC did not return a credit lot. Please contact support.",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -70,15 +73,18 @@ export async function POST(req: NextRequest) {
         creditLotId,
         lot,
       },
-      { status: 200 }
+      { status: 200 },
     );
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unexpected error";
+
     return NextResponse.json(
       {
         ok: false,
-        error: e?.message ?? "Unexpected error",
+        error: message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

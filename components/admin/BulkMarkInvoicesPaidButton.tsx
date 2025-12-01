@@ -54,9 +54,14 @@ export default function BulkMarkInvoicesPaidButton({
         }
 
         router.refresh();
-      } catch (e: any) {
-        setError(e?.message || "Failed to mark invoices as paid");
-      }
+      } catch (e: unknown) {
+  if (e instanceof Error) {
+    setError(e.message || "Failed to mark invoices as paid");
+  } else {
+    setError("Failed to mark invoices as paid");
+  }
+}
+
     });
   }
 

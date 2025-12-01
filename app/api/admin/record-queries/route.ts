@@ -1,12 +1,19 @@
 // app/api/admin/record-queries/route.ts
 import { NextResponse } from "next/server";
-import { getAdminSupabase } from "@/lib/supabase/admin"; // per your conventions
+import { getAdminSupabase } from "@/lib/supabase/admin";
 
 type PatchBody = {
   queryId: string;
   status?: string;
   adminNote?: string;
   resolutionCode?: string | null;
+};
+
+type UpdatePayload = {
+  status?: string;
+  admin_note?: string;
+  resolution_code?: string | null;
+  resolved_at?: string;
 };
 
 export async function PATCH(req: Request) {
@@ -19,7 +26,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Missing queryId" }, { status: 400 });
   }
 
-  const update: any = {};
+  const update: UpdatePayload = {};
 
   if (status) update.status = status;
   if (adminNote !== undefined) update.admin_note = adminNote;

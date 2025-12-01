@@ -6,6 +6,9 @@
 
 import type { Tier, TierDisplay } from "@/lib/enums";
 
+// All modern paid tiers in DB enum order.
+export const TIER_VALUES: Tier[] = ["basic", "premium", "elite"];
+
 // Internal sort order for display / filters.
 const TIER_DISPLAY_ORDER: TierDisplay[] = ["basic", "premium", "elite", "legacy"];
 

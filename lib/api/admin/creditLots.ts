@@ -10,16 +10,16 @@ import type { AwardReasonCode } from "@/lib/awardReasons";
 export type ImportInvoicePayload = {
   studentId: string;
   externalRef: string;
-  minutesGranted: number;  // minutes in DB
-  amountPennies: number;   // total invoice amount in pennies
-  startDate: string;       // "YYYY-MM-DD"
+  minutesGranted: number; // minutes in DB
+  amountPennies: number; // total invoice amount in pennies
+  startDate: string; // "YYYY-MM-DD"
 
   // Restrictions & expiry – all reuse canonical enums
-  lengthRestriction?: LengthCat;             // "60" | "90" | "120" | "none"
+  lengthRestriction?: LengthCat; // "60" | "90" | "120" | "none"
   deliveryRestriction?: DeliveryRestriction; // "online" | "f2f" | null
   tierRestriction?: string | null;
   expiryDate?: string | null;
-  expiryPolicy?: ExpiryPolicy;               // "none" | "mandatory" | "advisory"
+  expiryPolicy?: ExpiryPolicy; // "none" | "mandatory" | "advisory"
 
   // Dynamic-expiry tuning (optional)
   lessonsPerMonth?: number | null;
@@ -29,14 +29,30 @@ export type ImportInvoicePayload = {
 
 export type AwardMinutesPayload = {
   studentId: string;
-  minutesGranted: number;  // minutes in DB
-  startDate: string;       // "YYYY-MM-DD"
+  minutesGranted: number; // minutes in DB
+  startDate: string; // "YYYY-MM-DD"
   awardReasonCode: AwardReasonCode;
 };
 
-export type CreditLotResult =
-  | { ok: true; creditLotId: string; lot: any }
-  | { ok: false; error: string };
+type CreditLotSuccess = {
+  ok: true;
+  creditLotId: string;
+  lot: unknown;
+};
+
+type CreditLotFailure = {
+  ok: false;
+  error: string;
+};
+
+export type CreditLotResult = CreditLotSuccess | CreditLotFailure;
+
+type CreditLotApiResponse = {
+  ok?: boolean;
+  error?: string;
+  creditLotId?: string;
+  lot?: unknown;
+};
 
 export async function importInvoiceCredit(
   payload: ImportInvoicePayload,
@@ -47,7 +63,7 @@ export async function importInvoiceCredit(
     body: JSON.stringify(payload),
   });
 
-  let json: any;
+  let json: unknown;
   try {
     json = await res.json();
   } catch {
@@ -57,17 +73,20 @@ export async function importInvoiceCredit(
     };
   }
 
-  if (!res.ok || json?.ok === false) {
+  const parsed = json as CreditLotApiResponse;
+
+  if (!res.ok || parsed.ok === false) {
     return {
       ok: false,
-      error: json?.error || "There was a problem importing this invoice.",
+      error:
+        parsed.error || "There was a problem importing this invoice.",
     };
   }
 
   return {
     ok: true,
-    creditLotId: json.creditLotId,
-    lot: json.lot,
+    creditLotId: parsed.creditLotId as string,
+    lot: parsed.lot,
   };
 }
 
@@ -80,7 +99,7 @@ export async function awardMinutesCredit(
     body: JSON.stringify(payload),
   });
 
-  let json: any;
+  let json: unknown;
   try {
     json = await res.json();
   } catch {
@@ -90,16 +109,19 @@ export async function awardMinutesCredit(
     };
   }
 
-  if (!res.ok || json?.ok === false) {
+  const parsed = json as CreditLotApiResponse;
+
+  if (!res.ok || parsed.ok === false) {
     return {
       ok: false,
-      error: json?.error || "There was a problem awarding minutes.",
+      error:
+        parsed.error || "There was a problem awarding minutes.",
     };
   }
 
   return {
     ok: true,
-    creditLotId: json.creditLotId,
-    lot: json.lot,
+    creditLotId: parsed.creditLotId as string,
+    lot: parsed.lot,
   };
 }

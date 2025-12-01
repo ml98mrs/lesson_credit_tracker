@@ -32,9 +32,14 @@ export default function DeleteExpenseButton({ expenseId }: Props) {
         }
 
         router.refresh();
-      } catch (e: any) {
-        setError(e?.message || "Failed to delete expense");
-      }
+      } catch (e: unknown) {
+  if (e instanceof Error) {
+    setError(e.message || "Failed to delete expense");
+  } else {
+    setError("Failed to delete expense");
+  }
+}
+
     });
   }
 

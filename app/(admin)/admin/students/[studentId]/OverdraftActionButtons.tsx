@@ -54,11 +54,16 @@ export default function OverdraftActionButtons({ studentId }: Props) {
         invoiceRef,
       });
       router.refresh();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to invoice overdraft");
-    } finally {
-      setBusy(null);
-    }
+    } catch (e: unknown) {
+  if (e instanceof Error) {
+    alert(e.message);
+  } else {
+    alert("Failed to invoice overdraft");
+  }
+} finally {
+  setBusy(null);
+}
+
   };
 
   const handleAward = async () => {
@@ -81,11 +86,16 @@ export default function OverdraftActionButtons({ studentId }: Props) {
         awardReasonCode,
       });
       router.refresh();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to award overdraft");
-    } finally {
-      setBusy(null);
-    }
+  } catch (e: unknown) {
+  if (e instanceof Error) {
+    alert(e.message);
+  } else {
+    alert("Failed to award overdraft");
+  }
+} finally {
+  setBusy(null);
+}
+
   };
 
   const handleWriteOff = async () => {
@@ -115,11 +125,16 @@ export default function OverdraftActionButtons({ studentId }: Props) {
         accountingPeriod: accountingPeriod || undefined,
       });
       router.refresh();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to write off overdraft");
-    } finally {
-      setBusy(null);
-    }
+    } catch (e: unknown) {
+  if (e instanceof Error) {
+    alert(e.message);
+  } else {
+    alert("Failed to write off overdraft");
+  }
+} finally {
+  setBusy(null);
+}
+
   };
 
   const disabled = busy !== null;

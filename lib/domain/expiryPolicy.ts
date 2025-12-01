@@ -11,6 +11,13 @@
 
 import type { ExpiryPolicy } from "@/lib/enums";
 
+// Canonical list for dropdowns, filters, etc.
+export const EXPIRY_POLICIES: ExpiryPolicy[] = [
+  "none",
+  "advisory",
+  "mandatory",
+];
+
 /**
  * True if this expiry policy *blocks* allocation when expired,
  * unless an admin override is explicitly requested.
@@ -23,7 +30,6 @@ export function isExpiryBlocking(
 
 /**
  * True if this policy is advisory / warning-only.
- * (In your enum this is "advisory").
  */
 export function isExpiryWarningOnly(
   policy: ExpiryPolicy | null | undefined,
@@ -37,17 +43,17 @@ export function isExpiryWarningOnly(
 export function getExpiryPolicyLabel(
   policy: ExpiryPolicy | null | undefined,
 ): string {
-  if (!policy) return "No expiry";
-
   switch (policy) {
     case "none":
+    case null:
+    case undefined:
       return "No expiry";
-    case "mandatory":
-      return "Hard expiry";
     case "advisory":
-      return "Soft expiry";
+      return "Advisory";
+    case "mandatory":
+      return "Mandatory";
     default:
-      return policy;
+      return String(policy);
   }
 }
 
@@ -73,12 +79,9 @@ export function getExpiryPolicyDescription(
  * Helper for "expiring soon" banners when you already know
  * a lot is within the DB's expiry window (e.g. expiry_within_30d).
  *
- * This stays intentionally dumb: the *window* is owned by SQL;
- * we just produce copy.
+ * The window is owned by SQL; we just produce copy.
  */
-export function formatExpiringSoonBanner(
-  policy: ExpiryPolicy,
-): string {
+export function formatExpiringSoonBanner(policy: ExpiryPolicy): string {
   if (policy === "mandatory") {
     return "Some of this student's credit will hard-expire soon. Consider encouraging them to book lessons.";
   }

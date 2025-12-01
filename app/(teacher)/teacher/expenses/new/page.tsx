@@ -48,16 +48,22 @@ export default function NewTeacherExpensePage() {
         if (cancelled) return;
         const options = (body.students ?? []) as TeacherStudentOption[];
         setStudents(options);
-      })
-      .catch((err: any) => {
-        if (cancelled) return;
-        setStudentsError(
-          err?.message || "Could not load your assigned students.",
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setStudentsLoading(false);
-      });
+    })
+  .catch((err: unknown) => {
+    if (cancelled) return;
+
+    if (err instanceof Error) {
+      setStudentsError(
+        err.message || "Could not load your assigned students.",
+      );
+    } else {
+      setStudentsError("Could not load your assigned students.");
+    }
+  })
+  .finally(() => {
+    if (!cancelled) setStudentsLoading(false);
+  });
+
 
     return () => {
       cancelled = true;
@@ -115,11 +121,16 @@ export default function NewTeacherExpensePage() {
       }
 
       router.push("/teacher/expenses");
-    } catch (err: any) {
-      setError(err.message || "Unexpected error. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
+    } catch (err: unknown) {
+  if (err instanceof Error) {
+    setError(err.message || "Unexpected error. Please try again.");
+  } else {
+    setError("Unexpected error. Please try again.");
+  }
+} finally {
+  setSubmitting(false);
+}
+
   }
 
   return (

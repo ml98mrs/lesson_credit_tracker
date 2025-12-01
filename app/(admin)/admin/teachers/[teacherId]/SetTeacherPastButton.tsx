@@ -44,10 +44,16 @@ export function SetTeacherPastButton({
 
         // Re-fetch server data for this page
         router.refresh();
-      } catch (err: any) {
-        console.error(err);
-        setError(err?.message ?? "Failed to update teacher status");
-      }
+     } catch (err: unknown) {
+  console.error(err);
+
+  if (err instanceof Error) {
+    setError(err.message ?? "Failed to update teacher status");
+  } else {
+    setError("Failed to update teacher status");
+  }
+}
+
     });
   };
 

@@ -31,9 +31,12 @@ const InvoiceSchema = z.object({
   buffer: z.number().nonnegative().nullable().optional(),
 });
 
+type InvoiceInput = z.infer<typeof InvoiceSchema>;
+type ImportInvoiceResult = { id?: string } | null;
+
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const body: unknown = await req.json();
     const parsed = InvoiceSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -43,18 +46,18 @@ export async function POST(req: NextRequest) {
           error: "Invalid request",
           issues: parsed.error.flatten(),
         },
-        { status: 422 }
+        { status: 422 },
       );
     }
 
-    const p = parsed.data;
+    const p: InvoiceInput = parsed.data;
     const supabase = getAdminSupabase();
 
     const { data, error } = await supabase.rpc("rpc_import_invoice", {
       p_student_id: p.studentId,
       p_external_ref: p.externalRef,
       p_minutes_granted: p.minutesGranted,
-      p_amount_pennies: p.amountPennies, 
+      p_amount_pennies: p.amountPennies,
       p_start_date: p.startDate,
 
       p_delivery_restriction: p.deliveryRestriction ?? null,
@@ -75,11 +78,11 @@ export async function POST(req: NextRequest) {
           ok: false,
           error: error.message ?? "Error importing invoice",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const lot = data as { id?: string } | null;
+    const lot: ImportInvoiceResult = data as ImportInvoiceResult;
     const creditLotId = lot?.id;
 
     if (!creditLotId) {
@@ -90,7 +93,7 @@ export async function POST(req: NextRequest) {
           error:
             "Invoice import did not return a credit lot. Please contact support.",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -100,15 +103,18 @@ export async function POST(req: NextRequest) {
         creditLotId,
         lot,
       },
-      { status: 200 }
+      { status: 200 },
     );
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
       {
         ok: false,
-        error: e?.message ?? "Unknown error",
+        error: message,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

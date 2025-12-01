@@ -1,0 +1,183 @@
+warning: in the working copy of 'app/(admin)/admin/analytics/revenue-cost/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(admin)/admin/dashboard/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(admin)/admin/students/[studentId]/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(admin)/admin/teachers/[teacherId]/rates/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(public)/login/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(teacher)/teacher/expenses/new/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(teacher)/teacher/invoices/[invoiceId]/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(teacher)/teacher/invoices/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(teacher)/teacher/invoices/previous-month/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/(teacher)/teacher/lessons/new/page.tsx', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/app/(admin)/admin/analytics/revenue-cost/page.tsx b/app/(admin)/admin/analytics/revenue-cost/page.tsx[m
+[1mindex 8433ca3..e3e27ea 100644[m
+[1m--- a/app/(admin)/admin/analytics/revenue-cost/page.tsx[m
+[1m+++ b/app/(admin)/admin/analytics/revenue-cost/page.tsx[m
+[36m@@ -4,7 +4,7 @@[m [mimport {[m
+   LessonMarginRow,[m
+   buildTeacherSummary,[m
+ } from "@/lib/types/analytics";[m
+[31m-import { formatPercent } from "@/lib/formatters";[m
+[32m+[m
+ [m
+ // UI helpers – money & percentages[m
+ function formatPounds(pennies: number | null | undefined): string {[m
+[1mdiff --git a/app/(admin)/admin/credit-invoices/[externalRefOrLotId]/page.tsx b/app/(admin)/admin/credit-invoices/[externalRefOrLotId]/page.tsx[m
+[1mindex e87c4cb..61455b1 100644[m
+[1m--- a/app/(admin)/admin/credit-invoices/[externalRefOrLotId]/page.tsx[m
+[1m+++ b/app/(admin)/admin/credit-invoices/[externalRefOrLotId]/page.tsx[m
+[36m@@ -77,28 +77,34 @@[m [mexport default async function Page({[m
+     "created_at",[m
+   ].join(",");[m
+ [m
+[31m-  let lot: CreditLot | null = null;[m
+[32m+[m[32m   let lot: CreditLot | null = null;[m
+   let lotErrMsg: string | null = null;[m
+ [m
+   try {[m
+[31m-    const baseQuery = sb.from("credit_lots").select(selectColumns).limit(1);[m
+[32m+[m[32m    const baseQuery = sb.from("credit_lots").select(selectColumns);[m
+ [m
+[31m-    const { data, error } = (await (isUUID(key)[m
+[31m-      ? baseQuery.eq("id", key)[m
+[31m-      : baseQuery.eq("external_ref", key).eq("source_type", "invoice"))) as {[m
+[31m-      data: any;[m
+[31m-      error: any;[m
+[31m-    };[m
+[32m+[m[32m    const { data, error } = isUUID(key)[m
+[32m+[m[32m      ? await baseQuery.eq("id", key).maybeSingle<CreditLot>()[m
+[32m+[m[32m      : await baseQuery[m
+[32m+[m[32m          .eq("external_ref", key)[m
+[32m+[m[32m          .eq("source_type", "invoice")[m
+[32m+[m[32m          .maybeSingle<CreditLot>();[m
+ [m
+     if (error) {[m
+       lotErrMsg = error.message;[m
+[31m-    } else if (Array.isArray(data) && data.length > 0) {[m
+[31m-      lot = data[0] as CreditLot;[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      lot = data;[m
+[32m+[m[32m    }[m
+[32m+[m[32m  } catch (e: unknown) {[m
+[32m+[m[32m    if (e instanceof Error) {[m
+[32m+[m[32m      lotErrMsg = e.message;[m
+[32m+[m[32m    } else {[m
+[32m+[m[32m      lotErrMsg = "Unknown error while loading lot";[m
+     }[m
+[31m-  } catch (e: any) {[m
+[31m-    lotErrMsg = e?.message ?? "Unknown error while loading lot";[m
+   }[m
+ [m
+[32m+[m
+[32m+[m
+   if (lotErrMsg) {[m
+     return ([m
+       <Section title="Credit invoice">[m
+[36m@@ -127,18 +133,15 @@[m [mexport default async function Page({[m
+   let studentName: string | null = null;[m
+ [m
+   try {[m
+[31m-    const { data, error } = (await sb[m
+[31m-      .from("students")[m
+[31m-      .select("id, profiles(full_name)")[m
+[31m-      .eq("id", lot.student_id)[m
+[31m-      .maybeSingle()) as {[m
+[31m-      data: StudentWithProfile | null;[m
+[31m-      error: any;[m
+[31m-    };[m
+[31m-[m
+[31m-    if (!error && data) {[m
+[31m-      studentName = readProfileFullName(data.profiles) ?? null;[m
+[31m-    }[m
+[32m+[m[32mconst { data, error } = await sb[m
+[32m+[m[32m  .from("students")[m
+[32m+[m[32m  .select("id, profiles(full_name)")[m
+[32m+[m[32m  .eq("id", lot.student_id)[m
+[32m+[m[32m  .maybeSingle<StudentWithProfile>();[m
+[32m+[m
+[32m+[m[32mif (!error && data) {[m
+[32m+[m[32m  studentName = readProfileFullName(data.profiles) ?? null;[m
+[32m+[m[32m}[m
+   } catch {[m
+     // fall back to student_id[m
+     studentName = null;[m
+[36m@@ -149,20 +152,26 @@[m [mexport default async function Page({[m
+   //[m
+   // 2) Remaining minutes (view is optional)[m
+   //[m
+[31m-  let minutesRemaining: number | null = null;[m
+[31m-  try {[m
+[31m-    const { data, error } = await sb[m
+[31m-      .from("v_credit_lot_remaining")[m
+[31m-      .select("credit_lot_id, minutes_remaining")[m
+[31m-      .eq("credit_lot_id", lot.id)[m
+[31m-      .maybeSingle();[m
+[31m-[m
+[31m-    if (!error && data) {[m
+[31m-      minutesRemaining = (data as any).minutes_remaining ?? null;[m
+[31m-    }[m
+[31m-  } catch {[m
+[31m-    minutesRemaining = null;[m
+[32m+[m[32m  type RemainingRow = {[m
+[32m+[m[32m  credit_lot_id: string;[m
+[32m+[m[32m  minutes_remaining: number | null;[m
+[32m+[m[32m};[m
+[32m+[m
+[32m+[m[32mlet minutesRemaining: number | null = null;[m
+[32m+[m[32mtry {[m
+[32m+[m[32m  const { data, error } = await sb[m
+[32m+[m[32m    .from("v_credit_lot_remaining")[m
+[32m+[m[32m    .select("credit_lot_id, minutes_remaining")[m
+[32m+[m[32m    .eq("credit_lot_id", lot.id)[m
+[32m+[m[32m    .maybeSingle<RemainingRow>();[m
+[32m+[m
+[32m+[m[32m  if (!error && data) {[m
+[32m+[m[32m    minutesRemaining = data.minutes_remaining ?? null;[m
+   }[m
+[32m+[m[32m} catch {[m
+[32m+[m[32m  minutesRemaining = null;[m
+[32m+[m[32m}[m
+[32m+[m
+ [m
+   //[m
+   // 3) Allocations for this lot[m
+[36m@@ -170,20 +179,25 @@[m [mexport default async function Page({[m
+   let allocations: Allocation[] = [];[m
+   let allocErrMsg: string | null = null;[m
+ [m
+[31m-  try {[m
+[31m-    const { data, error } = await sb[m
+[31m-      .from("allocations")[m
+[31m-      .select("id, lesson_id, credit_lot_id, minutes_allocated")[m
+[31m-      .eq("credit_lot_id", lot.id);[m
+[32m+[m[32mtry {[m
+[32m+[m[32m  const { data, error } = await sb[m
+[32m+[m[32m    .from("allocations")[m
+[32m+[m[32m    .select("id, lesson_id, credit_lot_id, minutes_allocated")[m
+[32m+[m[32m    .eq("credit_lot_id", lot.id);[m
+ [m
+[31m-    if (error) {[m
+[31m-      allocErrMsg = error.message;[m
+[31m-    } else {[m
+[31m-      allocations = (data ?? []) as Allocation[];[m
+[31m-    }[m
+[31m-  } catch (e: any) {[m
+[31m-    allocErrMsg = e?.message ?? "Unknown error while loading allocations";[m
+[32m+[m[32m  if (error) {[m
+[32m+[m[32m    allocErrMsg = error.message;[m
+[32m+[m[32m  } else {[m
+[32m+[m[32m    allocations = (data ?? []) as Allocation[];[m
+[32m+[m[32m  }[m
+[32m+[m[32m} catch (e: unknown) {[m
+[32m+[m[32m  if (e instanceof Error) {[m
+[32m+[m[32m    allocErrMsg = e.message;[m
+[32m+[m[32m  } else {[m
+[32m+[m[32m    allocErrMsg = "Unknown error while loading allocations";[m
+   }[m
+[32m+[m[32m}[m
+[32m+[m
+ [m
+   //[m
+   // 4) Lesson dates (only if we have allocations) + sort allocations[m
+[1mdiff --git a/app/(admin)/admin/credit-invoices/page.tsx b/app/(admin)/admin/credit-invoices/page.tsx[m
+[1mindex 6ab4456..d08248f 100644[m
+[1m--- a/app/(admin)/ad

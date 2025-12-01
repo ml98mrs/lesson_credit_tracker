@@ -1,17 +1,31 @@
 // app/api/admin/overdraft/write-off/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const studentId = body?.studentId as string | undefined;
-    const reasonCode = body?.reasonCode as string | undefined;
-    const note = (body?.note as string | undefined) ?? null;
-    const accountingPeriod =
-      (body?.accountingPeriod as string | undefined) ?? null;
+    const raw: unknown = await req.json().catch(() => ({}));
+
+    if (!raw || typeof raw !== "object") {
+      return NextResponse.json(
+        { error: "Invalid request body" },
+        { status: 400 },
+      );
+    }
+
+    const body = raw as {
+      studentId?: string;
+      reasonCode?: string;
+      note?: string | null;
+      accountingPeriod?: string | null;
+    };
+
+    const studentId = body.studentId;
+    const reasonCode = body.reasonCode;
+    const note = body.note ?? null;
+    const accountingPeriod = body.accountingPeriod ?? null;
 
     if (!studentId) {
       return NextResponse.json(
@@ -44,9 +58,12 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, result: data ?? null });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unknown error";
+
     return NextResponse.json(
-      { error: e?.message ?? "Unknown error" },
+      { error: message },
       { status: 500 },
     );
   }
