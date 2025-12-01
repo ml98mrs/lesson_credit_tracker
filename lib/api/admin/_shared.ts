@@ -14,7 +14,7 @@ import { getAdminSupabase } from "@/lib/supabase/admin";
  *   import type { Database } from "@/lib/database.types";
  *   export type AdminClient = SupabaseClient<Database>;
  */
-export type AdminClient = SupabaseClient<any>;
+export type AdminClient = SupabaseClient;
 
 /**
  * Convenience factory so admin API modules don't all import getAdminSupabase directly.

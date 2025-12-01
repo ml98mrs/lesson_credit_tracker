@@ -8,6 +8,13 @@ const BodySchema = z.object({
   status: z.enum(["current", "dormant", "past"]),
 });
 
+type BodyInput = z.infer<typeof BodySchema>;
+
+// Minimal shape of the view row we care about
+type CreditLotRemainingRow = {
+  minutes_remaining: number | null;
+};
+
 export async function POST(req: NextRequest) {
   try {
     const json = await req.json();
@@ -24,7 +31,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { studentId, status } = parsed.data;
+    const { studentId, status } = parsed.data as BodyInput;
     const supabase = getAdminSupabase();
 
     // Guard: don’t allow setting to "past" while there is any non-zero balance
@@ -46,8 +53,10 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const totalRemaining = (lots ?? []).reduce(
-        (sum, row: any) => sum + (row.minutes_remaining ?? 0),
+      const rows: CreditLotRemainingRow[] = (lots ?? []) as CreditLotRemainingRow[];
+
+      const totalRemaining = rows.reduce(
+        (sum, row) => sum + (row.minutes_remaining ?? 0),
         0,
       );
 
@@ -80,18 +89,17 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
- } catch (e: unknown) {
-  if (e instanceof Error) {
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      return NextResponse.json(
+        { ok: false, error: e.message },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json(
-      { ok: false, error: e.message },
+      { ok: false, error: "Unexpected error" },
       { status: 500 },
     );
   }
-
-  return NextResponse.json(
-    { ok: false, error: "Unexpected error" },
-    { status: 500 },
-  );
-}
-
 }

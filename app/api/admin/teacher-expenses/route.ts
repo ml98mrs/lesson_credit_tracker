@@ -1,32 +1,48 @@
 // app/api/admin/teacher-expenses/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-type Body = {
-  expenseId?: number | string;
-  status?: "pending" | "approved" | "rejected";
-};
+// Validate the incoming request body
+const BodySchema = z.object({
+  expenseId: z.union([z.number(), z.string()]),
+  status: z.enum(["pending", "approved", "rejected"]),
+});
 
-async function handleUpdate(req: Request) {
+type BodyInput = z.infer<typeof BodySchema>;
+
+async function handleUpdate(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => ({}))) as Body;
+    const json = await req.json().catch(() => ({}));
+    const parsed = BodySchema.safeParse(json);
 
-    const rawId = body.expenseId;
-    const expenseId =
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Invalid request body",
+          issues: parsed.error.flatten(),
+        },
+        { status: 422 },
+      );
+    }
+
+    const { expenseId: rawId, status } = parsed.data as BodyInput;
+
+    // Normalise ID to a number
+    const expenseId: number =
       typeof rawId === "string" ? Number.parseInt(rawId, 10) : rawId;
 
-    const status = body.status;
-
-    if (!expenseId || !status) {
+    if (!Number.isFinite(expenseId)) {
       return NextResponse.json(
-        { error: "expenseId and status are required" },
+        { ok: false, error: "Invalid expenseId" },
         { status: 400 },
       );
     }
 
-    const supabase = await getAdminSupabase();
+    const supabase = getAdminSupabase();
 
     const { data, error } = await supabase
       .from("teacher_expenses")
@@ -36,7 +52,10 @@ async function handleUpdate(req: Request) {
       .single(); // 0 rows => error
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 400 },
+      );
     }
 
     return NextResponse.json(
@@ -44,25 +63,24 @@ async function handleUpdate(req: Request) {
       { status: 200 },
     );
   } catch (e: unknown) {
-  if (e instanceof Error) {
+    if (e instanceof Error) {
+      return NextResponse.json(
+        { ok: false, error: e.message },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json(
-      { error: e.message },
+      { ok: false, error: "Unknown error" },
       { status: 500 },
     );
   }
-
-  return NextResponse.json(
-    { error: "Unknown error" },
-    { status: 500 },
-  );
 }
 
-}
-
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   return handleUpdate(req);
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   return handleUpdate(req);
 }

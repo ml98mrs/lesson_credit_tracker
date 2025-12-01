@@ -16,10 +16,12 @@ import {
 import { formatDeliveryLabel } from "@/lib/domain/lessons";
 
 
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // --- Logo helper (same pattern as teacher invoice) ---
+type ExcelImageInput = Parameters<ExcelJS.Workbook["addImage"]>[0];
 
 let invoiceLogoBufferCache: Buffer | null = null;
 
@@ -257,18 +259,23 @@ const filterObj: StudentLessonsFilter = {
     cell.alignment = { horizontal: "right", vertical: "middle" };
   });
 
-  // Logo on the left: A1–A5
-  const logoBuffer = getInvoiceLogoBuffer();
-  if (logoBuffer) {
-    const logoId = workbook.addImage(
-      {
-        buffer: logoBuffer,
-        extension: "png",
-      } as any,
-    );
+// Logo on the left: A1–A5
+const logoBuffer = getInvoiceLogoBuffer();
+if (logoBuffer) {
+  const imageConfig = {
+    buffer: logoBuffer,
+    extension: "png" as const,
+  };
 
-    sheet.addImage(logoId, "A1:A5");
-  }
+  const logoId = workbook.addImage(
+    imageConfig as unknown as ExcelImageInput,
+  );
+
+  sheet.addImage(logoId, "A1:A5");
+}
+
+
+
 
   // Header text under logo in column A (A6–A8)
   sheet.getCell("A6").value = "PS English";

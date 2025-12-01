@@ -1,5 +1,4 @@
 // app/(admin)/admin/write-offs/page.tsx
-import React from "react";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import {
@@ -12,6 +11,41 @@ export const revalidate = 0;
 
 type SearchParams = {
   period?: string;
+};
+
+// Supabase nested join shape, based on the error:
+// students: { id: any; profiles: { full_name: any }[] }[]
+type ProfileRel = {
+  full_name: string | null;
+};
+
+type StudentRel = {
+  id: string;
+  profiles: ProfileRel[];
+};
+
+type WriteOffQueryRow = {
+  id: string;
+  student_id: string;
+  direction: "positive" | "negative";
+  minutes: number;
+  reason_code: string;
+  note: string | null;
+  accounting_period: string;
+  created_at: string;
+  students: StudentRel[]; // array of students with profiles[]
+};
+
+type WriteOffRow = {
+  id: string;
+  studentId: string;
+  studentName: string;
+  direction: "positive" | "negative";
+  minutes: number;
+  reasonCode: string;
+  note: string;
+  accountingPeriod: string;
+  createdAt: string;
 };
 
 export default async function WriteOffsPage({
@@ -55,28 +89,30 @@ export default async function WriteOffsPage({
     throw new Error(error.message);
   }
 
-  const rows = (data ?? []).map((row: any) => {
-    const studentRel = row.students;
+  // Now TS sees the shapes as compatible: students: { id; profiles[] }[]
+  const rawRows = (data ?? []) as WriteOffQueryRow[];
+
+  const rows: WriteOffRow[] = rawRows.map((row) => {
     let studentName = "(student)";
-    if (studentRel) {
-      const p: any = studentRel.profiles;
-      if (Array.isArray(p)) {
-        studentName = p[0]?.full_name ?? "(student)";
-      } else if (p && p.full_name) {
-        studentName = p.full_name;
+
+    const students = row.students;
+    if (Array.isArray(students) && students.length > 0) {
+      const profiles = students[0]?.profiles;
+      if (Array.isArray(profiles) && profiles.length > 0) {
+        studentName = profiles[0]?.full_name ?? "(student)";
       }
     }
 
     return {
-      id: row.id as string,
-      studentId: row.student_id as string,
+      id: row.id,
+      studentId: row.student_id,
       studentName,
-      direction: row.direction as "positive" | "negative",
-      minutes: row.minutes as number,
-      reasonCode: row.reason_code as string,
-      note: (row.note as string | null) ?? "",
-      accountingPeriod: row.accounting_period as string,
-      createdAt: row.created_at as string,
+      direction: row.direction,
+      minutes: row.minutes,
+      reasonCode: row.reason_code,
+      note: row.note ?? "",
+      accountingPeriod: row.accounting_period,
+      createdAt: row.created_at,
     };
   });
 

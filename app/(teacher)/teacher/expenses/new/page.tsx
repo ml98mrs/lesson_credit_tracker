@@ -15,10 +15,21 @@ type TeacherStudentOption = {
   status: StudentStatus;
 };
 
+function getPreviousMonthSameDay(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1); // handles year rollover
+
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`; // "YYYY-MM-DD"
+}
+
 export default function NewTeacherExpensePage() {
   const router = useRouter();
 
-  const [incurredAt, setIncurredAt] = useState("");
+  const [incurredAt, setIncurredAt] = useState(""); // "YYYY-MM-DD"
   const [amount, setAmount] = useState(""); // pounds string
   const [category, setCategory] = useState<Category>("drinks");
   const [description, setDescription] = useState("");
@@ -33,37 +44,39 @@ export default function NewTeacherExpensePage() {
   // Load the teacher's assigned students (current + dormant)
   useEffect(() => {
     let cancelled = false;
-    setStudentsLoading(true);
-    setStudentsError(null);
 
-    fetch("/api/teacher/students/assigned")
-      .then(async (res) => {
+    async function loadStudents() {
+      try {
+        setStudentsLoading(true);
+        setStudentsError(null);
+
+        const res = await fetch("/api/teacher/students/assigned");
         if (!res.ok) {
           const body = await res.json().catch(() => null);
           throw new Error(body?.error || "Failed to load students.");
         }
-        return res.json();
-      })
-      .then((body) => {
+
+        const body = await res.json();
         if (cancelled) return;
+
         const options = (body.students ?? []) as TeacherStudentOption[];
         setStudents(options);
-    })
-  .catch((err: unknown) => {
-    if (cancelled) return;
+      } catch (err) {
+        if (cancelled) return;
 
-    if (err instanceof Error) {
-      setStudentsError(
-        err.message || "Could not load your assigned students.",
-      );
-    } else {
-      setStudentsError("Could not load your assigned students.");
+        if (err instanceof Error) {
+          setStudentsError(
+            err.message || "Could not load your assigned students.",
+          );
+        } else {
+          setStudentsError("Could not load your assigned students.");
+        }
+      } finally {
+        if (!cancelled) setStudentsLoading(false);
+      }
     }
-  })
-  .finally(() => {
-    if (!cancelled) setStudentsLoading(false);
-  });
 
+    loadStudents();
 
     return () => {
       cancelled = true;
@@ -121,16 +134,15 @@ export default function NewTeacherExpensePage() {
       }
 
       router.push("/teacher/expenses");
-    } catch (err: unknown) {
-  if (err instanceof Error) {
-    setError(err.message || "Unexpected error. Please try again.");
-  } else {
-    setError("Unexpected error. Please try again.");
-  }
-} finally {
-  setSubmitting(false);
-}
-
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message || "Unexpected error. Please try again.");
+      } else {
+        setError("Unexpected error. Please try again.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -160,6 +172,12 @@ export default function NewTeacherExpensePage() {
             type="date"
             value={incurredAt}
             onChange={(e) => setIncurredAt(e.target.value)}
+            onFocus={() => {
+              // Only auto-fill on first focus when empty
+              if (!incurredAt) {
+                setIncurredAt(getPreviousMonthSameDay());
+              }
+            }}
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             required
           />
@@ -182,7 +200,6 @@ export default function NewTeacherExpensePage() {
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             required
           />
-          <p className="mt-1 text-xs text-gray-500" />
         </div>
 
         <div>
@@ -258,7 +275,7 @@ export default function NewTeacherExpensePage() {
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             placeholder={
               category === "drinks"
-                ? "e.g. texbook, special expense agreed with office"
+                ? "e.g. textbook, special expense agreed with office"
                 : "Please describe what this expense was for."
             }
           />

@@ -1,15 +1,28 @@
 "use client";
 
 import { useState } from "react";
+import type React from "react";
+
+type Status = "open" | "in_review" | "resolved" | "dismissed";
 
 type Props = {
   queryId: string;
-  initialStatus: string;
+  initialStatus: Status;
   initialAdminNote: string;
   initialResolutionCode: string;
 };
 
-const STATUS_OPTIONS = ["open", "in_review", "resolved", "dismissed"];
+const STATUS_OPTIONS: Status[] = ["open", "in_review", "resolved", "dismissed"];
+
+type SavePayload = {
+  status?: Status;
+  adminNote?: string;
+  resolutionCode?: string | null;
+};
+
+type SaveResponse = {
+  error?: string;
+};
 
 export default function AdminRecordQueryForm({
   queryId,
@@ -17,20 +30,14 @@ export default function AdminRecordQueryForm({
   initialAdminNote,
   initialResolutionCode,
 }: Props) {
-  const [status, setStatus] = useState(initialStatus);
+  const [status, setStatus] = useState<Status>(initialStatus);
   const [adminNote, setAdminNote] = useState(initialAdminNote);
-  const [resolutionCode, setResolutionCode] = useState(
-    initialResolutionCode,
-  );
+  const [resolutionCode, setResolutionCode] = useState(initialResolutionCode);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const savePayload = async (payload: {
-    status?: string;
-    adminNote?: string;
-    resolutionCode?: string | null;
-  }) => {
+  const savePayload = async (payload: SavePayload) => {
     setSaving(true);
     setMessage(null);
     setError(null);
@@ -50,27 +57,29 @@ export default function AdminRecordQueryForm({
         }),
       });
 
-      const json = await res.json();
+      const json = (await res.json()) as SaveResponse;
+
       if (!res.ok) {
         setError(json.error ?? "Failed to save changes.");
       } else {
         setMessage("Saved.");
       }
-    } catch (err) {
+    } catch {
+      // no `err` param -> no unused-var / implicit-any warning
       setError("Network error.");
     } finally {
       setSaving(false);
     }
   };
 
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     await savePayload({});
   };
 
   const onClear = async () => {
     // Mark as resolved + optional default resolution code
-    const nextStatus = "resolved";
+    const nextStatus: Status = "resolved";
     setStatus(nextStatus);
 
     await savePayload({
@@ -89,7 +98,9 @@ export default function AdminRecordQueryForm({
           id="status"
           className="w-full rounded border px-2 py-1 text-sm"
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+            setStatus(e.target.value as Status)
+          }
         >
           {STATUS_OPTIONS.map((opt) => (
             <option key={opt} value={opt}>
@@ -107,7 +118,9 @@ export default function AdminRecordQueryForm({
           id="resolutionCode"
           className="w-full rounded border px-2 py-1 text-sm"
           value={resolutionCode}
-          onChange={(e) => setResolutionCode(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            setResolutionCode(e.target.value)
+          }
           placeholder="e.g. lesson_adjusted, credit_adjusted, no_change"
         />
       </div>
@@ -121,7 +134,9 @@ export default function AdminRecordQueryForm({
           className="w-full rounded border px-2 py-1 text-sm"
           rows={4}
           value={adminNote}
-          onChange={(e) => setAdminNote(e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+            setAdminNote(e.target.value)
+          }
         />
       </div>
 
@@ -137,7 +152,6 @@ export default function AdminRecordQueryForm({
           {saving ? "Saving…" : "Save changes"}
         </button>
 
-        {/* NEW: Clear button */}
         <button
           type="button"
           onClick={onClear}

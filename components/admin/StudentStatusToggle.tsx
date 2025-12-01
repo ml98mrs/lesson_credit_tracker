@@ -11,6 +11,11 @@ type Props = {
   remainingMinutes: number; // can be positive, zero, or negative
 };
 
+type UpdateStatusResponse = {
+  ok?: boolean;
+  error?: string;
+};
+
 export default function StudentStatusToggle({
   studentId,
   initialStatus,
@@ -20,7 +25,7 @@ export default function StudentStatusToggle({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-const handleChange = (next: Status) => {
+  const handleChange = (next: Status) => {
     // Guard: don’t allow setting to "past" while there is any non-zero balance
     if (next === "past" && remainingMinutes !== 0) {
       window.alert(
@@ -43,20 +48,26 @@ const handleChange = (next: Status) => {
           body: JSON.stringify({ studentId, status: next }),
         });
 
-        const json = await res.json().catch(() => ({} as any));
+        let json: UpdateStatusResponse | null = null;
+
+        try {
+          json = (await res.json()) as UpdateStatusResponse;
+        } catch {
+          // Non-JSON or empty response – treat as unknown error below
+          json = null;
+        }
 
         if (!res.ok || json?.ok === false) {
-          throw new Error(json?.error || "Failed to update status");
+          throw new Error(json?.error ?? "Failed to update status");
         }
-     } catch (e: unknown) {
-  if (e instanceof Error) {
-    setError(e.message ?? "Failed to update status");
-  } else {
-    setError("Failed to update status");
-  }
-  setStatus(previous);
-}
-
+      } catch (e: unknown) {
+        if (e instanceof Error) {
+          setError(e.message ?? "Failed to update status");
+        } else {
+          setError("Failed to update status");
+        }
+        setStatus(previous);
+      }
     });
   };
 

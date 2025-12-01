@@ -10,6 +10,11 @@ type Props = {
   remainingMinutes: number; // DB minutes (> 0 for this button to show)
 };
 
+type WriteOffRemainingResponse = {
+  ok?: boolean;
+  error?: string;
+};
+
 export default function WriteOffRemainingButton({
   studentId,
   remainingMinutes,
@@ -35,33 +40,36 @@ export default function WriteOffRemainingButton({
 
     startTransition(async () => {
       try {
-        const res = await fetch(
-          "/api/admin/students/write-off-remaining",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              studentId,
-              reasonCode: "manual_write_off",
-            }),
-          },
-        );
+        const res = await fetch("/api/admin/students/write-off-remaining", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            studentId,
+            reasonCode: "manual_write_off",
+          }),
+        });
 
-        const json = await res.json().catch(() => ({} as any));
+        let json: WriteOffRemainingResponse | null = null;
+
+        try {
+          json = (await res.json()) as WriteOffRemainingResponse;
+        } catch {
+          // Empty or non-JSON response – treat as unknown error below
+          json = null;
+        }
 
         if (!res.ok || json?.ok === false) {
-          throw new Error(json?.error || "Failed to write off credit");
+          throw new Error(json?.error ?? "Failed to write off credit");
         }
 
         router.refresh();
       } catch (e: unknown) {
-  if (e instanceof Error) {
-    setError(e.message ?? "Failed to write off credit");
-  } else {
-    setError("Failed to write off credit");
-  }
-}
-
+        if (e instanceof Error) {
+          setError(e.message ?? "Failed to write off credit");
+        } else {
+          setError("Failed to write off credit");
+        }
+      }
     });
   };
 

@@ -4,6 +4,20 @@ import { getTeacherSupabase } from "@/lib/supabase/teacher";
 
 export const dynamic = "force-dynamic";
 
+// Minimal shape of the joined student + profile rows we care about
+type StudentWithProfileRow = {
+  id: string;
+  status: "current" | "dormant" | "past" | null;
+  profiles:
+    | null
+    | {
+        full_name: string | null;
+      }
+    | {
+        full_name: string | null;
+      }[];
+};
+
 export async function GET() {
   // 1) Teacher-scoped Supabase client (auth from cookies handled in helper)
   const supabase = await getTeacherSupabase();
@@ -70,15 +84,23 @@ export async function GET() {
     );
   }
 
-  const students = (studentRows ?? []).map((row: any) => {
-    const profile = Array.isArray(row.profiles)
-      ? row.profiles[0]
-      : row.profiles;
+  const rows: StudentWithProfileRow[] =
+    (studentRows ?? []) as StudentWithProfileRow[];
+
+  const students = rows.map((row) => {
+    const profileValue = row.profiles;
+
+    const profile =
+      Array.isArray(profileValue) && profileValue.length > 0
+        ? profileValue[0]
+        : !Array.isArray(profileValue)
+          ? profileValue
+          : null;
 
     return {
-      id: row.id as string,
-      name: (profile?.full_name as string) ?? "(student)",
-      status: (row.status as "current" | "dormant" | "past") ?? "current",
+      id: row.id,
+      name: profile?.full_name ?? "(student)",
+      status: (row.status ?? "current") as "current" | "dormant" | "past",
     };
   });
 

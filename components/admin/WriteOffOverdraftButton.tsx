@@ -1,3 +1,4 @@
+// components/admin/WriteOffOverdraftButton.tsx
 "use client";
 
 import { useState, useTransition } from "react";
@@ -7,6 +8,11 @@ import { formatMinutesAsHours } from "@/lib/formatters";
 type Props = {
   studentId: string;
   overdraftMinutes: number; // negative number
+};
+
+type WriteOffOverdraftResponse = {
+  ok?: boolean;
+  error?: string;
 };
 
 export default function WriteOffOverdraftButton({
@@ -36,21 +42,27 @@ export default function WriteOffOverdraftButton({
           body: JSON.stringify({ studentId }),
         });
 
-        const json = await res.json().catch(() => ({} as any));
+        let json: WriteOffOverdraftResponse | null = null;
+
+        try {
+          json = (await res.json()) as WriteOffOverdraftResponse;
+        } catch {
+          // Empty or non-JSON response – treat as unknown error below
+          json = null;
+        }
 
         if (!res.ok || json?.ok === false) {
-          throw new Error(json?.error || "Failed to write off overdraft");
+          throw new Error(json?.error ?? "Failed to write off overdraft");
         }
 
         router.refresh();
       } catch (e: unknown) {
-  if (e instanceof Error) {
-    setError(e.message ?? "Failed to write off overdraft");
-  } else {
-    setError("Failed to write off overdraft");
-  }
-}
-
+        if (e instanceof Error) {
+          setError(e.message ?? "Failed to write off overdraft");
+        } else {
+          setError("Failed to write off overdraft");
+        }
+      }
     });
   };
 

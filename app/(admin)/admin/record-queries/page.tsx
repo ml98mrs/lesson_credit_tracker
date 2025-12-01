@@ -3,9 +3,11 @@ import Link from "next/link";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import Section from "@/components/ui/Section";
 
+type Status = "open" | "in_review" | "resolved" | "dismissed" | string;
+
 type Row = {
   id: string;
-  status: string;
+  status: Status;
   created_at: string;
   body: string;
   lesson_id: string | null;
@@ -14,12 +16,29 @@ type Row = {
   student_full_name: string | null;
 };
 
+// Match the *array* shape TS is complaining about:
+// students: { id; profiles: { full_name }[] }[]
+type StudentRecordQueryRow = {
+  id: string;
+  status: Status;
+  created_at: string;
+  body: string;
+  lesson_id: string | null;
+  credit_lot_id: string | null;
+  student_id: string;
+  students: {
+    id: string;
+    profiles: {
+      full_name: string | null;
+    }[];
+  }[];
+};
+
 export const dynamic = "force-dynamic";
 
 export default async function AdminRecordQueriesPage() {
   const supabase = await getAdminSupabase();
 
-  // join student name via profiles if you have a view, adjust as needed
   const { data, error } = await supabase
     .from("student_record_queries")
     .select(
@@ -37,21 +56,28 @@ export default async function AdminRecordQueriesPage() {
         )
       `,
     )
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .returns<StudentRecordQueryRow[]>(); // <-- typed result
 
   if (error) throw new Error(error.message);
 
   const rows: Row[] =
-    data?.map((row: any) => ({
-      id: row.id,
-      status: row.status,
-      created_at: row.created_at,
-      body: row.body,
-      lesson_id: row.lesson_id,
-      credit_lot_id: row.credit_lot_id,
-      student_id: row.student_id,
-      student_full_name: row.students?.profiles?.full_name ?? null,
-    })) ?? [];
+    (data ?? []).map((row) => {
+      const student = row.students[0];
+      const profile = student?.profiles?.[0];
+      const fullName = profile?.full_name ?? null;
+
+      return {
+        id: row.id,
+        status: row.status,
+        created_at: row.created_at,
+        body: row.body,
+        lesson_id: row.lesson_id,
+        credit_lot_id: row.credit_lot_id,
+        student_id: row.student_id,
+        student_full_name: fullName,
+      };
+    }) ?? [];
 
   return (
     <Section
@@ -102,9 +128,7 @@ export default async function AdminRecordQueriesPage() {
                     </span>
                   </td>
                   <td className="py-2 pr-4 text-xs text-gray-700">
-                    {q.body.length > 60
-                      ? q.body.slice(0, 57) + "…"
-                      : q.body}
+                    {q.body.length > 60 ? q.body.slice(0, 57) + "…" : q.body}
                   </td>
                   <td className="py-2 pr-4 text-xs">
                     <Link
