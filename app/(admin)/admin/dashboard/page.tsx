@@ -1,4 +1,4 @@
-// app/(admin)/admin/page.tsx (or dashboard/page.tsx)
+// app/(admin)/admin/page.tsx
 //
 // Admin Dashboard – read-only + navigation
 // - No business logic here (no allocation/SNC/expiry in React)
@@ -21,7 +21,7 @@ import {
   getLastMonthFreeSncPremiumEliteCount,
   getTeacherLifecycleSummary,
   getLifecycleNotifications,
-  getLastMonthSncSummary, 
+  getLastMonthSncSummary,
   getOpenStudentRecordQueriesCount,
 } from "@/lib/api/admin/dashboard";
 
@@ -31,6 +31,7 @@ import {
 } from "@/components/admin/NotificationPanel";
 
 import PendingTeacherExpensesCard from "./PendingTeacherExpensesCard";
+
 export const dynamic = "force-dynamic";
 
 async function getDashboardData() {
@@ -45,7 +46,7 @@ async function getDashboardData() {
     lowCreditByDelivery,
     teacherLifecycleSummary,
     lifecycleNotifications,
-    monthlySncSummary, 
+    monthlySncSummary,
     openStudentQueryCount,
   ] = await Promise.all([
     getPendingLessonsCount(),
@@ -58,7 +59,7 @@ async function getDashboardData() {
     getLowCreditStudentsCountByDelivery(),
     getTeacherLifecycleSummary(),
     getLifecycleNotifications(),
-    getLastMonthSncSummary(), 
+    getLastMonthSncSummary(),
     getOpenStudentRecordQueriesCount(),
   ]);
 
@@ -70,7 +71,7 @@ async function getDashboardData() {
     expiringSoon,
     lowCreditStudentCount,
     lowCreditByDelivery,
-    monthlySnc: monthlySncSummary, 
+    monthlySnc: monthlySncSummary,
     freeSncLastMonthPremiumElite,
     sncAnomalyCount: 0,
     lifecycleSummary,
@@ -78,10 +79,9 @@ async function getDashboardData() {
     autoDormantCandidateCount: 0,
     writeOffCandidateCount: 0,
     notifications: lifecycleNotifications,
-    openStudentQueryCount, 
+    openStudentQueryCount,
   };
 }
-
 
 export default async function AdminDashboardPage() {
   const data = await getDashboardData();
@@ -93,47 +93,46 @@ export default async function AdminDashboardPage() {
   const notifications = data.notifications as DashboardNotification[]; // structural match
 
   return (
-  <div className="space-y-8">
-    {/* Page header */}
-    <header>
-      <h1 className="text-2xl font-semibold tracking-tight">
-        Admin Dashboard
-      </h1>
-    </header>
+    <div className="space-y-8">
+      {/* Page header */}
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Admin Dashboard
+        </h1>
+      </header>
 
-    <main className="space-y-6">
-      <NotificationPanel initialNotifications={notifications} />
+      <main className="space-y-6">
+        <NotificationPanel initialNotifications={notifications} />
 
-      {/* Overview & alerts (includes pending expenses card) */}
-      <section className="space-y-2">
-  <h2 className="text-lg font-semibold">Overview & alerts</h2>
-  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-    <PendingTeacherExpensesCard />
+        {/* Overview & alerts (includes pending expenses card) */}
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Overview &amp; alerts</h2>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <PendingTeacherExpensesCard />
 
-    <DashboardCard
-      title="Student queries"
-      value={data.openStudentQueryCount}
-      description="Open queries raised by students about lessons or credit logs."
-      actionLabel="Review queries"
-      href="/admin/record-queries"
-    />
+            <DashboardCard
+              title="Student queries"
+              value={data.openStudentQueryCount}
+              description="Open queries raised by students about lessons or credit logs."
+              actionLabel="Review queries"
+              href="/admin/record-queries"
+            />
 
-    {/* later: other alert cards can go here */}
-  </div>
-</section>
+            {/* later: other alert cards can go here */}
+          </div>
+        </section>
 
-
-      {/* 1. Today / operational KPIs */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Today</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          <DashboardCard
-            title="Pending lessons"
-            value={data.pendingLessonsCount}
-            description="Waiting for review in the lesson queue."
-            actionLabel="View queue"
-            href="/admin/lessons/queue"
-          />
+        {/* 1. Today / operational KPIs */}
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Today</h2>
+          <div className="grid gap-4 md:grid-cols-3">
+            <DashboardCard
+              title="Pending lessons"
+              value={data.pendingLessonsCount}
+              description="Waiting for review in the lesson queue."
+              actionLabel="View queue"
+              href="/admin/lessons/queue"
+            />
 
             <DashboardCard
               title="Active hazards"
@@ -170,23 +169,23 @@ export default async function AdminDashboardPage() {
           </div>
         </section>
 
-       <section className="space-y-2">
-  <h2 className="text-lg font-semibold">SNC & tiers</h2>
-  <div className="grid gap-4 md:grid-cols-3">
-    <DashboardCard
-      title="SNCs last month"
-      value={data.monthlySnc.total}
-      description={
-        `Last calendar month (Europe/London). ` +
-        `Free: ${data.monthlySnc.free} / Charged: ${data.monthlySnc.charged}. ` +
-        `Students on premium/elite with a free SNC last month: ${data.freeSncLastMonthPremiumElite}`
-      }
-      actionLabel="Review SNCs"
-      href="/admin/warnings/cancelled-snc"
-    />
-  </div>
-</section>
-
+        {/* 2. SNC & tiers */}
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">SNC &amp; tiers</h2>
+          <div className="grid gap-4 md:grid-cols-3">
+            <DashboardCard
+              title="SNCs last month"
+              value={data.monthlySnc.total}
+              description={
+                `Last calendar month (Europe/London). ` +
+                `Free: ${data.monthlySnc.free} / Charged: ${data.monthlySnc.charged}. ` +
+                `Students on premium/elite with a free SNC last month: ${data.freeSncLastMonthPremiumElite}`
+              }
+              actionLabel="Review SNCs"
+              href="/admin/warnings/cancelled-snc"
+            />
+          </div>
+        </section>
 
         {/* 3. Lifecycle & credit position */}
         <section className="space-y-2">
@@ -217,6 +216,8 @@ export default async function AdminDashboardPage() {
           </div>
         </section>
 
+        {/* 4. Quick link bar – fast navigation to common admin tasks */}
+        <QuickLinkBar />
       </main>
     </div>
   );
@@ -249,9 +250,7 @@ function DashboardCard({
       </div>
 
       {description && (
-        <p className="mt-1 text-xs text-muted-foreground">
-          {description}
-        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       )}
 
       {actionLabel && href && (
@@ -276,21 +275,53 @@ function DashboardCard({
 }
 
 /**
- * Simple quick-action pill/button.
- * These should only navigate or open modals – no direct DB writes.
+ * Quick link bar – compact nav strip for high-frequency admin actions.
+ * Edit the `quickLinks` array to change destinations.
  */
-type QuickActionButtonProps = {
+type QuickLink = {
   label: string;
+  href: string;
+  hint?: string;
 };
 
-function QuickActionButton({ label }: QuickActionButtonProps) {
+const quickLinks: QuickLink[] = [
+  {
+    label: "Maintenance",
+    href: "/admin/maintenance",
+    
+  },
+  {
+    label: "Analytics",
+    href: "/admin/analytics",
+    
+  },
+  
+];
+
+function QuickLinkBar() {
+  if (quickLinks.length === 0) return null;
+
   return (
-    <button
-      type="button"
-      className="rounded-full border px-3 py-1 text-xs font-medium hover:bg-accent"
-    >
-      {label}
-    </button>
-    // Later: attach onClick handlers that navigate or open modals.
+    <section className="pt-4 border-t">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Quick links
+      </h2>
+      <div className="flex flex-wrap gap-2">
+        {quickLinks.map((link) => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className="inline-flex items-center rounded-full border bg-white px-3 py-1 text-xs font-medium hover:bg-muted"
+          >
+            <span>{link.label}</span>
+            {link.hint && (
+              <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+                {link.hint}
+              </span>
+            )}
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }

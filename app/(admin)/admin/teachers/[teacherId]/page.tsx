@@ -5,26 +5,31 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import Section from "@/components/ui/Section";
+
 import { getAdminSupabase } from "@/lib/supabase/admin";
-
-import type { TeacherStatus } from "@/lib/types/teachers";
-import type { StudentRow } from "@/lib/types/students";
-
 import {
-  formatMinutesAsHours,
   formatDateTimeLondon,
+  formatMinutesAsHours,
 } from "@/lib/formatters";
-
+import {
+  formatLessonState,
+} from "@/lib/domain/lessons";
 import {
   getTeacherStatusMeta,
   formatTeacherHourlyRate,
   formatTeacherMoney,
 } from "@/lib/domain/teachers";
 import { formatStudentStatus } from "@/lib/domain/students";
+import {
+  readProfileDisplayName,
+  type ProfilesDisplayEmbed,
+} from "@/lib/types/profiles";
+import type { StudentRow } from "@/lib/types/students";
+import type { TeacherStatus } from "@/lib/types/teachers";
+import type { VTeacherLessonRow } from "@/lib/types/views/teacher";
 
 import { SetTeacherPastButton } from "./SetTeacherPastButton";
-import type { AdminLessonListRow } from "@/lib/domain/lessons";
-import { formatLessonState } from "@/lib/domain/lessons";
+
 
 export const dynamic = "force-dynamic";
 
@@ -39,15 +44,6 @@ type AssignedStudent = {
   name: string;
   status: AssignedStudentStatus;
 };
-
-type TeacherRecentLessonRow = Pick<
-  AdminLessonListRow,
-  "id" | "student_id" | "duration_min" | "state"
-> & {
-  start_at: string;
-  student_name: string | null;
-};
-
 
 type TeacherMonthStatsRow = {
   lesson_count_total: number | null;
@@ -86,17 +82,12 @@ type PageProps = {
   params: Promise<PageParams>;
 };
 
-// helper type for student query
+// Helper type for student query
 type StudentWithProfileRow = {
   id: string;
   status: StudentRow["status"];
-  profiles: {
-    full_name: string | null;
-    preferred_name: string | null;
-  } | null;
+  profiles: ProfilesDisplayEmbed;
 };
-
-
 
 // ────────────────────────────────────────────────────────────────
 // Page
@@ -229,7 +220,10 @@ export default async function AdminTeacherPage({ params }: PageProps) {
     .maybeSingle();
 
   if (statsErr) {
-    console.error("v_teacher_lesson_stats_by_month error", statsErr.message);
+    console.error(
+      "v_teacher_lesson_stats_by_month error",
+      statsErr.message,
+    );
   }
 
   const stats = (statsRow ?? null) as TeacherMonthStatsRow | null;
@@ -321,10 +315,9 @@ export default async function AdminTeacherPage({ params }: PageProps) {
     throw new Error(linkErr.message);
   }
 
- const studentIds = linkRows?.map((l) => l.student_id as string) ?? [];
+  const studentIds = linkRows?.map((l) => l.student_id as string) ?? [];
 
   let assignedStudents: AssignedStudent[] = [];
-
 
   if (studentIds.length > 0) {
     const { data: studentRows, error: studentsErr } = await sb
@@ -337,21 +330,11 @@ export default async function AdminTeacherPage({ params }: PageProps) {
     }
 
     const typedStudentRows =
-  (studentRows ?? []) as unknown as StudentWithProfileRow[];
+      (studentRows ?? []) as unknown as StudentWithProfileRow[];
 
     assignedStudents = typedStudentRows.map((s) => {
-      // profiles may be a single object or an array – normalise to one
-      const profile =
-        s.profiles == null
-          ? null
-          : Array.isArray(s.profiles)
-          ? s.profiles[0] ?? null
-          : s.profiles;
-
       const name =
-        profile?.preferred_name ??
-        profile?.full_name ??
-        "(student)";
+        readProfileDisplayName(s.profiles, "(student)") ?? "(student)";
 
       return {
         id: s.id,
@@ -361,21 +344,19 @@ export default async function AdminTeacherPage({ params }: PageProps) {
     });
   }
 
-
   // 7) Recent lessons (compact table, from v_teacher_lessons)
   const { data: recentLessons, error: lessonsErr } = await sb
-  .from("v_teacher_lessons")
-  .select("id, student_id, start_at, duration_min, state, student_name")
-  .eq("teacher_id", teacherId)
-  .order("start_at", { ascending: false })
-  .limit(10);
+    .from("v_teacher_lessons")
+    .select("id, student_id, start_at, duration_min, state, student_name")
+    .eq("teacher_id", teacherId)
+    .order("start_at", { ascending: false })
+    .limit(10);
 
-if (lessonsErr) {
-  throw new Error(lessonsErr.message);
-}
+  if (lessonsErr) {
+    throw new Error(lessonsErr.message);
+  }
 
-const lessonRows: TeacherRecentLessonRow[] =
-  (recentLessons ?? []) as unknown as TeacherRecentLessonRow[];
+  const lessonRows = (recentLessons ?? []) as VTeacherLessonRow[];
 
   // ────────────────────────────────────────────────────────────────
   // Render

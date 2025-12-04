@@ -4,7 +4,7 @@ import Section from "@/components/ui/Section";
 import Link from "next/link";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { formatStudentDateTime } from "@/lib/formatters";
-import { formatDeliveryLabel } from "@/lib/domain/lessons";
+import { formatDeliveryLabel, formatDeliveryUiLabel } from "@/lib/domain/delivery";
 import type { Delivery } from "@/lib/enums";
 import type { ProfileRow } from "@/lib/types/profiles";
 import StudentLessonQueryButton from "@/components/student/StudentLessonQueryButton";
@@ -13,6 +13,7 @@ import {
   type StudentLessonsFilter,
   type StudentLessonRow as LessonRow,
 } from "@/lib/api/student/lessons";
+import { DELIVERY } from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
 
@@ -26,13 +27,6 @@ type SearchParams = {
   year?: string;
   invoice?: string;
 };
-
-const formatLessonDelivery = (d: LessonRow["delivery"]) => {
-  if (d === "hybrid") return "Hybrid";
-  // At runtime non-hybrid values are the DB enum ('online' | 'f2f')
-  return formatDeliveryLabel(d as Delivery);
-};
-
 
 const renderSncBadge = (lesson: LessonRow) => {
   if (!lesson.is_snc) {
@@ -279,21 +273,25 @@ export default async function StudentLessons({
         </div>
 
         {/* Delivery */}
-        <div className="flex flex-col gap-1">
-          <label htmlFor="delivery" className="text-gray-600">
-            Delivery
-          </label>
-          <select
-            id="delivery"
-            name="delivery"
-            defaultValue={deliveryFilter ?? ""}
-            className="rounded border px-2 py-1"
-          >
-            <option value="">Any</option>
-            <option value="online">Online</option>
-            <option value="f2f">Face to face</option>
-          </select>
-        </div>
+       <div className="flex flex-col gap-1">
+  <label htmlFor="delivery" className="text-gray-600">
+    Delivery
+  </label>
+  <select
+    id="delivery"
+    name="delivery"
+    defaultValue={deliveryFilter ?? ""}
+    className="rounded-md border px-2 py-1"
+  >
+    <option value="">Any</option>
+    {DELIVERY.map((value) => (
+      <option key={value} value={value}>
+        {formatDeliveryUiLabel(value)}
+      </option>
+    ))}
+  </select>
+</div>
+
 
         {/* SNC filter */}
         <div className="flex flex-col gap-1">
@@ -400,7 +398,7 @@ export default async function StudentLessons({
                     </td>
                     <td className="py-2 pr-4">{lesson.teacher_full_name}</td>
                     <td className="py-2 pr-4">
-                      {formatLessonDelivery(lesson.delivery)}
+                      {formatDeliveryLabel(lesson.delivery)}
                     </td>
                     <td className="py-2 pr-4">{lesson.duration_min}</td>
                     <td className="py-2 pr-4">

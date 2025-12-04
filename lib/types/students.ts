@@ -10,6 +10,9 @@ import type { Delivery } from "@/lib/enums";
 
 export type StudentRow = Database["public"]["Tables"]["students"]["Row"];
 
+// Status type derived from the DB enum (canonical; do not reintroduce a local enum)
+export type StudentStatus = StudentRow["status"];
+
 export type StudentSncStatus = {
   freeSncs: number;
   chargedSncs: number;

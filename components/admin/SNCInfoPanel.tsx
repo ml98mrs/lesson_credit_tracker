@@ -1,6 +1,7 @@
 // components/admin/SNCInfoPanel.tsx
 import React from "react";
-import { TierBadge, Tier } from "./TierBadge";
+import { TierBadge } from "./TierBadge";
+import type { Tier } from "@/lib/enums";
 
 // Keep this in sync with the API type
 export type SncStats = {

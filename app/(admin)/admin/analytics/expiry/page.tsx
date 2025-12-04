@@ -2,6 +2,18 @@
 
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import type {
+  Tier,
+  ExpiryPolicy,
+  LengthCat,
+  DeliveryRestriction,
+} from "@/lib/enums";
+import type { CreditLotSource } from "@/lib/creditLots/types";
+import { TIER_VALUES, formatTierFilterLabel } from "@/lib/domain/tiers";
+import {
+  EXPIRY_POLICIES,
+  getExpiryPolicyLabel,
+} from "@/lib/domain/expiryPolicy";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +21,11 @@ type ExpiryRow = {
   month_start: string;
   student_id: string;
   student_name: string | null;
-  source_type: string | null;
-  expiry_policy: string | null;
-  length_restriction: string | null;
-  delivery_restriction: string | null;
-  tier_restriction: string | null;
+  source_type: CreditLotSource | null;
+  expiry_policy: ExpiryPolicy | null;
+  length_restriction: LengthCat | null;
+  delivery_restriction: DeliveryRestriction;
+  tier_restriction: Tier | null;
   minutes_granted_total: number | null;
   minutes_used_total: number | null;
   minutes_expired_unused: number | null;
@@ -23,7 +35,13 @@ type SearchParams = {
   [key: string]: string | string[] | undefined;
 };
 
-function formatPct(numerator: number | null | undefined, denom: number | null | undefined) {
+type TierFilter = "" | Tier;
+type ExpiryPolicyFilter = "" | ExpiryPolicy;
+
+function formatPct(
+  numerator: number | null | undefined,
+  denom: number | null | undefined,
+) {
   const num = numerator ?? 0;
   const den = denom ?? 0;
   if (den <= 0) return "—";
@@ -44,14 +62,14 @@ export default async function ExpiryAnalyticsPage({
   const getParam = (key: string) => {
     const val = sp[key];
     if (Array.isArray(val)) return val[0] ?? "";
-    return val ?? "";
+    return (val ?? "") as string;
   };
 
   const monthInput = getParam("month"); // "YYYY-MM"
   const studentNameFilter = getParam("studentName");
-  const tier = getParam("tier");
+  const tierFilter = getParam("tier") as TierFilter;
   const sourceType = getParam("sourceType");
-  const expiryPolicy = getParam("expiryPolicy");
+  const expiryPolicyFilter = getParam("expiryPolicy") as ExpiryPolicyFilter;
 
   const monthStart =
     monthInput && monthInput.length === 7 ? `${monthInput}-01` : undefined;
@@ -73,7 +91,7 @@ export default async function ExpiryAnalyticsPage({
       minutes_granted_total,
       minutes_used_total,
       minutes_expired_unused
-    `
+    `,
     );
 
   if (monthStart) {
@@ -84,16 +102,16 @@ export default async function ExpiryAnalyticsPage({
     query = query.ilike("student_name", `%${studentNameFilter}%`);
   }
 
-  if (tier) {
-    query = query.eq("tier_restriction", tier);
+  if (tierFilter) {
+    query = query.eq("tier_restriction", tierFilter);
   }
 
   if (sourceType) {
     query = query.eq("source_type", sourceType);
   }
 
-  if (expiryPolicy) {
-    query = query.eq("expiry_policy", expiryPolicy);
+  if (expiryPolicyFilter) {
+    query = query.eq("expiry_policy", expiryPolicyFilter);
   }
 
   const { data, error } = await query
@@ -135,16 +153,19 @@ export default async function ExpiryAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Tier (restriction)</label>
+          <label className="font-medium text-gray-700">
+            Tier (restriction)
+          </label>
           <select
             name="tier"
-            defaultValue={tier}
+            defaultValue={tierFilter}
             className="rounded-md border px-2 py-1"
           >
-            <option value="">Any</option>
-            <option value="basic">basic</option>
-            <option value="premium">premium</option>
-            <option value="elite">elite</option>
+            {(["", ...TIER_VALUES] as const).map((v) => (
+              <option key={v} value={v}>
+                {formatTierFilterLabel(v as "" | Tier)}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -167,12 +188,16 @@ export default async function ExpiryAnalyticsPage({
           <label className="font-medium text-gray-700">Expiry policy</label>
           <select
             name="expiryPolicy"
-            defaultValue={expiryPolicy}
+            defaultValue={expiryPolicyFilter}
             className="rounded-md border px-2 py-1"
           >
-            <option value="">Any</option>
-            <option value="none">none</option>
-            <option value="mandatory">mandatory</option>
+            {(["", ...EXPIRY_POLICIES] as const).map((value) => (
+              <option key={value} value={value}>
+                {value === ""
+                  ? "Any"
+                  : getExpiryPolicyLabel(value as ExpiryPolicy)}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -199,10 +224,14 @@ export default async function ExpiryAnalyticsPage({
       )}
 
       <div className="mb-4 text-xs text-gray-600">
-        Each row = <strong>(expiry month, student, lot type, tier restriction)</strong>.
+        Each row ={" "}
+        <strong>
+          (expiry month, student, lot type, tier restriction)
+        </strong>
+        .
         <br />
-        It shows minutes granted vs used vs expired unused for lots that expired
-        in that month.
+        It shows minutes granted vs used vs expired unused for lots that
+        expired in that month.
       </div>
 
       <div className="overflow-x-auto rounded-lg border bg-white">
@@ -234,7 +263,9 @@ export default async function ExpiryAnalyticsPage({
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={`${row.month_start}-${row.student_id}-${row.source_type}`}>
+                <tr
+                  key={`${row.month_start}-${row.student_id}-${row.source_type}`}
+                >
                   <td className="px-3 py-2 text-[11px] text-gray-700">
                     {row.month_start}
                   </td>
@@ -242,13 +273,17 @@ export default async function ExpiryAnalyticsPage({
                     {row.student_name || "—"}
                   </td>
                   <td className="px-3 py-2 text-[11px] text-gray-700">
-                    {row.tier_restriction ?? "—"}
+                    {row.tier_restriction
+                      ? formatTierFilterLabel(row.tier_restriction)
+                      : "—"}
                   </td>
                   <td className="px-3 py-2 text-[11px] text-gray-700">
                     {row.source_type ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-[11px] text-gray-700">
-                    {row.expiry_policy ?? "—"}
+                    {row.expiry_policy
+                      ? getExpiryPolicyLabel(row.expiry_policy)
+                      : "—"}
                   </td>
                   <td className="px-3 py-2 text-[11px] text-gray-700">
                     {row.length_restriction ?? "—"}

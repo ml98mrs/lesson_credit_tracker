@@ -2,13 +2,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-
-type Status = "current" | "dormant" | "past";
+import type { StudentStatus } from "@/lib/types/students";
 
 type Props = {
   studentId: string;
-  initialStatus: Status;
-  remainingMinutes: number; // can be positive, zero, or negative
+  initialStatus: StudentStatus;
+  // Can be positive, zero, or negative
+  remainingMinutes: number;
 };
 
 type UpdateStatusResponse = {
@@ -21,11 +21,11 @@ export default function StudentStatusToggle({
   initialStatus,
   remainingMinutes,
 }: Props) {
-  const [status, setStatus] = useState<Status>(initialStatus);
+  const [status, setStatus] = useState<StudentStatus>(initialStatus);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const handleChange = (next: Status) => {
+  const handleChange = (next: StudentStatus) => {
     // Guard: don’t allow setting to "past" while there is any non-zero balance
     if (next === "past" && remainingMinutes !== 0) {
       window.alert(
@@ -75,7 +75,7 @@ export default function StudentStatusToggle({
     <div className="flex flex-col items-end gap-1">
       <select
         value={status}
-        onChange={(e) => handleChange(e.target.value as Status)}
+        onChange={(e) => handleChange(e.target.value as StudentStatus)}
         className="rounded-md border px-2 py-1 text-xs"
         disabled={isPending}
       >

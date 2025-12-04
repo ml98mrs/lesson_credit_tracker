@@ -3,35 +3,17 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { formatPenniesAsPounds } from "@/lib/formatters";
 import GenerateInvoiceButton from "@/components/admin/GenerateInvoiceButton";
 import {
   getInvoiceMonthKey,
   formatInvoiceMonthLabel,
-  type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
+import type { TeacherInvoiceSummary } from "@/lib/types/teachers";
+import { formatTeacherMoney } from "@/lib/domain/teachers";
+import { listTeacherInvoicesForTeacher } from "@/lib/server/listTeacherInvoices";
 
 export const dynamic = "force-dynamic";
-
-type InvoiceSummaryRow = {
-  teacher_id: string;
-  month_start: string; // 'YYYY-MM-DD'
-  lesson_gross_pennies: number | null;
-  expenses_pennies: number | null;
-  total_pennies: number | null;
-  status: InvoiceStatus;
-};
-
-type TeacherInvoiceRow = {
-  id: number;
-  teacher_id: string;
-  month_start: string; // 'YYYY-MM-DD'
-  status: "generated" | "paid";
-  invoice_ref: string | null;
-  created_at: string;
-  paid_at: string | null;
-};
 
 export default async function TeacherInvoicesAdmin({
   params,
@@ -62,29 +44,19 @@ export default async function TeacherInvoicesAdmin({
     }
   }
 
-  const [
-    { data: summaries, error: summaryError },
-    { data: invoices, error: invoiceError },
-  ] = await Promise.all([
-    supabase
-      .from("v_teacher_invoice_summary")
-      .select(
-        "teacher_id, month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
-      )
-      .eq("teacher_id", teacherId)
-      .order("month_start", { ascending: false })
-      .limit(24),
-    supabase
-      .from("teacher_invoices")
-      .select(
-        "id, teacher_id, month_start, status, invoice_ref, created_at, paid_at",
-      )
-      .eq("teacher_id", teacherId)
-      .order("month_start", { ascending: false })
-      .limit(24),
-  ]);
+  // --- Load per-month summaries + invoice rows via shared helper ---
 
-  if (summaryError || invoiceError) {
+  let invoiceSummaries: TeacherInvoiceSummary[] = [];
+  let invoiceLoadError: Error | null = null;
+
+  try {
+    invoiceSummaries = await listTeacherInvoicesForTeacher(supabase, teacherId);
+  } catch (err) {
+    invoiceLoadError = err as Error;
+    console.error("[admin] Error loading teacher invoice summaries", err);
+  }
+
+  if (invoiceLoadError) {
     return (
       <Section
         title="Teacher invoices"
@@ -98,12 +70,13 @@ export default async function TeacherInvoicesAdmin({
     );
   }
 
-  const summaryRows: InvoiceSummaryRow[] = summaries ?? [];
-  const invoiceRows: TeacherInvoiceRow[] = invoices ?? [];
+  // Limit to the latest 24 months (matching previous behaviour)
+  const summaryRows = invoiceSummaries.slice(0, 24);
 
-  const invoiceByMonth = new Map<string, TeacherInvoiceRow>();
-  for (const inv of invoiceRows) {
-    invoiceByMonth.set(inv.month_start, inv);
+  // Build a map of monthStart -> TeacherInvoiceSummary (from shared helper)
+  const invoiceByMonth = new Map<string, TeacherInvoiceSummary>();
+  for (const inv of summaryRows) {
+    invoiceByMonth.set(inv.monthStart, inv);
   }
 
   // "Invoice month" = previous calendar month (last full month)
@@ -111,25 +84,24 @@ export default async function TeacherInvoicesAdmin({
   const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
 
   const invoiceMonthSummary = summaryRows.find(
-    (row) => row.month_start === invoiceMonthKey,
+    (row) => row.monthStart === invoiceMonthKey,
   );
 
   // History = all other months (older and, if present, any newer months)
-  // This matches the teacher invoice index semantics.
   const historyRows = summaryRows.filter(
-    (row) => row.month_start !== invoiceMonthKey,
+    (row) => row.monthStart !== invoiceMonthKey,
   );
 
-  const invoiceLessonGross = invoiceMonthSummary?.lesson_gross_pennies ?? 0;
-  const invoiceExpenses = invoiceMonthSummary?.expenses_pennies ?? 0;
-  const invoiceTotal = invoiceMonthSummary?.total_pennies ?? 0;
+  const invoiceLessonGross = invoiceMonthSummary?.lessonGrossPennies ?? 0;
+  const invoiceExpenses = invoiceMonthSummary?.expensesPennies ?? 0;
+  const invoiceTotal = invoiceMonthSummary?.totalPennies ?? 0;
 
   return (
     <Section
       title="Teacher invoices"
       subtitle="Monthly snapshot of lessons, approved expenses, and invoice status."
     >
-<div className="mb-4 text-xs">
+      <div className="mb-4 text-xs">
         <Link
           href={`/admin/teachers/${teacherId}`}
           className="text-blue-700 underline"
@@ -137,7 +109,6 @@ export default async function TeacherInvoicesAdmin({
           ← Back to Teacher 360
         </Link>
       </div>
-
 
       <p className="mb-4 text-xs text-gray-600">Teacher: {teacherLabel}</p>
 
@@ -158,16 +129,18 @@ export default async function TeacherInvoicesAdmin({
               {invoiceMonthSummary ? (
                 <div className="mt-3 space-y-1 text-sm">
                   <div className="flex items-baseline justify-between">
-                    <span className="text-gray-600">Lesson earnings total</span>
+                    <span className="text-gray-600">
+                      Lesson earnings total
+                    </span>
                     <span className="font-semibold text-gray-900">
-                      {formatPenniesAsPounds(invoiceLessonGross)}
+                      {formatTeacherMoney(invoiceLessonGross)}
                     </span>
                   </div>
 
                   <div className="flex items-baseline justify-between">
                     <span className="text-gray-600">Expenses (approved)</span>
                     <span className="font-semibold text-gray-900">
-                      {formatPenniesAsPounds(invoiceExpenses)}
+                      {formatTeacherMoney(invoiceExpenses)}
                     </span>
                   </div>
 
@@ -177,7 +150,7 @@ export default async function TeacherInvoicesAdmin({
                         Grand total
                       </span>
                       <span className="text-lg font-semibold text-gray-900">
-                        {formatPenniesAsPounds(invoiceTotal)}
+                        {formatTeacherMoney(invoiceTotal)}
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-gray-500">
@@ -200,25 +173,26 @@ export default async function TeacherInvoicesAdmin({
               />
 
               {/* Admin actions: open existing invoice or generate new one */}
-              {invoiceMonthSummary && (() => {
-                const inv = invoiceByMonth.get(invoiceMonthKey);
-                if (inv) {
+              {invoiceMonthSummary &&
+                (() => {
+                  const inv = invoiceByMonth.get(invoiceMonthKey);
+                  if (inv) {
+                    return (
+                      <Link
+                        href={`/admin/teachers/${teacherId}/invoices/${inv.id}`}
+                        className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-blue-700"
+                      >
+                        Open invoice detail
+                      </Link>
+                    );
+                  }
                   return (
-                    <Link
-                      href={`/admin/teachers/${teacherId}/invoices/${inv.id}`}
-                      className="inline-flex items-center rounded-md border border-transparent bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-blue-700"
-                    >
-                      Open invoice detail
-                    </Link>
+                    <GenerateInvoiceButton
+                      teacherId={teacherId}
+                      monthStart={invoiceMonthKey}
+                    />
                   );
-                }
-                return (
-                  <GenerateInvoiceButton
-                    teacherId={teacherId}
-                    monthStart={invoiceMonthKey}
-                  />
-                );
-              })()}
+                })()}
             </div>
           </div>
         </div>
@@ -266,24 +240,24 @@ export default async function TeacherInvoicesAdmin({
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {historyRows.map((row) => {
-                    const inv = invoiceByMonth.get(row.month_start);
-                    const lessonGross = row.lesson_gross_pennies ?? 0;
-                    const expenses = row.expenses_pennies ?? 0;
-                    const total = row.total_pennies ?? 0;
+                    const inv = invoiceByMonth.get(row.monthStart);
+                    const lessonGross = row.lessonGrossPennies ?? 0;
+                    const expenses = row.expensesPennies ?? 0;
+                    const total = row.totalPennies ?? 0;
 
                     return (
-                      <tr key={row.teacher_id + row.month_start}>
+                      <tr key={row.teacherId + row.monthStart}>
                         <td className="whitespace-nowrap px-4 py-2 text-gray-900">
-                          {formatInvoiceMonthLabel(row.month_start)}
+                          {formatInvoiceMonthLabel(row.monthStart)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right">
-                          {formatPenniesAsPounds(lessonGross)}
+                          {formatTeacherMoney(lessonGross)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right">
-                          {formatPenniesAsPounds(expenses)}
+                          {formatTeacherMoney(expenses)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                          {formatPenniesAsPounds(total)}
+                          {formatTeacherMoney(total)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2">
                           <TeacherInvoiceStatusPill status={row.status} />

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import type { TeacherStatus } from "@/lib/enums";
+import type { TeacherStatus } from "@/lib/types/teachers";
 
 const ALLOWED_STATUSES: TeacherStatus[] = [
   "current",

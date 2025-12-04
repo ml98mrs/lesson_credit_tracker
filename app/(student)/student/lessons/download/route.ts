@@ -13,9 +13,7 @@ import {
   type StudentLessonsFilter,
   type StudentLessonRow as LessonRow,
 } from "@/lib/api/student/lessons";
-import { formatDeliveryLabel } from "@/lib/domain/lessons";
-
-
+import { formatDeliveryLabel } from "@/lib/domain/delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -184,10 +182,7 @@ const filterObj: StudentLessonsFilter = {
       }
     }
 
-    const deliveryLabel =
-  lesson.delivery === "hybrid"
-    ? "Hybrid"
-    : formatDeliveryLabel(lesson.delivery as Delivery);
+    const deliveryLabel = formatDeliveryLabel(lesson.delivery);
 
     // Track per-delivery totals (minutes)
     if (lesson.delivery === "online") {

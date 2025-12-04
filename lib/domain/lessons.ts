@@ -4,7 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Delivery, LengthCat, LessonState } from "@/lib/enums";
 import type { ProfilesEmbed } from "@/lib/types/profiles";
 import { readProfileFullName } from "@/lib/types/profiles";
-import { formatDeliveryLabel as formatDeliveryLabelShared } from "@/lib/formatters";
+import { formatDeliveryLabel as formatDeliveryLabelDelivery } from "@/lib/domain/delivery";
+
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
@@ -32,29 +33,32 @@ export type AdminLessonListRow = {
 /**
  * Human-friendly label for delivery mode.
  * Keeps "F2F / Online" consistent across the app.
+ * Delegates to the canonical delivery domain helper.
  */
 export const formatDeliveryLabel = (delivery: Delivery): string =>
-  formatDeliveryLabelShared(delivery);
-
+  formatDeliveryLabelDelivery(delivery);
 
 /**
- * Human-friendly label for lesson length.
+ * Human-friendly label for lesson length category (LengthCat).
  *
- * Rules:
- *  - If we have a length category (e.g. "60") → "60 min".
- *  - If no category but duration_min is positive → "<duration_min> min".
- *  - Otherwise → "—".
+ * IMPORTANT:
+ *  - This is a categorical label, not the actual duration.
+ *  - It must never fall back to duration_min.
  */
-export function formatLessonLength(
-  lengthCat: LengthCat,
-  durationMin?: number | null,
-): string {
-  if (lengthCat !== "none") return `${lengthCat} min`;
-  if (typeof durationMin === "number" && durationMin > 0) {
-    return `${durationMin} min`;
+export function formatLessonLength(lengthCat: LengthCat): string {
+  switch (lengthCat) {
+    case "60":
+      return "60-min slot";
+    case "90":
+      return "90-min slot";
+    case "120":
+      return "120-min slot";
+    case "none":
+    default:
+      return "—"; // no categorical length set for this lesson
   }
-  return "—";
 }
+
 
 /**
  * Human-friendly label for lesson state.

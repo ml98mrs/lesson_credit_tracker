@@ -3,6 +3,8 @@
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { formatMinutesAsHours } from "@/lib/formatters";
+import { TIER_VALUES, formatTierFilterLabel } from "@/lib/domain/tiers";
+import type {Tier,} from "@/lib/enums";
 
 type CohortSummaryRow = {
   cohort_month: string;
@@ -129,15 +131,16 @@ export default async function CohortReportPage({
         <div className="flex flex-col gap-1">
           <label className="font-medium text-gray-700">Tier</label>
           <select
-            name="tier"
-            defaultValue={tier}
-            className="rounded-md border px-2 py-1"
-          >
-            <option value="">Any</option>
-            <option value="basic">basic</option>
-            <option value="premium">premium</option>
-            <option value="elite">elite</option>
-          </select>
+  name="tier"
+  defaultValue={tier}
+  className="rounded-md border px-2 py-1"
+>
+  {(["", ...TIER_VALUES] as const).map((v) => (
+    <option key={v} value={v}>
+      {formatTierFilterLabel(v as "" | Tier)}
+    </option>
+  ))}
+</select>
         </div>
 
         <div className="flex flex-col gap-1">

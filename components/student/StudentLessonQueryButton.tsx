@@ -43,7 +43,8 @@ export default function StudentLessonQueryButton({ lessonId, summary }: Props) {
         // Close after a little delay
         setTimeout(() => setOpen(false), 1000);
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      console.error("StudentLessonQueryButton submit error", err);
       setError("Network error. Please try again.");
     } finally {
       setSubmitting(false);

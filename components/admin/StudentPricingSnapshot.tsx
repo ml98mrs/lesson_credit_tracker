@@ -1,6 +1,6 @@
 // components/admin/StudentPricingSnapshot.tsx
 import React from "react";
-import type { Tier } from "@/components/admin/TierBadge";
+import type { Tier } from "@/lib/enums";
 
 export type StudentTeacherRateRow = {
   student_id: string;

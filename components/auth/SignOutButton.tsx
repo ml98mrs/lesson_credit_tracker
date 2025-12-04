@@ -1,20 +1,22 @@
+// components/auth/SignOutButton.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
+
 const supabase = getBrowserSupabase();
 
-export default function AdminSignOutButton() {
+export default function SignOutButton() {
   const router = useRouter();
 
   const handleSignOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) {
-        console.error("Supabase signOut error (admin):", error);
+        console.error("Supabase signOut error:", error);
       }
     } catch (e) {
-      console.error("Supabase signOut threw (admin):", e);
+      console.error("Supabase signOut threw:", e);
     } finally {
       router.push("/login");
     }

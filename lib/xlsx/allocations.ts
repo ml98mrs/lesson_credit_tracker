@@ -1,11 +1,10 @@
-// lib/xlsx/allocations.ts
 import ExcelJS from "exceljs";
 import {
   formatMinutesAsHours,
   formatDateTimeLondon,
-  formatPenniesAsPounds,          // 👈 NEW
+  formatPenniesAsPounds,
 } from "@/lib/formatters";
-import { formatDeliveryLabel } from "@/lib/domain/lessons";
+import { formatDeliveryLabel } from "@/lib/domain/delivery";
 import type { AllocationRow } from "@/components/credit/LotAllocationsTable";
 
 /**

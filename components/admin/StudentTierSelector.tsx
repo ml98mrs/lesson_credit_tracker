@@ -14,8 +14,8 @@ export default function StudentTierSelector({ studentId, initialTier }: Props) {
   const [msg, setMsg] = useState<string | null>(null);
 
   async function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const value = e.target.value as "" | "basic" | "premium" | "elite";
-    const nextTier: Tier = value === "" ? null : value;
+  const value = e.target.value as "" | Tier;
+  const nextTier: Tier = value === "" ? null : (value as Tier);
 
     setTier(nextTier);
     setSaving(true);

@@ -7,12 +7,12 @@ import { formatLotLabel } from "@/lib/creditLots/labels";
 import type { CreditLotSource } from "@/lib/creditLots/types";
 import {
   AdminLessonListRow,
-  formatDeliveryLabel,
-  formatLessonLength,
   buildAdminLessonNameMaps,
   buildAdminNameOptionsFromMaps,
   computeLessonDateRange,
 } from "@/lib/domain/lessons";
+import { DELIVERY } from "@/lib/enums";
+import { formatDeliveryLabel, formatDeliveryUiLabel } from "@/lib/domain/delivery";
 
 export const dynamic = "force-dynamic";
 
@@ -249,8 +249,8 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
                     {formatDeliveryLabel(l.delivery)}
                   </td>
                   <td className="py-2 pr-4">
-                    {formatLessonLength(l.length_cat, l.duration_min)}
-                  </td>
+  {l.duration_min} min
+</td>
                   <td className="py-2 pr-4 text-xs">
                     {lessonLotsLabel.get(l.id) ?? "—"}
                   </td>
@@ -374,15 +374,18 @@ function FilterForm(props: FilterFormProps) {
         {/* Delivery */}
         <div className="flex flex-col">
           <label className="mb-1 font-medium">Delivery</label>
-          <select
-            name="delivery"
-            defaultValue={delivery}
-            className="rounded-md border px-2 py-1"
-          >
-            <option value="">All</option>
-            <option value="f2f">F2F</option>
-            <option value="online">Online</option>
-          </select>
+        <select
+  name="delivery"
+  defaultValue={delivery}
+  className="rounded-md border px-2 py-1"
+>
+  <option value="">Any</option>
+  {DELIVERY.map((value) => (
+    <option key={value} value={value}>
+      {formatDeliveryUiLabel(value)}
+    </option>
+  ))}
+</select>
         </div>
 
         <div className="flex items-end">

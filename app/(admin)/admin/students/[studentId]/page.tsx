@@ -2,14 +2,12 @@
 import React from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import Section from "@/components/ui/Section";
-import { CreditSnapshot } from "@/components/credit/CreditSnapshot";
+
 import OverdraftActionButtons from "./OverdraftActionButtons";
-import { Tier, TierBadge } from "@/components/admin/TierBadge";
-import StudentStatusToggle from "@/components/admin/StudentStatusToggle";
-import WriteOffRemainingButton from "@/components/admin/WriteOffRemainingButton";
-import WriteOffOverdraftButton from "@/components/admin/WriteOffOverdraftButton";
 import StudentTeacherAssignments from "./StudentTeacherAssignments";
+
+import { TierBadge } from "@/components/admin/TierBadge";
+import StudentStatusToggle from "@/components/admin/StudentStatusToggle";
 import StudentTierSelector from "@/components/admin/StudentTierSelector";
 import { StudentWarningStrip } from "@/components/admin/StudentWarningStrip";
 import {
@@ -20,43 +18,52 @@ import {
   StudentSncHistory,
   type SncHistoryRow,
 } from "@/components/admin/StudentSncHistory";
+import WriteOffOverdraftButton from "@/components/admin/WriteOffOverdraftButton";
+import WriteOffRemainingButton from "@/components/admin/WriteOffRemainingButton";
+import { CreditSnapshot } from "@/components/credit/CreditSnapshot";
 import {
   LotAllocationsTable,
   type AllocationRow,
 } from "@/components/credit/LotAllocationsTable";
-import { getAdminSupabase } from "@/lib/supabase/admin";
-import {
-  formatMinutesAsHours,
-  formatDateTimeLondon,
-} from "@/lib/formatters";
-import { formatLotLabel } from "@/lib/creditLots/labels";
-import type { CreditLotSource } from "@/lib/creditLots/types";
+import Section from "@/components/ui/Section";
+
 import {
   getLowCreditAlertForStudent,
   getLowCreditAlertsByDeliveryForStudent,
   type LowCreditByDeliveryRow,
 } from "@/lib/api/admin/lowCredit";
-import {
-  Delivery,
-  ExpiryPolicy,
-  StudentStatus,
-  CreditLotState,
-} from "@/lib/enums";
-import type {
-  StudentAwardReasonSummary,
-  } from "@/lib/types/students";
-import { computeStudentSncStatus } from "@/lib/domain/snc";
-import { getExpiryPolicyLabel } from "@/lib/domain/expiryPolicy";
 import { buildAwardLine } from "@/lib/awardReasons";
-import {
-  formatDeliveryUiLabel,
-  type DeliveryUi,
-} from "@/lib/domain/delivery";
+import { formatLotLabel } from "@/lib/creditLots/labels";
+import type { CreditLotSource } from "@/lib/creditLots/types";
+import { formatDeliveryUiLabel } from "@/lib/domain/delivery";
+import { getExpiryPolicyLabel } from "@/lib/domain/expiryPolicy";
+import { computeStudentSncStatus } from "@/lib/domain/snc";
 import {
   formatStudentStatus,
+  getStudentStatusBadgeClass,
+  mapAwardReasonRows,
   mapCreditDeliverySummaryRow,
 } from "@/lib/domain/students";
-import type { VStudentCreditDeliverySummaryRow } from "@/lib/types/views/student";
+import {
+  formatDateTimeLondon,
+  formatMinutesAsHours,
+} from "@/lib/formatters";
+import { getAdminSupabase } from "@/lib/supabase/admin";
+import type {
+  CreditLotState,
+  Delivery,
+  DeliveryRestriction,
+  ExpiryPolicy,
+  Tier,
+} from "@/lib/enums";
+import type { StudentStatus } from "@/lib/types/students";
+
+import type {
+  VStudentAwardReasonSummaryRow,
+  VStudentCreditDeliverySummaryRow,
+  VStudentCreditSummaryRow,
+} from "@/lib/types/views/student";
+
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -72,31 +79,30 @@ type LotRow = {
   expiry_date: string | null;
   expiry_policy: ExpiryPolicy;
   state: CreditLotState;
-  delivery_restriction: DeliveryUi | null;
+  delivery_restriction: DeliveryRestriction;
   days_to_expiry: number | null;
   expiry_within_30d: boolean | null;
 };
 
-type StudentSummaryTotals = {
-  student_id: string;
-  total_granted_min: number;
-  total_allocated_min: number;
-  total_remaining_min: number;
+type TeacherRow = {
+  id: string;
+  profile_id: string | null;
 };
 
-type AwardReasonRow = StudentAwardReasonSummary;
-
-type AwardReasonDbRow = {
-  award_reason_code: string;
-  granted_award_min: number | null;
-  used_award_min: number | null;
-  remaining_award_min: number | null;
+type StudentTeacherLinkRow = {
+  teacher_id: string;
 };
+
+type StudentWithProfile = {
+  id: string;
+  profiles:
+    | { full_name: string | null }
+    | { full_name: string | null }[]
+    | null;
+};
+
 
 const LOW_THRESHOLD_MIN = 360; // 6 hours generic rule for per-lot highlighting
-
-const formatHours = (h: number | null | undefined) =>
-  h == null ? "—" : h.toFixed(2);
 
 export default async function AdminStudentPage({
   params,
@@ -124,22 +130,14 @@ export default async function AdminStudentPage({
 
   // 🔹 Domain-driven label + badge styling
   const studentStatusLabel = formatStudentStatus(studentStatus);
-
-  const studentStatusClass =
-    studentStatus === "current"
-      ? "bg-emerald-50 text-emerald-700"
-      : studentStatus === "dormant"
-      ? "bg-amber-50 text-amber-700"
-      : studentStatus === "past"
-      ? "bg-rose-50 text-rose-700"
-      : "bg-gray-100 text-gray-600";
-
+  const studentStatusClass = getStudentStatusBadgeClass(studentStatus);
 
   // --- 2) Teacher assignments ------------------------------------------------
   const { data: teacherRows, error: tErr } = await sb
     .from("teachers")
     .select("id, profile_id")
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .returns<TeacherRow[]>();
 
   if (tErr) {
     throw new Error(tErr.message);
@@ -148,7 +146,10 @@ export default async function AdminStudentPage({
   let allTeacherOptions: { id: string; name: string }[] = [];
 
   if (teacherRows && teacherRows.length > 0) {
-    const teacherProfileIds = teacherRows.map((t) => t.profile_id);
+    const teacherProfileIds = teacherRows
+      .map((t) => t.profile_id)
+      .filter((id): id is string => id !== null);
+
     const { data: tProfiles, error: tpErr } = await sb
       .from("profiles")
       .select("id, preferred_name, full_name")
@@ -167,26 +168,25 @@ export default async function AdminStudentPage({
       ]),
     );
 
-    allTeacherOptions = teacherRows.map((t: any) => ({
-      id: t.id as string,
+    allTeacherOptions = teacherRows.map((t) => ({
+      id: t.id,
       name:
-        nameByProfile.get(t.profile_id as string) ??
-        ((t.id as string).slice(0, 8) + "…"),
+        nameByProfile.get(t.profile_id ?? "") ??
+        t.id.slice(0, 8) + "…",
     }));
   }
 
   const { data: links, error: linkErr } = await sb
     .from("student_teacher")
     .select("teacher_id")
-    .eq("student_id", studentId);
+    .eq("student_id", studentId)
+    .returns<StudentTeacherLinkRow[]>();
 
   if (linkErr) {
     throw new Error(linkErr.message);
   }
 
-  const assignedIds = new Set(
-    (links ?? []).map((l: any) => l.teacher_id as string),
-  );
+  const assignedIds = new Set((links ?? []).map((l) => l.teacher_id));
 
   const assignedTeachers = allTeacherOptions.filter((t) =>
     assignedIds.has(t.id),
@@ -228,20 +228,26 @@ export default async function AdminStudentPage({
       : ((activityRow.last_activity_at as string | null) ??
           (student.created_at as string | null));
 
-  // --- 4) Student display name (via profiles) -------------------------------
-  const { data: srow } = await sb
-    .from("students")
-    .select("id, profiles(full_name)")
-    .eq("id", studentId)
-    .maybeSingle();
+// --- 4) Student display name (via profiles) -------------------------------
+const { data: srow } = await sb
+  .from("students")
+  .select("id, profiles(full_name)")
+  .eq("id", studentId)
+  .maybeSingle();
 
-  const studentName = (() => {
-    const p: any = srow?.profiles;
-    if (!p) return "(student)";
-    return Array.isArray(p)
-      ? p[0]?.full_name ?? "(student)"
-      : p.full_name ?? "(student)";
-  })();
+const studentWithProfile = srow as StudentWithProfile | null;
+
+const studentName = (() => {
+  const profiles = studentWithProfile?.profiles;
+  if (!profiles) return "(student)";
+
+  if (Array.isArray(profiles)) {
+    return profiles[0]?.full_name ?? "(student)";
+  }
+
+  return profiles.full_name ?? "(student)";
+})();
+
 
   // --- 5) Usage over last 3 months ------------------------------------------
   const { data: usageRow, error: usageErr } = await sb
@@ -409,66 +415,63 @@ export default async function AdminStudentPage({
   // --- 9) Totals & breakdowns (via views, to stay in sync with student portal) ---
 
   // 9a) Overall totals
-  const { data: summary, error: sumErr } = await sb
-    .from("v_student_credit_summary")
+const { data: summary, error: sumErr } = await sb
+  .from("v_student_credit_summary")
+  .select(
+    "student_id,total_granted_min,total_allocated_min,total_remaining_min",
+  )
+  .eq("student_id", studentId)
+  .maybeSingle<VStudentCreditSummaryRow>();
+
+if (sumErr) {
+  throw new Error(sumErr.message);
+}
+
+const totalGrantedMin = summary?.total_granted_min ?? 0;
+const usedMin = summary?.total_allocated_min ?? 0;
+const remainingMin = summary?.total_remaining_min ?? 0;
+
+  // 9b) Per-delivery totals (invoice credit only)
+  const { data: deliveryRow, error: deliveryErr } = await sb
+    .from("v_student_credit_delivery_summary")
     .select(
-      "student_id,total_granted_min,total_allocated_min,total_remaining_min",
+      [
+        "student_id",
+        "purchased_min",
+        "used_min",
+        "remaining_min",
+        "purchased_online_min",
+        "purchased_f2f_min",
+        "used_online_min",
+        "used_f2f_min",
+        "remaining_online_min",
+        "remaining_f2f_min",
+      ].join(","),
     )
     .eq("student_id", studentId)
     .maybeSingle();
 
-  if (sumErr) {
-    throw new Error(sumErr.message);
+  if (deliveryErr) {
+    throw new Error(deliveryErr.message);
   }
 
-  const totals = (summary ?? null) as StudentSummaryTotals | null;
+  // Raw view row → domain summary via shared helper
+  const rawDeliveryRow = (deliveryRow ?? null) as
+    | VStudentCreditDeliverySummaryRow
+    | null;
 
-  const totalGrantedMin = totals?.total_granted_min ?? 0;
-  const usedMin = totals?.total_allocated_min ?? 0;
-  const remainingMin = totals?.total_remaining_min ?? 0;
+  const deliverySummary = mapCreditDeliverySummaryRow(rawDeliveryRow);
 
-// 9b) Per-delivery totals (invoice credit only)
-const { data: deliveryRow, error: deliveryErr } = await sb
-  .from("v_student_credit_delivery_summary")
-  .select(
-    [
-      "student_id",
-      "purchased_min",
-      "used_min",
-      "remaining_min",
-      "purchased_online_min",
-      "purchased_f2f_min",
-      "used_online_min",
-      "used_f2f_min",
-      "remaining_online_min",
-      "remaining_f2f_min",
-    ].join(","),
-  )
-  .eq("student_id", studentId)
-  .maybeSingle();
+  const purchasedMin = deliverySummary.purchasedMin;
 
-if (deliveryErr) {
-  throw new Error(deliveryErr.message);
-}
+  const purchasedOnlineMin = deliverySummary.purchasedOnlineMin;
+  const purchasedF2FMin = deliverySummary.purchasedF2fMin;
 
-// Raw view row → domain summary via shared helper
-const rawDeliveryRow = (deliveryRow ?? null) as
-  | VStudentCreditDeliverySummaryRow
-  | null;
+  const usedOnlineInvoiceMin = deliverySummary.usedOnlineMin;
+  const usedF2FInvoiceMin = deliverySummary.usedF2fMin;
 
-const deliverySummary = mapCreditDeliverySummaryRow(rawDeliveryRow);
-
-const purchasedMin = deliverySummary.purchasedMin;
-
-const purchasedOnlineMin = deliverySummary.purchasedOnlineMin;
-const purchasedF2FMin = deliverySummary.purchasedF2fMin;
-
-const usedOnlineInvoiceMin = deliverySummary.usedOnlineMin;
-const usedF2FInvoiceMin = deliverySummary.usedF2fMin;
-
-const remainingOnlineInvoiceMin = deliverySummary.remainingOnlineMin;
-const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
-
+  const remainingOnlineInvoiceMin = deliverySummary.remainingOnlineMin;
+  const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
 
   const hasBothInvoiceModes =
     purchasedOnlineMin > 0 && purchasedF2FMin > 0;
@@ -478,7 +481,7 @@ const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
     (onlineAlert?.avgMonthHours != null ||
       f2fAlert?.avgMonthHours != null);
 
-  // 9c) Award breakdown by reason (granted minutes)
+    // 9c) Award breakdown by reason (granted minutes)
   const { data: awardRows, error: awardErr } = await sb
     .from("v_student_award_reason_summary")
     .select(
@@ -490,18 +493,15 @@ const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
     throw new Error(awardErr.message);
   }
 
-  const awardReasons: AwardReasonRow[] =
-    ((awardRows ?? []) as AwardReasonDbRow[]).map((row) => ({
-      awardReasonCode: row.award_reason_code,
-      grantedAwardMin: row.granted_award_min ?? 0,
-      usedAwardMin: row.used_award_min ?? 0,
-      remainingAwardMin: row.remaining_award_min ?? 0,
-    }));
+  // Canonical view row → domain summaries (null-safe minutes)
+  const awardReasons = mapAwardReasonRows(
+    (awardRows ?? []) as VStudentAwardReasonSummaryRow[],
+  );
 
   // Awarded total = granted - purchased (same as student portal)
   const awardedMin = Math.max(totalGrantedMin - purchasedMin, 0);
 
-  // Use shared award-line helper (snake_case mapping)
+  // Shape data for buildAwardLine helper (expects snake_case + non-null numbers)
   const awardRowsForLines = awardReasons.map((r) => ({
     award_reason_code: r.awardReasonCode,
     granted_award_min: r.grantedAwardMin,
@@ -526,7 +526,7 @@ const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
 
   // ---------------------------------------------------------------------------
 
-    return (
+  return (
     <Section title={`Student 360 — ${studentName}`}>
       {/* Header + Add credit button */}
       <div className="mb-4 flex items-center justify-between">
@@ -561,32 +561,31 @@ const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
       {/* 3) Warning banners */}
       <div className="mb-6">
         <StudentWarningStrip
-  lowCreditAny={lowCreditAny}
-  showGenericLow={showGenericLow}
-  lowCreditDynamic={lowCreditDynamic}
-  lowCreditAlertRemainingHours={
-    lowCreditAlert?.remaining_hours != null
-      ? Number(lowCreditAlert.remaining_hours)
-      : null
-  }
-  lowCreditAlertAvgMonthHours={
-    lowCreditAlert?.avg_month_hours != null
-      ? Number(lowCreditAlert.avg_month_hours)
-      : null
-  }
-  lowCreditAlertBufferHours={
-    lowCreditAlert?.buffer_hours != null
-      ? Number(lowCreditAlert.buffer_hours)
-      : null
-  }
-  onlineAlert={onlineAlert}
-  f2fAlert={f2fAlert}
-  anyPerDeliveryLow={anyPerDeliveryLow}
-  hasOverdraft={hasOverdraft}
-  overdraftMinutesRemaining={overdraftMinutesRemaining}
-  expiringLotsCount={expiringLots.length}
-/>
-
+          lowCreditAny={lowCreditAny}
+          showGenericLow={showGenericLow}
+          lowCreditDynamic={lowCreditDynamic}
+          lowCreditAlertRemainingHours={
+            lowCreditAlert?.remaining_hours != null
+              ? Number(lowCreditAlert.remaining_hours)
+              : null
+          }
+          lowCreditAlertAvgMonthHours={
+            lowCreditAlert?.avg_month_hours != null
+              ? Number(lowCreditAlert.avg_month_hours)
+              : null
+          }
+          lowCreditAlertBufferHours={
+            lowCreditAlert?.buffer_hours != null
+              ? Number(lowCreditAlert.buffer_hours)
+              : null
+          }
+          onlineAlert={onlineAlert}
+          f2fAlert={f2fAlert}
+          anyPerDeliveryLow={anyPerDeliveryLow}
+          hasOverdraft={hasOverdraft}
+          overdraftMinutesRemaining={overdraftMinutesRemaining}
+          expiringLotsCount={expiringLots.length}
+        />
       </div>
 
       {/* 4) Panel – key student info (tier, status, lifecycle, usage) */}
@@ -599,14 +598,13 @@ const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
                 <TierBadge tier={studentTier} />
               </div>
               <div className="flex items-center gap-2">
-  <span className="text-xs text-gray-500">Student status:</span>
-  <span
-    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${studentStatusClass}`}
-  >
-    {studentStatusLabel}
-  </span>
-</div>
-
+                <span className="text-xs text-gray-500">Student status:</span>
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${studentStatusClass}`}
+                >
+                  {studentStatusLabel}
+                </span>
+              </div>
             </div>
             <div className="text-[11px] text-gray-500">
               Last activity:{" "}
@@ -769,10 +767,10 @@ const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
                     <tr className="border-b">
                       <td colSpan={6} className="bg-gray-50 py-2 pr-4">
                         <LotAllocationsTable
-  allocations={lotAllocations}
-  variant="admin"
-  lotId={r.credit_lot_id}
-/>
+                          allocations={lotAllocations}
+                          variant="admin"
+                          lotId={r.credit_lot_id}
+                        />
                       </td>
                     </tr>
                   </React.Fragment>

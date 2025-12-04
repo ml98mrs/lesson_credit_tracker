@@ -1,5 +1,14 @@
 // lib/formatters.ts
-import type { Delivery } from "@/lib/enums";
+
+// Re-export canonical delivery label helper from the delivery domain.
+// This keeps existing imports working while making lib/domain/delivery.ts
+// the single source of truth for delivery labels.
+/**
+ * @deprecated Import from "@/lib/domain/delivery" instead.
+ * This re-export is kept only as a backwards-compatibility shim.
+ */
+export { formatDeliveryLabel } from "@/lib/domain/delivery";
+
 
 // --- Minutes / hours --------------------------------------------------------
 
@@ -11,17 +20,6 @@ export function formatMinutesAsHours(mins: number | null | undefined): string {
 export function formatHoursLabel(mins: number | null | undefined): string {
   if (!mins && mins !== 0) return "—";
   return `${(mins / 60).toFixed(2)} h`; // with unit
-}
-
-// --- Delivery labels -------------------------------------------------------
-
-export function formatDeliveryLabel(d: Delivery | null): string {
-  if (!d) return "—";
-
-  if (d === "online") return "Online";
-  if (d === "f2f") return "F2F"; // short, matches lesson tables + spec
-
-  return d;
 }
 
 // --- Money (pennies ↔ pounds) ----------------------------------------------

@@ -7,7 +7,8 @@ import { formatDateTimeLondon } from "@/lib/formatters";
 import type { ProfilesEmbed } from "@/lib/types/profiles";
 import { readProfileFullName } from "@/lib/types/profiles";
 
-
+type AdminRecordQueryFormProps = React.ComponentProps<typeof AdminRecordQueryForm>;
+type Status = AdminRecordQueryFormProps["initialStatus"];
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ type Params = { queryId: string };
 
 type QueryRow = {
   id: string;
-  status: string;
+  status: Status;
   body: string;
   resolution_code: string | null;
   admin_note: string | null;
@@ -28,6 +29,8 @@ type QueryRow = {
     profiles: ProfilesEmbed | null;
   } | null;
 };
+
+
 
 
 export default async function AdminRecordQueryDetailPage({

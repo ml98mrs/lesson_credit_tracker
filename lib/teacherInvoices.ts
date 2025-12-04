@@ -1,9 +1,11 @@
 // lib/teacherInvoices.ts
 //
-// Domain + UI micro-helpers for teacher invoices.
+// Domain helpers for teacher invoices.
+// - NO UI styling here (no Tailwind classes).
 // - Pure functions only (no React imports, no fetch/Supabase).
-// - Safe to use from components like TeacherInvoiceStatusPill for
-//   consistent status labels and badge styling across the app.
+//
+// UI-layer metadata (labels + classes) lives in:
+//   lib/domain/teachers.ts → getTeacherInvoiceStatusMeta()
 
 /**
  * Shared status type for teacher invoice workflows.

@@ -1,15 +1,20 @@
 // app/(teacher)/teacher/dashboard/page.tsx
 
 import Link from "next/link";
+
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
 import {
-  formatPenniesAsPounds,
   formatDateTimeLondon,
+  formatPenniesAsPounds,
 } from "@/lib/formatters";
-import type { StudentStatus } from "@/lib/enums";
+import type { StudentStatus } from "@/lib/types/students";
+import {
+  formatInvoiceMonthLabel,
+  getInvoiceMonthKey,
+  type InvoiceStatus,
+} from "@/lib/teacherInvoices";
 
-type InvoiceStatus = "not_generated" | "generated" | "paid";
 
 type InvoiceSummaryRow = {
   month_start: string;
@@ -23,20 +28,6 @@ type StudentStatusRow = {
   id: string;
   status: StudentStatus;
 };
-
-// Invoice month = previous London calendar month
-function getInvoiceMonthKey(): string {
-  const now = new Date();
-  const monthStart = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
-  );
-  return monthStart.toISOString().slice(0, 10); // 'YYYY-MM-01'
-}
-
-function formatMonthLabel(monthStart: string): string {
-  const d = new Date(`${monthStart}T00:00:00Z`);
-  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-}
 
 function StatusPill({ status }: { status: InvoiceStatus }) {
   const base =
@@ -89,9 +80,9 @@ export default async function TeacherDashboardPage() {
 
   const teacherId = t.id;
 
-  const invoiceMonthKey = getInvoiceMonthKey();
-  const invoiceMonthLabel = formatMonthLabel(invoiceMonthKey);
-  const generatedAtLabel = formatDateTimeLondon(new Date().toISOString());
+const invoiceMonthKey = getInvoiceMonthKey();
+const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
+const generatedAtLabel = formatDateTimeLondon(new Date().toISOString());
 
 // 1) Pending lessons + invoice summary + assigned-student links
 const [

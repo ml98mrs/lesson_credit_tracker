@@ -1,11 +1,12 @@
-// app/(teacher)/teacher/expenses/new/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+
 import Section from "@/components/ui/Section";
-import type { StudentStatus } from "@/lib/enums";
+import type { StudentStatus } from "@/lib/types/students";
+
 
 type Category = "drinks" | "teaching_resources" | "other";
 

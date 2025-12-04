@@ -3,30 +3,17 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { formatPenniesAsPounds } from "@/lib/formatters";
 import {
   getInvoiceMonthKey,
   formatInvoiceMonthLabel,
-  type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
+import { formatTeacherMoney } from "@/lib/domain/teachers";
+import { listTeacherInvoicesForTeacher } from "@/lib/server/listTeacherInvoices";
+import type { TeacherInvoiceSummary } from "@/lib/types/teachers";
+
 
 export const dynamic = "force-dynamic";
-
-type InvoiceSummaryRow = {
-  month_start: string; // 'YYYY-MM-DD'
-  lesson_gross_pennies: number | null;
-  expenses_pennies: number | null;
-  total_pennies: number | null;
-  status: InvoiceStatus;
-};
-
-type TeacherInvoiceRow = {
-  id: string;
-  month_start: string; // 'YYYY-MM-DD'
-  invoice_ref: string | null;
-  status: "generated" | "paid";
-};
 
 export default async function TeacherInvoicesIndex() {
   const supabase = await getServerSupabase();
@@ -67,31 +54,14 @@ export default async function TeacherInvoicesIndex() {
 
   const teacherId = t.id as string;
 
-  const [
-    { data: summaries, error: summaryError },
-    { data: invoices, error: invoiceError },
-  ] = await Promise.all([
-    supabase
-      .from("v_teacher_invoice_summary")
-      .select(
-        "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
-      )
-      .eq("teacher_id", teacherId)
-      .order("month_start", { ascending: false })
-      .limit(12),
-    supabase
-      .from("teacher_invoices")
-      .select("id, month_start, invoice_ref, status")
-      .eq("teacher_id", teacherId)
-      .order("month_start", { ascending: false })
-      .limit(12),
-  ]);
-
-  // Latest invoice month = previous calendar month (shared helper)
-  const invoiceMonthKey = getInvoiceMonthKey();
-  const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
-
-  if (summaryError || invoiceError) {
+  let invoiceSummaries: TeacherInvoiceSummary[] = [];
+  try {
+    invoiceSummaries = await listTeacherInvoicesForTeacher(
+      supabase,
+      teacherId,
+    );
+  } catch {
+    const invoiceMonthKey = getInvoiceMonthKey();
     return (
       <Section
         title="My invoices"
@@ -110,26 +80,25 @@ export default async function TeacherInvoicesIndex() {
     );
   }
 
-  const summaryRows: InvoiceSummaryRow[] = summaries ?? [];
-  const invoiceRows: TeacherInvoiceRow[] = invoices ?? [];
+  // Limit to latest 12 months (matching previous behaviour)
+  const summaries = invoiceSummaries.slice(0, 12);
 
-  const invoiceByMonth = new Map<string, TeacherInvoiceRow>();
-  for (const inv of invoiceRows) {
-    invoiceByMonth.set(inv.month_start, inv);
-  }
+  // Latest invoice month = previous calendar month (shared helper)
+  const invoiceMonthKey = getInvoiceMonthKey();
+  const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
 
-  const invoiceSummary = summaryRows.find(
-    (row) => row.month_start === invoiceMonthKey,
+  const invoiceSummary = summaries.find(
+    (row) => row.monthStart === invoiceMonthKey,
   );
 
-  // History = all other months (older and, if present, the live current month)
-  const historyRows = summaryRows.filter(
-    (row) => row.month_start !== invoiceMonthKey,
+  // History = all other months (older and/or current live month)
+  const historyRows = summaries.filter(
+    (row) => row.monthStart !== invoiceMonthKey,
   );
 
-  const invoiceLessonGross = invoiceSummary?.lesson_gross_pennies ?? 0;
-  const invoiceExpenses = invoiceSummary?.expenses_pennies ?? 0;
-  const invoiceTotal = invoiceSummary?.total_pennies ?? 0;
+  const invoiceLessonGross = invoiceSummary?.lessonGrossPennies ?? 0;
+  const invoiceExpenses = invoiceSummary?.expensesPennies ?? 0;
+  const invoiceTotal = invoiceSummary?.totalPennies ?? 0;
 
   return (
     <Section
@@ -159,12 +128,12 @@ export default async function TeacherInvoicesIndex() {
                 <div>
                   Total:{" "}
                   <span className="font-semibold">
-                    {formatPenniesAsPounds(invoiceTotal)}
+                    {formatTeacherMoney(invoiceTotal)}
                   </span>
                 </div>
                 <div>
-                  Lessons: {formatPenniesAsPounds(invoiceLessonGross)} ·
-                  Expenses: {formatPenniesAsPounds(invoiceExpenses)}
+                  Lessons: {formatTeacherMoney(invoiceLessonGross)} · Expenses:{" "}
+                  {formatTeacherMoney(invoiceExpenses)}
                 </div>
               </div>
               <Link
@@ -220,33 +189,34 @@ export default async function TeacherInvoicesIndex() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {historyRows.map((row) => {
-                    const inv = invoiceByMonth.get(row.month_start);
-                    const lessonGross = row.lesson_gross_pennies ?? 0;
-                    const expenses = row.expenses_pennies ?? 0;
-                    const total = row.total_pennies ?? 0;
+                    const lessonGross = row.lessonGrossPennies ?? 0;
+                    const expenses = row.expensesPennies ?? 0;
+                    const total = row.totalPennies ?? 0;
+
+                    const monthLabel = formatInvoiceMonthLabel(row.monthStart);
 
                     return (
-                      <tr key={row.month_start}>
+                      <tr key={row.monthStart}>
                         <td className="whitespace-nowrap px-4 py-2 text-gray-900">
-                          {formatInvoiceMonthLabel(row.month_start)}
+                          {monthLabel}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right text-gray-900">
-                          {formatPenniesAsPounds(lessonGross)}
+                          {formatTeacherMoney(lessonGross)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right text-gray-900">
-                          {formatPenniesAsPounds(expenses)}
+                          {formatTeacherMoney(expenses)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right font-medium text-gray-900">
-                          {formatPenniesAsPounds(total)}
+                          {formatTeacherMoney(total)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-2">
                           <TeacherInvoiceStatusPill status={row.status} />
                         </td>
                         <td className="whitespace-nowrap px-4 py-2 text-right">
-                          {inv &&
-                          (row.status === "generated" || row.status === "paid") ? (
+                          {row.status === "generated" ||
+                          row.status === "paid" ? (
                             <Link
-                              href={`/teacher/invoices/${inv.id}`}
+                              href={`/teacher/invoices/${row.id}`}
                               className="text-xs font-medium text-blue-600 hover:text-blue-800"
                             >
                               Open invoice

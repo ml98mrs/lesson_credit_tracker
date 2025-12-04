@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import AdminSignOutButton from "@/components/admin/AdminSignOutButton";
+import SignOutButton from "@/components/auth/SignOutButton";
 import AdminGlobalSearch from "@/components/admin/admin-global-search";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -19,15 +19,15 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <Link href="/admin/students">Students</Link>
             <Link href="/admin/teachers">Teachers</Link>
             <Link href="/admin/warnings">Warnings</Link>
-            <Link href="/admin/maintenance">Maintenance</Link>
-            <Link href="/admin/credit-invoices">Invoices</Link>
-            <Link href="/admin/analytics">Analytics</Link>
+            <Link href="/admin/teachers/invoices/monthly">T_Invoices</Link>
+            <Link href="/admin/credit-invoices">S_Invoices</Link>
+     
           </div>
 
           {/* RIGHT SIDE: SEARCH + SIGN OUT */}
           <div className="flex items-center gap-3">
             <AdminGlobalSearch />
-            <AdminSignOutButton />
+            <SignOutButton />
           </div>
         </div>
       </nav>

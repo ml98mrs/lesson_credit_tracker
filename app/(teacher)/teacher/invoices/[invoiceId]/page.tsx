@@ -1,83 +1,16 @@
 // app/(teacher)/teacher/invoices/[invoiceId]/page.tsx
 
-import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
 import {
   formatMinutesAsHours,
-  formatPenniesAsPounds,
   formatDateTimeLondon,
 } from "@/lib/formatters";
-import {
-  formatInvoiceMonthLabel,
-  type InvoiceStatus,
-} from "@/lib/teacherInvoices";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
+import { formatTeacherMoney } from "@/lib/domain/teachers";
+import { getTeacherPortalInvoiceSnapshot } from "@/lib/server/getTeacherPortalInvoiceSnapshot";
 
 export const dynamic = "force-dynamic";
-
-type TeacherInvoice = {
-  id: number;
-  teacher_id: string;
-  month_start: string; // "YYYY-MM-01"
-  status: "generated" | "paid";
-  invoice_ref: string | null;
-  created_at: string;
-  paid_at: string | null;
-};
-
-type InvoiceSummary = {
-  teacher_id: string;
-  month_start: string;
-  lesson_gross_pennies: number | null;
-  expenses_pennies: number | null;
-  total_pennies: number | null;
-  status: InvoiceStatus;
-};
-
-type LessonEarningsMonth = {
-  teacher_id: string;
-  month_start: string;
-  lesson_minutes_total: number | null;
-  gross_pennies: number | null;
-  snc_free_minutes: number | null;
-  snc_charged_minutes: number | null;
-};
-
-type ExpenseSummary = {
-  teacher_id: string;
-  month_start: string;
-  approved_pennies: number | null;
-  pending_pennies: number | null;
-  rejected_pennies: number | null;
-};
-
-type ExpenseDetail = {
-  id: number;
-  teacher_id: string;
-  month_start: string;
-  incurred_at: string;
-  amount_pennies: number;
-  status: "pending" | "approved" | "rejected";
-  description: string | null;
-  category: "drinks" | "teaching_resources" | "other";
-  student_id: string | null;
-  student_name: string | null;
-  student_full_name: string | null;
-};
-
-type StudentEarningsRow = {
-  teacher_id: string;
-  month_start: string;
-  student_id: string;
-  lesson_minutes_total: number | null;
-  gross_pennies: number | null;
-};
-
-type StudentNameRow = {
-  student_id: string;
-  full_name: string;
-};
 
 export default async function TeacherInvoiceDetailPage(props: {
   params: Promise<{ invoiceId: string }>;
@@ -114,129 +47,51 @@ export default async function TeacherInvoiceDetailPage(props: {
   }
 
   const teacherId = t.id as string;
-
-  // 1) Load invoice row (and verify it belongs to this teacher)
   const invoiceIdNumber = Number(invoiceId);
 
-  const { data: invoiceRow, error: invErr } = await supabase
-    .from("teacher_invoices")
-    .select(
-      "id, teacher_id, month_start, status, invoice_ref, created_at, paid_at"
-    )
-    .eq("id", invoiceIdNumber)
-    .eq("teacher_id", teacherId)
-    .maybeSingle();
-
-  if (invErr || !invoiceRow) {
+  if (Number.isNaN(invoiceIdNumber)) {
     return (
       <Section title="Invoice details" subtitle="">
         <p className="text-sm text-red-600">
-          Invoice not found or not accessible.
+          Invalid invoice ID.
         </p>
       </Section>
     );
   }
 
-  const invoice = invoiceRow as TeacherInvoice;
-  const monthStart = invoice.month_start;
-  const monthLabel = formatInvoiceMonthLabel(monthStart);
-
-  // 2) Load monthly aggregates + itemised expenses + per-student earnings
-  const [
-    { data: summaryData },
-    { data: earningsData },
-    { data: expensesSummaryData },
-    { data: expensesDetailData },
-    { data: studentEarningsData },
-  ] = await Promise.all([
-    supabase
-      .from("v_teacher_invoice_summary")
-      .select(
-        "teacher_id, month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status"
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthStart)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_lesson_earnings_by_month")
-      .select(
-        "teacher_id, month_start, lesson_minutes_total, gross_pennies, snc_free_minutes, snc_charged_minutes"
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthStart)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_expenses_summary")
-      .select(
-        "teacher_id, month_start, approved_pennies, pending_pennies, rejected_pennies"
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthStart)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_expenses_detail_by_month")
-      .select(
-        "id, teacher_id, month_start, incurred_at, amount_pennies, status, description, category, student_id, student_name, student_full_name"
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthStart)
-      .order("incurred_at", { ascending: true }),
-    supabase
-      .from("v_teacher_lesson_earnings_by_student_month")
-      .select(
-        "teacher_id, month_start, student_id, lesson_minutes_total, gross_pennies"
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthStart)
-      .order("student_id", { ascending: true }),
-  ]);
-
-  const summary = (summaryData ?? null) as InvoiceSummary | null;
-  const earnings = (earningsData ?? null) as LessonEarningsMonth | null;
-  const expenseSummary = (expensesSummaryData ?? null) as ExpenseSummary | null;
-  const expenseDetails = (expensesDetailData ?? []) as ExpenseDetail[];
-  const studentEarnings = (studentEarningsData ?? []) as StudentEarningsRow[];
-
-  // 3) Map student_id → full_name for the table
-  const studentIds = Array.from(
-    new Set(studentEarnings.map((row) => row.student_id).filter(Boolean))
-  );
-
-  const studentNameById = new Map<string, string>();
-
-  if (studentIds.length > 0) {
-    const { data: studentNames } = await supabase
-      .from("v_student_names")
-      .select("student_id, full_name")
-      .in("student_id", studentIds);
-
-    if (studentNames) {
-      for (const sn of studentNames as StudentNameRow[]) {
-        studentNameById.set(sn.student_id, sn.full_name);
-      }
-    }
+  // 1) Use shared snapshot loader (teacher-portal wrapper)
+  let snapshot;
+  try {
+    snapshot = await getTeacherPortalInvoiceSnapshot(teacherId, invoiceIdNumber);
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Invoice not found or not accessible.";
+    return (
+      <Section title="Invoice details" subtitle="">
+        <p className="text-sm text-red-600">{message}</p>
+      </Section>
+    );
   }
 
-  // 4) Totals
-  const lessonMinutesTotal = earnings?.lesson_minutes_total ?? 0;
-  const lessonGrossPennies = earnings?.gross_pennies ?? 0;
-  const sncFreeMinutes = earnings?.snc_free_minutes ?? 0;
-  const sncChargedMinutes = earnings?.snc_charged_minutes ?? 0;
-
-  const approvedExpensesPennies = expenseSummary?.approved_pennies ?? 0;
-  const pendingExpensesPennies = expenseSummary?.pending_pennies ?? 0;
-  const rejectedExpensesPennies = expenseSummary?.rejected_pennies ?? 0;
-
-  const totalPennies =
-    summary?.total_pennies ?? lessonGrossPennies + approvedExpensesPennies;
-
-  const displayStatus: InvoiceStatus = summary?.status ?? "generated";
+  const {
+    invoice,
+    monthLabel,
+    lessonMinutesTotal,
+    lessonGrossPennies,
+    sncFreeMinutes,
+    sncChargedMinutes,
+    approvedExpensesPennies,
+    pendingExpensesPennies,
+    rejectedExpensesPennies,
+    totalPennies,
+    displayStatus,
+    expenseDetails,
+    studentEarnings,
+    studentNameById,
+  } = snapshot;
 
   return (
-    <Section
-      title="Invoice details"
-      subtitle={`${monthLabel}`}
-    >
+    <Section title="Invoice details" subtitle={monthLabel}>
       <div className="space-y-6">
         {/* Invoice meta */}
         <div className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
@@ -248,14 +103,18 @@ export default async function TeacherInvoiceDetailPage(props: {
             <div className="flex items-center gap-2">
               <span className="font-semibold">Status:</span>
               <TeacherInvoiceStatusPill status={displayStatus} />
-            </div>
-            <div className="text-xs text-gray-500">
-              Created: {formatDateTimeLondon(invoice.created_at)}
-              {invoice.paid_at && (
-                <>
-                  {" "}
-                  · Paid: {formatDateTimeLondon(invoice.paid_at)}
-                </>
+
+              {displayStatus === "paid" ? (
+                <a
+                  href={`/teacher/invoices/${invoice.id}/download`}
+                  className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                >
+                  Download Excel
+                </a>
+              ) : (
+                <span className="text-[11px] text-gray-500">
+                  Download available once this invoice is marked paid.
+                </span>
               )}
             </div>
           </div>
@@ -279,14 +138,14 @@ export default async function TeacherInvoiceDetailPage(props: {
               <div className="flex items-baseline justify-between">
                 <span className="text-gray-600">Lesson earnings total</span>
                 <span className="font-semibold text-gray-900">
-                  {formatPenniesAsPounds(lessonGrossPennies)}
+                  {formatTeacherMoney(lessonGrossPennies)}
                 </span>
               </div>
 
               <div className="flex items-baseline justify-between">
                 <span className="text-gray-600">Expenses (approved)</span>
                 <span className="font-semibold text-gray-900">
-                  {formatPenniesAsPounds(approvedExpensesPennies)}
+                  {formatTeacherMoney(approvedExpensesPennies)}
                 </span>
               </div>
 
@@ -296,7 +155,7 @@ export default async function TeacherInvoiceDetailPage(props: {
                     Grand total
                   </span>
                   <span className="text-lg font-semibold text-gray-900">
-                    {formatPenniesAsPounds(totalPennies)}
+                    {formatTeacherMoney(totalPennies)}
                   </span>
                 </div>
                 <p className="mt-1 text-[11px] text-gray-500">
@@ -318,13 +177,14 @@ export default async function TeacherInvoiceDetailPage(props: {
             Confirmed lessons in this invoice month:{" "}
             <span className="font-semibold">
               {formatMinutesAsHours(lessonMinutesTotal)} h ·{" "}
-              {formatPenniesAsPounds(lessonGrossPennies)} total
+              {formatTeacherMoney(lessonGrossPennies)} total
             </span>
           </p>
           <p className="text-xs text-gray-700">
             SNC minutes (you are paid for all):{" "}
             {formatMinutesAsHours(sncFreeMinutes)} h free ·{" "}
-            {formatMinutesAsHours(sncChargedMinutes)} h charged (student-side).
+            {formatMinutesAsHours(sncChargedMinutes)} h charged
+            (student-side).
           </p>
 
           <div className="mt-3 border-t border-gray-100 pt-3">
@@ -366,7 +226,7 @@ export default async function TeacherInvoiceDetailPage(props: {
                             {formatMinutesAsHours(minutes)}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
-                            {formatPenniesAsPounds(gross)}
+                            {formatTeacherMoney(gross)}
                           </td>
                         </tr>
                       );
@@ -387,19 +247,19 @@ export default async function TeacherInvoiceDetailPage(props: {
               <div className="text-xs font-semibold text-gray-500">
                 Approved
               </div>
-              <div>{formatPenniesAsPounds(approvedExpensesPennies)}</div>
+              <div>{formatTeacherMoney(approvedExpensesPennies)}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-gray-500">
                 Pending
               </div>
-              <div>{formatPenniesAsPounds(pendingExpensesPennies)}</div>
+              <div>{formatTeacherMoney(pendingExpensesPennies)}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-gray-500">
                 Rejected
               </div>
-              <div>{formatPenniesAsPounds(rejectedExpensesPennies)}</div>
+              <div>{formatTeacherMoney(rejectedExpensesPennies)}</div>
             </div>
           </div>
 
@@ -464,7 +324,7 @@ export default async function TeacherInvoiceDetailPage(props: {
                         </div>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
-                        {formatPenniesAsPounds(exp.amount_pennies)}
+                        {formatTeacherMoney(exp.amount_pennies)}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-gray-900">
                         {exp.status}

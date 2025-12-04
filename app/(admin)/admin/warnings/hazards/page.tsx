@@ -42,13 +42,14 @@ export default async function HazardsPage() {
 
   // 1) Base hazards from view
   const { data, error } = await lessonHazardsBaseQuery(sb)
-    .limit(500);
+    .limit(500)
+    .returns<Hazard[]>();
 
   if (error) {
     throw new Error(error.message);
   }
 
-  const rows = (data ?? []) as Hazard[];
+  const rows = data ?? [];
 
   // If no hazards, early return
   if (rows.length === 0) {
@@ -74,7 +75,8 @@ export default async function HazardsPage() {
   const { data: lessonRows, error: lErr } = await sb
     .from("lessons")
     .select("id, student_id")
-    .in("id", lessonIds);
+    .in("id", lessonIds)
+    .returns<LessonRow[]>();
 
   if (lErr) {
     throw new Error(lErr.message);
@@ -83,7 +85,7 @@ export default async function HazardsPage() {
   const lessonToStudentId = new Map<string, string>();
   const studentIds = new Set<string>();
 
-  for (const l of (lessonRows ?? []) as LessonRow[]) {
+  for (const l of lessonRows ?? []) {
     lessonToStudentId.set(l.id, l.student_id);
     studentIds.add(l.student_id);
   }
@@ -92,7 +94,8 @@ export default async function HazardsPage() {
   const { data: studentRows, error: sErr } = await sb
     .from("students")
     .select("id, profiles(full_name, preferred_name)")
-    .in("id", Array.from(studentIds));
+    .in("id", Array.from(studentIds))
+    .returns<StudentRow[]>();
 
   if (sErr) {
     throw new Error(sErr.message);
@@ -100,10 +103,10 @@ export default async function HazardsPage() {
 
   const studentIdToName = new Map<string, string>();
 
-  for (const s of (studentRows ?? []) as StudentRow[]) {
+  for (const s of studentRows ?? []) {
     const displayName =
       readProfileDisplayName(s.profiles, undefined) ??
-      s.id.slice(0, 8) + "…";
+      `${s.id.slice(0, 8)}…`;
     studentIdToName.set(s.id, displayName);
   }
 
@@ -111,8 +114,7 @@ export default async function HazardsPage() {
   const enriched: HazardWithStudent[] = rows.map((r) => {
     const studentId = lessonToStudentId.get(r.lesson_id);
     const studentName =
-      (studentId && studentIdToName.get(studentId)) ??
-      "Unknown student";
+      (studentId && studentIdToName.get(studentId)) ?? "Unknown student";
 
     return {
       ...r,
@@ -143,11 +145,8 @@ export default async function HazardsPage() {
           </thead>
           <tbody>
             {sorted.map((r, idx) => {
-              // NOTE: getHazardMeta expects a HazardType, not an object
               const meta = getHazardMeta(r.hazard_type);
 
-              // HazardSeverity is "info" | "warning" | "error" in domain module,
-              // so we map those to display labels + colours.
               const severityLabel =
                 meta.severity === "error"
                   ? "High"
@@ -170,16 +169,12 @@ export default async function HazardsPage() {
                   <td className="py-2 pr-4 font-mono text-xs">
                     {r.lesson_id}
                   </td>
-                  <td className="py-2 pr-4 text-xs">
-                    {r.studentName}
-                  </td>
+                  <td className="py-2 pr-4 text-xs">{r.studentName}</td>
                   <td className="py-2 pr-4 font-mono text-xs">
                     {r.allocation_id ?? "—"}
                   </td>
                   <td className="py-2 pr-4">
-                    <div className="text-xs font-medium">
-                      {meta.title}
-                    </div>
+                    <div className="text-xs font-medium">{meta.title}</div>
                     {meta.description && (
                       <div className="text-[11px] text-gray-500">
                         {meta.description}

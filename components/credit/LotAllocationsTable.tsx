@@ -1,10 +1,12 @@
+// components\credit\LotAllocationsTable.tsx
+
 "use client";
 
 import { useState } from "react";
 import Link from "next/link";
 import { formatMinutesAsHours, formatDateTimeLondon } from "@/lib/formatters";
 import type { Delivery, SncMode } from "@/lib/enums";
-import { formatDeliveryLabel as formatDeliveryLabelBase } from "@/lib/domain/lessons";
+import { formatDeliveryLabel as formatDeliveryLabelBase } from "@/lib/domain/delivery";
 
 export type AllocationRow = {
   id: string;
@@ -94,7 +96,7 @@ export function LotAllocationsTable({ allocations, variant, lotId }: Props) {
               <th className="py-1 pr-2">Delivery</th>
               <th className="py-1 pr-2">SNC</th>
               <th className="py-1 pr-2">Lesson date</th>
-              <th className="py-1 pr-2 text-right">Lesson length</th>
+              <th className="py-1 pr-2 text-right">Lesson Duration</th>
               <th className="py-1 pr-2 text-right">Allocated (h)</th>
             </tr>
           </thead>
@@ -160,7 +162,7 @@ export function LotAllocationsTable({ allocations, variant, lotId }: Props) {
                       : "—"}
                     {isSpliced && (
                       <div className="mt-0.5 text-[10px] text-gray-500">
-                        {`${a.minutes_allocated} min from this lot (lesson split across lots)`}
+                        {`${a.minutes_allocated} min of this ${a.lesson_duration_min ?? "?"} min lesson (split across lots)`}
                       </div>
                     )}
                   </td>

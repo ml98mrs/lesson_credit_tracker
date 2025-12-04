@@ -1,9 +1,11 @@
 // components/admin/TierBadge.tsx
 import React from "react";
+import type { Tier as TierEnum } from "@/lib/enums";
 
-export type Tier = "basic" | "premium" | "elite" | null;
+// Re-export the “with null” version so existing imports keep working:
+export type Tier = TierEnum | null;
 
-const LABEL: Record<Exclude<Tier, null>, string> = {
+const LABEL: Record<TierEnum, string> = {
   basic: "Basic",
   premium: "Premium",
   elite: "Elite",

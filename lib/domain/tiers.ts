@@ -4,10 +4,10 @@
 // - No Supabase / fetch / React.
 // - Encapsulates labeling + ordering + simple predicates.
 
-import type { Tier, TierDisplay } from "@/lib/enums";
+import { TIER, type Tier, type TierDisplay } from "@/lib/enums";
 
 // All modern paid tiers in DB enum order.
-export const TIER_VALUES: Tier[] = ["basic", "premium", "elite"];
+export const TIER_VALUES: Tier[] = [...TIER];
 
 // Internal sort order for display / filters.
 const TIER_DISPLAY_ORDER: TierDisplay[] = ["basic", "premium", "elite", "legacy"];
@@ -84,4 +84,36 @@ export function dbTierToDisplay(
 ): TierDisplay | null {
   if (!tier) return "legacy";
   return tier;
+}
+/**
+ * Generic dropdown label for a simple tier filter.
+ * "" → "Any"
+ */
+export function formatTierFilterLabel(
+  value: "" | Tier,
+): string {
+  if (value === "") return "Any";
+  return formatTierLabel(value);
+}
+
+/**
+ * Dropdown label for tier *restriction* filters
+ * (e.g. "Premium only", "Unrestricted").
+ */
+export function formatTierRestrictionFilterLabel(
+  value: "" | Tier | "unrestricted",
+): string {
+  if (value === "") return "Any";
+  if (value === "unrestricted") return "Unrestricted";
+
+  switch (value) {
+    case "basic":
+      return "Basic only";
+    case "premium":
+      return "Premium only";
+    case "elite":
+      return "Elite only";
+    default:
+      return String(value);
+  }
 }

@@ -6,29 +6,37 @@ import Section from "@/components/ui/Section";
 import { formatDateTimeLondon, formatMinutesAsHours } from "@/lib/formatters";
 import type { ProfilesEmbed } from "@/lib/types/profiles";
 import { readProfileFullName } from "@/lib/types/profiles";
+import type {
+  Tier,
+  DeliveryRestriction,
+  LengthCat,
+  ExpiryPolicy,
+  CreditLotState,
+} from "@/lib/enums";
+import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
+import type {
+  Allocation,
+  CreditLotSource,
+} from "@/lib/creditLots/types";
+import { formatDeliveryRestrictionLabel } from "@/lib/domain/delivery";
+import { formatLengthRestrictionLabel } from "@/lib/domain/lengths";
+import { getExpiryPolicyLabel } from "@/lib/domain/expiryPolicy";
 
 type CreditLot = {
   id: string;
   student_id: string;
-  source_type: "invoice" | "award" | "overdraft" | "adjustment";
+  source_type: CreditLotSource;
   award_reason_code: string | null;
   external_ref: string | null;
   minutes_granted: number;
-  delivery_restriction: "online" | "f2f" | null;
-  tier_restriction: "basic" | "premium" | "elite" | null;
-  length_restriction: "none" | "60" | "90" | "120" | null;
+  delivery_restriction: DeliveryRestriction;
+  tier_restriction: Tier | null;
+  length_restriction: LengthCat | null;
   start_date: string | null;
-  expiry_policy: "none" | "advisory" | "mandatory";
+  expiry_policy: ExpiryPolicy;
   expiry_date: string | null;
-  state: "open" | "closed" | "expired" | "cancelled";
+  state: CreditLotState;
   created_at: string | null;
-};
-
-type Allocation = {
-  id: string;
-  lesson_id: string;
-  credit_lot_id: string;
-  minutes_allocated: number;
 };
 
 type LessonLite = {
@@ -77,7 +85,7 @@ export default async function Page({
     "created_at",
   ].join(",");
 
-   let lot: CreditLot | null = null;
+  let lot: CreditLot | null = null;
   let lotErrMsg: string | null = null;
 
   try {
@@ -102,8 +110,6 @@ export default async function Page({
       lotErrMsg = "Unknown error while loading lot";
     }
   }
-
-
 
   if (lotErrMsg) {
     return (
@@ -133,15 +139,15 @@ export default async function Page({
   let studentName: string | null = null;
 
   try {
-const { data, error } = await sb
-  .from("students")
-  .select("id, profiles(full_name)")
-  .eq("id", lot.student_id)
-  .maybeSingle<StudentWithProfile>();
+    const { data, error } = await sb
+      .from("students")
+      .select("id, profiles(full_name)")
+      .eq("id", lot.student_id)
+      .maybeSingle<StudentWithProfile>();
 
-if (!error && data) {
-  studentName = readProfileFullName(data.profiles) ?? null;
-}
+    if (!error && data) {
+      studentName = readProfileFullName(data.profiles) ?? null;
+    }
   } catch {
     // fall back to student_id
     studentName = null;
@@ -152,26 +158,21 @@ if (!error && data) {
   //
   // 2) Remaining minutes (view is optional)
   //
-  type RemainingRow = {
-  credit_lot_id: string;
-  minutes_remaining: number | null;
-};
+  let minutesRemaining: number | null = null;
 
-let minutesRemaining: number | null = null;
-try {
-  const { data, error } = await sb
-    .from("v_credit_lot_remaining")
-    .select("credit_lot_id, minutes_remaining")
-    .eq("credit_lot_id", lot.id)
-    .maybeSingle<RemainingRow>();
+  try {
+    const { data, error } = await sb
+      .from("v_credit_lot_remaining")
+      .select("credit_lot_id, minutes_remaining")
+      .eq("credit_lot_id", lot.id)
+      .maybeSingle<VCreditLotRemainingRow>();
 
-  if (!error && data) {
-    minutesRemaining = data.minutes_remaining ?? null;
+    if (!error && data) {
+      minutesRemaining = data.minutes_remaining ?? null;
+    }
+  } catch {
+    minutesRemaining = null;
   }
-} catch {
-  minutesRemaining = null;
-}
-
 
   //
   // 3) Allocations for this lot
@@ -179,25 +180,24 @@ try {
   let allocations: Allocation[] = [];
   let allocErrMsg: string | null = null;
 
-try {
-  const { data, error } = await sb
-    .from("allocations")
-    .select("id, lesson_id, credit_lot_id, minutes_allocated")
-    .eq("credit_lot_id", lot.id);
+  try {
+    const { data, error } = await sb
+      .from("allocations")
+      .select("id, lesson_id, credit_lot_id, minutes_allocated")
+      .eq("credit_lot_id", lot.id);
 
-  if (error) {
-    allocErrMsg = error.message;
-  } else {
-    allocations = (data ?? []) as Allocation[];
+    if (error) {
+      allocErrMsg = error.message;
+    } else {
+      allocations = (data ?? []) as Allocation[];
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      allocErrMsg = e.message;
+    } else {
+      allocErrMsg = "Unknown error while loading allocations";
+    }
   }
-} catch (e: unknown) {
-  if (e instanceof Error) {
-    allocErrMsg = e.message;
-  } else {
-    allocErrMsg = "Unknown error while loading allocations";
-  }
-}
-
 
   //
   // 4) Lesson dates (only if we have allocations) + sort allocations
@@ -206,7 +206,9 @@ try {
 
   if (allocations.length > 0) {
     try {
-      const lessonIds = Array.from(new Set(allocations.map((a) => a.lesson_id)));
+      const lessonIds = Array.from(
+        new Set(allocations.map((a) => a.lesson_id)),
+      );
       const { data, error } = await sb
         .from("lessons")
         .select("id, occurred_at")
@@ -237,33 +239,25 @@ try {
     }
   }
 
+  const deliveryPart = lot.delivery_restriction
+    ? formatDeliveryRestrictionLabel(lot.delivery_restriction)
+    : null;
+
+  const lengthPart =
+    lot.length_restriction && lot.length_restriction !== "none"
+      ? `${formatLengthRestrictionLabel(lot.length_restriction)} min only`
+      : null;
+
   const constraints =
     [
-      lot.delivery_restriction
-        ? lot.delivery_restriction === "f2f"
-          ? "F2F only"
-          : "Online only"
-        : null,
+      deliveryPart,
       lot.tier_restriction ? `${lot.tier_restriction}` : null,
-      lot.length_restriction && lot.length_restriction !== "none"
-        ? `${lot.length_restriction} min only`
-        : null,
+      lengthPart,
     ]
       .filter(Boolean)
       .join(" · ") || "Any";
 
-  const policyBadge = (() => {
-    switch (lot.expiry_policy) {
-      case "none":
-        return "none (no expiry)";
-      case "advisory":
-        return "advisory (soft)";
-      case "mandatory":
-        return "mandatory (enforced)";
-      default:
-        return lot.expiry_policy;
-    }
-  })();
+  const policyLabel = getExpiryPolicyLabel(lot.expiry_policy);
 
   return (
     <Section title="Credit invoice" subtitle="(Linked credit lot)">
@@ -314,7 +308,7 @@ try {
         </div>
         <div>
           <span className="text-gray-500">Expiry policy:</span>{" "}
-          {policyBadge}
+          {policyLabel}
         </div>
         <div>
           <span className="text-gray-500">Expiry date:</span>{" "}

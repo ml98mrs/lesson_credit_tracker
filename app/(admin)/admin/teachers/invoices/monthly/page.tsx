@@ -4,7 +4,6 @@
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { formatPenniesAsPounds } from "@/lib/formatters";
 import {
   getInvoiceMonthKey,
   formatInvoiceMonthLabel,
@@ -16,6 +15,8 @@ import {
   type ProfilesDisplayEmbed,
   readProfileDisplayName,
 } from "@/lib/types/profiles";
+import { formatTeacherMoney } from "@/lib/domain/teachers";
+import type { TeacherInvoiceRow } from "@/lib/types/teachers";
 
 export const dynamic = "force-dynamic";
 
@@ -28,15 +29,7 @@ type SummaryRow = {
   status: InvoiceStatus;
 };
 
-type InvoiceRow = {
-  id: number;
-  teacher_id: string;
-  month_start: string;
-  status: "generated" | "paid";
-  invoice_ref: string | null;
-  created_at: string;
-  paid_at: string | null;
-};
+type InvoiceRow = TeacherInvoiceRow;
 
 export default async function AdminMonthlyTeacherInvoicesPage({
   searchParams,
@@ -187,13 +180,13 @@ export default async function AdminMonthlyTeacherInvoicesPage({
                       {teacherName}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2 text-right">
-                      {formatPenniesAsPounds(lessonGross)}
+                      {formatTeacherMoney(lessonGross)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2 text-right">
-                      {formatPenniesAsPounds(expenses)}
+                      {formatTeacherMoney(expenses)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2 text-right font-semibold">
-                      {formatPenniesAsPounds(total)}
+                      {formatTeacherMoney(total)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2">
                       <TeacherInvoiceStatusPill status={row.status} />

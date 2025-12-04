@@ -1,8 +1,8 @@
 // app/api/export/allocations/[lotId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSupabase } from "@/lib/supabase/server";
 import { buildAllocationsWorkbook } from "@/lib/xlsx/allocations";
 import type { AllocationRow } from "@/components/credit/LotAllocationsTable";
+import { getAdminClient } from "@/lib/api/admin/_shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,13 +20,13 @@ export async function GET(
     return new NextResponse("Missing lotId", { status: 400 });
   }
 
-  // ✅ get Supabase client first
-  const sb = await getServerSupabase();
+  // Service-role admin client (no RLS)
+  const supabase = getAdminClient();
 
   // ─────────────────────────────────────────────
   // 1) Lot meta: minutes_granted, external_ref, amount_pennies
   // ─────────────────────────────────────────────
-  const { data: lotMeta, error: lotErr } = await sb
+  const { data: lotMeta, error: lotErr } = await supabase
     .from("credit_lots")
     .select(
       "minutes_granted, external_ref, amount_pennies, source_type",
@@ -48,7 +48,7 @@ export async function GET(
   // ─────────────────────────────────────────────
   // 2) Allocations for this lot
   // ─────────────────────────────────────────────
-  const { data, error } = await sb
+  const { data, error } = await supabase
     .from("v_lot_allocations_detail")
     .select(
       [

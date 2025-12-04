@@ -15,13 +15,18 @@ import type {
   VStudentLastActivityRow,
 } from "@/lib/types/views/student";
 import type {
-  VCreditLotRemainingRow,
   VStudentDynamicCreditAlertByDeliveryRow,
 } from "@/lib/types/views/credit";
+import {
+  creditLotRemainingBaseQuery,
+  type CreditLotRemainingRow,
+} from "@/lib/api/shared/creditLotsView";
+
 import { computeStudentSncStatus } from "@/lib/domain/snc";
 import {
   mapDeliveryAlertRow,
   mapCreditDeliverySummaryRow,
+  mapAwardReasonRows,
 } from "@/lib/domain/students";
 
 // Convenience alias for the server Supabase client type
@@ -95,12 +100,8 @@ async function fetchCreditSummary(
   const remainingMin = summaryRow?.total_remaining_min ?? 0;
 
   // Earliest mandatory expiry within 30 days (for student banner)
-  const { data: mandatoryExpiryRows, error: mandatoryExpiryErr } =
-    await supabase
-      .from("v_credit_lot_remaining")
-      .select(
-        "student_id,expiry_date,expiry_policy,expiry_within_30d,state,minutes_remaining",
-      )
+  const { data: mandatoryRows, error: mandatoryErr } =
+    await creditLotRemainingBaseQuery(supabase)
       .eq("student_id", studentId)
       .eq("state", "open")
       .eq("expiry_policy", "mandatory")
@@ -108,12 +109,12 @@ async function fetchCreditSummary(
       .order("expiry_date", { ascending: true })
       .limit(1);
 
-  if (mandatoryExpiryErr) {
-    throw new Error(mandatoryExpiryErr.message);
+  if (mandatoryErr) {
+    throw new Error(mandatoryErr.message);
   }
 
   const mandatoryTyped =
-    (mandatoryExpiryRows ?? []) as unknown as VCreditLotRemainingRow[];
+    (mandatoryRows ?? []) as unknown as CreditLotRemainingRow[];
 
   const nextMandatoryExpiry =
     mandatoryTyped.length > 0
@@ -141,8 +142,7 @@ async function fetchSncStatus(
     throw new Error(sncErr.message);
   }
 
-  const sncRowsTyped =
-    (sncLessonRows ?? []) as VStudentSncLessonRow[];
+  const sncRowsTyped = (sncLessonRows ?? []) as VStudentSncLessonRow[];
 
   // Delegate counting logic to the domain helper
   return computeStudentSncStatus(sncRowsTyped);
@@ -173,8 +173,8 @@ async function fetchDeliverySplit(
     throw new Error(deliveryErr.message);
   }
 
-  const row = (deliveryRow ??
-    null) as VStudentCreditDeliverySummaryRow | null;
+  const row =
+    (deliveryRow ?? null) as VStudentCreditDeliverySummaryRow | null;
 
   const purchasedInvoiceMin = row?.purchased_min ?? 0;
 
@@ -183,7 +183,6 @@ async function fetchDeliverySplit(
     deliveryRow: row,
   };
 }
-
 
 async function fetchAwardReasons(
   supabase: ServerSupabaseClient,
@@ -194,20 +193,15 @@ async function fetchAwardReasons(
     .select(
       "award_reason_code,granted_award_min,used_award_min,remaining_award_min",
     )
-    .eq("student_id", studentId);
+    .eq("student_id", studentId)
+    .returns<VStudentAwardReasonSummaryRow[]>();
 
   if (awardErr) {
     throw new Error(awardErr.message);
   }
 
-  return (awardRows ?? []).map(
-    (row: VStudentAwardReasonSummaryRow): StudentAwardReasonSummary => ({
-      awardReasonCode: row.award_reason_code,
-      grantedAwardMin: row.granted_award_min ?? 0,
-      usedAwardMin: row.used_award_min ?? 0,
-      remainingAwardMin: row.remaining_award_min ?? 0,
-    }),
-  );
+  // Centralised mapping in lib/domain/students
+  return mapAwardReasonRows(awardRows ?? null);
 }
 
 async function fetchLowCreditAlertsByDelivery(
@@ -230,17 +224,17 @@ async function fetchLowCreditAlertsByDelivery(
         "is_zero_purchased",
       ].join(","),
     )
-    .eq("student_id", studentId);
+    .eq("student_id", studentId)
+    .returns<VStudentDynamicCreditAlertByDeliveryRow[]>();
 
   if (alertsErr) {
     throw new Error(alertsErr.message);
   }
 
-  const alertRowsTyped =
-    (alertsRows ?? []) as unknown as VStudentDynamicCreditAlertByDeliveryRow[];
+  const rows = alertsRows ?? [];
 
   // Domain helper converts view row → StudentDeliveryLowCreditAlert
-  return alertRowsTyped.map(mapDeliveryAlertRow);
+  return rows.map(mapDeliveryAlertRow);
 }
 
 async function fetchLastActivity(
@@ -295,7 +289,7 @@ export async function loadStudentDashboard(
     nextMandatoryExpiry,
   } = creditSummary;
 
-    const { purchasedInvoiceMin, deliveryRow } = deliverySplit;
+  const { purchasedInvoiceMin, deliveryRow } = deliverySplit;
 
   // Canonical per-delivery mapping lives in lib/domain/students.ts
   const baseDeliverySummary = mapCreditDeliverySummaryRow(deliveryRow);
@@ -314,7 +308,6 @@ export async function loadStudentDashboard(
     usedMin,
     remainingMin,
   };
-
 
   const generatedAtIso = new Date().toISOString();
 

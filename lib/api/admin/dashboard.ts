@@ -5,12 +5,16 @@
 // Just simple counts/aggregates that rely on existing DB rules.
 
 import { getAdminClient, logAdminError } from "./_shared";
-import type { TeacherStatus, ExpiryPolicy } from "@/lib/enums";
+import type { ExpiryPolicy } from "@/lib/enums";
+import type { TeacherStatus } from "@/lib/types/teachers";
 import {
   readProfileDisplayName,
   type ProfilesDisplayEmbed,
 } from "@/lib/types/profiles";
-import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
+import {
+  creditLotRemainingBaseQuery,
+  type CreditLotRemainingRow,
+} from "@/lib/api/shared/creditLotsView";
 
 // Reuse the canonical pending-lessons implementation from lessons.ts
 export { getPendingLessonsCount } from "./lessons";
@@ -86,9 +90,7 @@ function getPreviousMonthBoundsUtc(): {
 export async function getTotalRemainingMinutes(): Promise<number> {
   const sb = getAdminClient();
 
-  const { data, error } = await sb
-    .from("v_credit_lot_remaining")
-    .select("minutes_remaining, state, expiry_date, days_to_expiry")
+  const { data, error } = await creditLotRemainingBaseQuery(sb)
     // Only open lots
     .eq("state", "open")
     // Non-expired: either no expiry date, or days_to_expiry >= 0
@@ -99,7 +101,7 @@ export async function getTotalRemainingMinutes(): Promise<number> {
     return 0;
   }
 
-  const rows = (data ?? []) as unknown as VCreditLotRemainingRow[];
+  const rows = (data ?? []) as unknown as CreditLotRemainingRow[];
 
   const total = rows.reduce(
     (sum, row) => sum + (row.minutes_remaining ?? 0),
@@ -108,6 +110,7 @@ export async function getTotalRemainingMinutes(): Promise<number> {
 
   return total;
 }
+
 
 // ────────────────────────────────────────────────────────────────
 // Lifecycle summaries
@@ -224,11 +227,7 @@ export async function getTeacherLifecycleSummary(): Promise<TeacherLifecycleSumm
 export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
   const sb = getAdminClient();
 
-  const { data, error } = await sb
-    .from("v_credit_lot_remaining")
-    .select(
-      "student_id, minutes_remaining, expiry_policy, expiry_within_30d, state",
-    )
+  const { data, error } = await creditLotRemainingBaseQuery(sb)
     .eq("expiry_within_30d", true)
     .eq("state", "open")
     .gt("minutes_remaining", 0)
@@ -242,7 +241,7 @@ export async function getExpiringSoonSummary(): Promise<ExpiringSoonSummary> {
     };
   }
 
-  const rows = (data ?? []) as unknown as VCreditLotRemainingRow[];
+  const rows = (data ?? []) as unknown as CreditLotRemainingRow[];
 
   type PolicyKey = Extract<ExpiryPolicy, "mandatory" | "advisory">;
 

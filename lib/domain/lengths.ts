@@ -2,9 +2,12 @@
 //
 // Helpers for lesson-length categories (LengthCat).
 
-import type { LengthCat } from "@/lib/enums";
+import { LENGTH_CAT, type LengthCat } from "@/lib/enums";
 
-export const LENGTH_RESTRICTIONS: LengthCat[] = ["none", "60", "90", "120"];
+export const LENGTH_RESTRICTIONS: LengthCat[] = [
+  "none",
+  ...LENGTH_CAT.filter((value) => value !== "none"),
+];
 
 /**
  * Human-readable label for a length restriction.

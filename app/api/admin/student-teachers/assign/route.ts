@@ -13,11 +13,19 @@ export async function POST(req: NextRequest) {
     const parsed = BodySchema.safeParse(json);
 
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid body", details: parsed.error.flatten() },
-        { status: 400 }
-      );
-    }
+  const flat = parsed.error.flatten();
+  const firstFormError = flat.formErrors[0];
+  const firstFieldError = Object.values(flat.fieldErrors)[0]?.[0];
+
+  return NextResponse.json(
+    {
+      error: "Invalid body",
+      details: firstFormError || firstFieldError || "Invalid request payload",
+    },
+    { status: 400 }
+  );
+}
+
 
     const { studentId, teacherId } = parsed.data;
     const sb = getAdminSupabase();

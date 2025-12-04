@@ -1,4 +1,4 @@
-// lib/domain/expiry.ts
+// lib/domain/expiryPolicy.ts
 //
 // Pure expiry-domain helpers.
 // - No Supabase / fetch / React.
@@ -10,6 +10,7 @@
 // - none: ignore expiry
 
 import type { ExpiryPolicy } from "@/lib/enums";
+import { formatDateLondon } from "@/lib/formatters";
 
 // Canonical list for dropdowns, filters, etc.
 export const EXPIRY_POLICIES: ExpiryPolicy[] = [
@@ -92,3 +93,30 @@ export function formatExpiringSoonBanner(policy: ExpiryPolicy): string {
 
   return "Credit is marked as expiring soon.";
 }
+/**
+ * Canonical formatter for expiry "cells" in tables.
+ *
+ * Rules:
+ * - No date or policy "none" or null  → "No expiry"
+ * - Advisory                          → "<date> – purely advisory"
+ * - Mandatory / anything else         → "<date>"
+ *
+ * Keeps copy centralised for student/admin/credit tables.
+ */
+export function formatExpiryCell(
+  expiryDate: string | null,
+  policy: ExpiryPolicy | null | undefined,
+): string {
+  if (!expiryDate || !policy || policy === "none") {
+    return "No expiry";
+  }
+
+  const dateLabel = formatDateLondon(expiryDate); // date only
+
+  if (isExpiryWarningOnly(policy)) {
+    return `${dateLabel} – purely advisory`;
+  }
+
+  return dateLabel;
+}
+

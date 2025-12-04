@@ -1,10 +1,15 @@
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import {
-  LessonMarginRow,
-  buildTeacherSummary,
-} from "@/lib/types/analytics";
+import { buildTeacherSummary } from "@/lib/types/analytics";        
+import { TIER_VALUES, formatTierFilterLabel } from "@/lib/domain/tiers";
+import { LENGTH_RESTRICTIONS, formatLengthRestrictionLabel } from "@/lib/domain/lengths";
+import type { Tier, LengthCat } from "@/lib/enums";
+import { DELIVERY } from "@/lib/enums";
+import { formatDeliveryUiLabel } from "@/lib/domain/delivery";
+import type { LessonMarginRow } from "@/lib/types/views/analytics"; 
 
+
+type LengthCatFilter = "" | LengthCat;
 
 // UI helpers – money & percentages
 function formatPounds(pennies: number | null | undefined): string {
@@ -41,7 +46,7 @@ export default async function ReportRevenueCost({
   const studentNameFilter = getParam("studentName");
   const delivery = getParam("delivery");
   const tier = getParam("tier");
-  const lengthCat = getParam("lengthCat");
+  const lengthCat = getParam("lengthCat") as LengthCatFilter;
 
   const monthStart =
     monthInput && monthInput.length === 7 ? `${monthInput}-01` : undefined;
@@ -97,8 +102,8 @@ export default async function ReportRevenueCost({
     lessonQuery = lessonQuery.eq("student_tier", tier);
   }
   if (lengthCat) {
-    lessonQuery = lessonQuery.eq("length_cat", lengthCat);
-  }
+  lessonQuery = lessonQuery.eq("length_cat", lengthCat);
+}
 
   const { data: lessonData, error: lessonError } = await lessonQuery
     .order("month_start", { ascending: false })
@@ -184,45 +189,52 @@ export default async function ReportRevenueCost({
 
         <div className="flex flex-col gap-1">
           <label className="font-medium text-gray-700">Delivery</label>
-          <select
-            name="delivery"
-            defaultValue={delivery}
-            className="rounded-md border px-2 py-1"
-          >
-            <option value="">Any</option>
-            <option value="online">Online</option>
-            <option value="f2f">F2F</option>
-          </select>
+         <select
+  name="delivery"
+  defaultValue={delivery}
+  className="rounded-md border px-2 py-1"
+>
+  <option value="">Any</option>
+  {DELIVERY.map((value) => (
+    <option key={value} value={value}>
+      {formatDeliveryUiLabel(value)}
+    </option>
+  ))}
+</select>
         </div>
 
         <div className="flex flex-col gap-1">
           <label className="font-medium text-gray-700">Tier</label>
           <select
-            name="tier"
-            defaultValue={tier}
-            className="rounded-md border px-2 py-1"
-          >
-            <option value="">Any</option>
-            <option value="basic">basic</option>
-            <option value="premium">premium</option>
-            <option value="elite">elite</option>
-          </select>
+  name="tier"
+  defaultValue={tier}
+  className="rounded-md border px-2 py-1"
+>
+  {(["", ...TIER_VALUES] as const).map((v) => (
+    <option key={v} value={v}>
+      {formatTierFilterLabel(v as "" | Tier)}
+    </option>
+  ))}
+</select>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Length cat</label>
-          <select
-            name="lengthCat"
-            defaultValue={lengthCat}
-            className="rounded-md border px-2 py-1"
-          >
-            <option value="">Any</option>
-            <option value="60">60</option>
-            <option value="90">90</option>
-            <option value="120">120</option>
-            <option value="none">none</option>
-          </select>
-        </div>
+       <div className="flex flex-col gap-1">
+  <label className="font-medium text-gray-700">Length cat</label>
+  <select
+    name="lengthCat"
+    defaultValue={lengthCat}
+    className="rounded-md border px-2 py-1"
+  >
+    {(["", ...LENGTH_RESTRICTIONS] as const).map((v) => (
+      <option key={v} value={v}>
+        {v === ""
+          ? "Any"
+          : formatLengthRestrictionLabel(v as LengthCat)}
+      </option>
+    ))}
+  </select>
+</div>
+
 
         <div className="flex items-end gap-2">
           <button
@@ -232,7 +244,7 @@ export default async function ReportRevenueCost({
             Apply
           </button>
           <a
-            href="/admin/reports/revenue-cost"
+            href="/admin/analytics/revenue-cost"
             className="text-xs text-gray-600 underline"
           >
             Reset

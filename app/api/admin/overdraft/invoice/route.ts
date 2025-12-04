@@ -1,6 +1,7 @@
 // app/api/admin/overdraft/invoice/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import type { OverdraftSettlementResult } from "@/lib/types/credits/overdraft";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const sb = getAdminSupabase();
+    const sb = await getAdminSupabase();
 
     const { data, error } = await sb.rpc("rpc_invoice_overdraft", {
       p_student_id: studentId,
@@ -54,7 +55,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true, result: data ?? null });
+    const result = data as OverdraftSettlementResult;
+
+    // Same pattern as award route – just forward the RPC JSON
+    return NextResponse.json(result);
+    // or, if you prefer the wrapper:
+    // return NextResponse.json({ ok: true, result } as const);
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Unknown error";

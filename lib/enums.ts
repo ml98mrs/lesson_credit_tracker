@@ -10,7 +10,7 @@ export type EnumOf<T extends readonly string[]> = T[number];
 export const DELIVERY = ["online", "f2f"] as const;
 export type Delivery = EnumOf<typeof DELIVERY>;
 
-// For credit lots / invoices, NULL means "hybrid / unrestricted".
+// For credit lots / invoices, NULL means "unrestricted" (UI shows this as "hybrid").
 export type DeliveryRestriction = Delivery | null;
 
 // Actual DB tier enum: 'basic' | 'premium' | 'elite'
@@ -46,11 +46,11 @@ export type ExpiryPolicy = EnumOf<typeof EXPIRY_POLICY>;
 export const USER_ROLE = ["student", "teacher", "admin"] as const;
 export type UserRole = EnumOf<typeof USER_ROLE>;
 
-export const STUDENT_STATUS = ["current", "dormant", "past"] as const;
-export type StudentStatus = EnumOf<typeof STUDENT_STATUS>;
-
-export const TEACHER_STATUS = ["current", "inactive", "potential", "past"] as const;
-export type TeacherStatus = EnumOf<typeof TEACHER_STATUS>;
+// NOTE:
+// StudentStatus and TeacherStatus are now derived directly from DB row types:
+// - lib/types/students.ts  → export type StudentStatus = StudentRow["status"];
+// - lib/types/teachers.ts  → export type TeacherStatus = TeacherRow["status"];
+// Do not reintroduce enum copies here to avoid drift.
 
 // ─────────────────────────────────────────────────────────────
 // Credit write-offs

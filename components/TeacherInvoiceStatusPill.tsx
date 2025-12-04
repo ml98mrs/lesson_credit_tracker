@@ -2,15 +2,17 @@
 
 "use client";
 
-import React from "react";
-import type { InvoiceStatus } from "@/lib/teacherInvoices";
-import { getInvoiceStatusMeta } from "@/lib/teacherInvoices";
+import type { TeacherInvoiceStatus } from "@/lib/types/teachers";
+import { getTeacherInvoiceStatusMeta } from "@/lib/domain/teachers";
+
+export type TeacherInvoiceStatusPillProps = {
+  status: TeacherInvoiceStatus;
+};
 
 export function TeacherInvoiceStatusPill({
   status,
-}: {
-  status: InvoiceStatus;
-}) {
-  const { label, className } = getInvoiceStatusMeta(status);
+}: TeacherInvoiceStatusPillProps) {
+  const { label, className } = getTeacherInvoiceStatusMeta(status);
+
   return <span className={className}>{label}</span>;
 }

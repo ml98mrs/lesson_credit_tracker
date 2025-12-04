@@ -10,9 +10,12 @@ import {
   readProfileFullName,
   type ProfilesEmbed,
 } from "@/lib/types/profiles";
-const supabase = getBrowserSupabase();
+// at top of these files
+import { DELIVERY } from "@/lib/enums";
+import { formatDeliveryUiLabel } from "@/lib/domain/delivery";
 
-type User = { id: string; email?: string | null };
+
+const supabase = getBrowserSupabase();
 
 type AssignedStudent = {
   id: string; // student_id
@@ -63,8 +66,8 @@ async function logLesson(payload: LogLessonPayload) {
   return data; // { ok: true, lessonId: ... } per your API
 }
 
+
 export default function NewLesson() {
-  const [user, setUser] = useState<User | null>(null);
   const [teacherId, setTeacherId] = useState<string | null>(null);
   const [students, setStudents] = useState<AssignedStudent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,7 +76,7 @@ export default function NewLesson() {
 
   // form state
   const [studentId, setStudentId] = useState<string>("");
-  const [date, setDate] = useState<string>(""); // yyyy-mm-dd
+  const [date, setDate] = useState<string>("");
   const [time, setTime] = useState<string>(""); // HH:mm (local)
   const [delivery, setDelivery] = useState<Delivery>("online");
   const [durationMin, setDurationMin] = useState<number>(60); // 60 online, 90 f2f
@@ -146,6 +149,19 @@ export default function NewLesson() {
     return s?.name ?? "(unknown)";
   }
 
+  function getFirstDayOfPreviousMonth(): string {
+  const d = new Date();
+  // Go to previous month, day = 1
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+
+  const year = prev.getFullYear();
+  const month = String(prev.getMonth() + 1).padStart(2, "0"); // 0-based
+  const day = String(prev.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`; // "YYYY-MM-DD"
+}
+
+
   // ---------------------------------------------------------------------------
   // Bootstrap teacher + assigned students
   // ---------------------------------------------------------------------------
@@ -164,7 +180,6 @@ export default function NewLesson() {
         setLoading(false);
         return;
       }
-      setUser(u);
 
       // Find teacher row
       const { data: tRows, error: tErr } = await supabase
@@ -224,7 +239,6 @@ export default function NewLesson() {
       setLoading(false);
       await refreshRecent(tId);
     })();
-     
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -240,7 +254,6 @@ export default function NewLesson() {
     if (!teacherId) return;
     if (!studentId) return setMsg("Please select a student.");
     if (!occurredAtISO) return setMsg("Please choose date and time.");
-    
 
     setSubmitting(true);
     try {
@@ -260,16 +273,15 @@ export default function NewLesson() {
       setNotes("");
 
       await refreshRecent(teacherId);
- } catch (err: unknown) {
-  if (err instanceof Error) {
-    setMsg(err.message || "Failed to log lesson.");
-  } else {
-    setMsg("Failed to log lesson.");
-  }
-} finally {
-  setSubmitting(false);
-}
-
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setMsg(err.message || "Failed to log lesson.");
+      } else {
+        setMsg("Failed to log lesson.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -301,16 +313,22 @@ export default function NewLesson() {
 
           {/* Date + Time */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-sm">Date of Lesson</label>
-              <input
-                className="border rounded px-3 py-2"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-              />
-            </div>
+           <div className="flex flex-col gap-1">
+  <label className="text-sm">Date of Lesson</label>
+  <input
+    className="border rounded px-3 py-2"
+    type="date"
+    value={date}
+    onChange={(e) => setDate(e.target.value)}
+    onFocus={() => {
+      // Only auto-fill on first focus when empty
+      if (!date) {
+        setDate(getFirstDayOfPreviousMonth());
+      }
+    }}
+    required
+  />
+</div>
             <div className="flex flex-col gap-1">
               <label className="text-sm">Time</label>
               <input
@@ -325,22 +343,26 @@ export default function NewLesson() {
 
           {/* Delivery + Duration */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-sm">Delivery</label>
-              <select
-                className="border rounded px-3 py-2"
-                value={delivery}
-                onChange={(e) => {
-                  const value = e.target.value as Delivery;
-                  setDelivery(value);
-                  // Auto-default minutes: 60 for online, 90 for F2F
-                  setDurationMin(value === "f2f" ? 90 : 60);
-                }}
-              >
-                <option value="online">Online</option>
-                <option value="f2f">Face to face</option>
-              </select>
-            </div>
+  <div className="flex flex-col gap-1">
+    <label className="text-sm">Delivery</label>
+    <select
+      className="border rounded px-3 py-2"
+      value={delivery}
+      onChange={(e) => {
+        const value = e.target.value as Delivery;
+        setDelivery(value);
+        // Auto-default minutes: 60 for online, 90 for F2F
+        setDurationMin(value === "f2f" ? 90 : 60);
+      }}
+    >
+      {DELIVERY.map((value) => (
+        <option key={value} value={value}>
+          {formatDeliveryUiLabel(value)}
+        </option>
+      ))}
+    </select>
+  </div>
+
 
             <div className="flex flex-col gap-1">
               <label className="text-sm">Duration (minutes)</label>

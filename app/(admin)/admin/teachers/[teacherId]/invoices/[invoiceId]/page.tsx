@@ -4,116 +4,22 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import {
-  formatMinutesAsHours,
-  formatPenniesAsPounds,
-  formatDateTimeLondon,
-} from "@/lib/formatters";
 import ExpenseStatusButtons from "@/components/admin/ExpenseStatusButtons";
-import {
-  formatInvoiceMonthLabel,
-  InvoiceStatus,
-} from "@/lib/teacherInvoices";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
+import { formatMinutesAsHours, formatDateTimeLondon } from "@/lib/formatters";
+import { formatTeacherMoney } from "@/lib/domain/teachers";
+import { getAdminTeacherInvoiceSnapshot } from "@/lib/server/getAdminTeacherInvoiceSnapshot";
 
 export const dynamic = "force-dynamic";
 
-type TeacherInvoice = {
-  id: number;
-  teacher_id: string;
-  month_start: string; // 'YYYY-MM-DD'
-  status: "generated" | "paid";
-  invoice_ref: string | null;
-  created_at: string;
-  paid_at: string | null;
-};
-
-type InvoiceSummary = {
-  teacher_id: string;
-  month_start: string;
-  lesson_gross_pennies: number | null;
-  expenses_pennies: number | null;
-  total_pennies: number | null;
-  status: InvoiceStatus;
-};
-
-type LessonEarningsMonth = {
-  teacher_id: string;
-  month_start: string;
-  lesson_minutes_total: number | null;
-  gross_pennies: number | null;
-  snc_free_minutes: number | null;
-  snc_charged_minutes: number | null;
-};
-
-type ExpenseSummary = {
-  teacher_id: string;
-  month_start: string;
-  approved_pennies: number | null;
-  pending_pennies: number | null;
-  rejected_pennies: number | null;
-};
-
-type ExpenseDetail = {
-  id: number;
-  teacher_id: string;
-  month_start: string;
-  incurred_at: string;
-  amount_pennies: number;
-  status: "pending" | "approved" | "rejected";
-  description: string | null;
-  category: "drinks" | "teaching_resources" | "other";
-  student_id: string | null;
-  student_name: string | null;
-  student_full_name: string | null;
-};
-
-type StudentEarningsRow = {
-  teacher_id: string;
-  month_start: string;
-  student_id: string;
-  lesson_minutes_total: number | null;
-  gross_pennies: number | null;
-};
-
-type StudentNameRow = {
-  student_id: string;
-  full_name: string;
-};
-
-export default async function TeacherInvoiceAdminDetail({
-  params,
-}: {
-  params: Promise<{ teacherId: string; invoiceId: string }>;
-}) {
-  const { teacherId, invoiceId } = await params;
-  const invoiceIdNumber = Number(invoiceId);
-  const supabase = await getAdminSupabase();
-
-  // 1) Load the invoice row to get teacher + month
-  const { data: invoice, error: invoiceError } = await supabase
-    .from("teacher_invoices")
-    .select(
-      "id, teacher_id, month_start, status, invoice_ref, created_at, paid_at",
-    )
-    .eq("id", invoiceIdNumber)
-    .eq("teacher_id", teacherId)
-    .maybeSingle();
-
-  if (invoiceError || !invoice) {
-    return notFound();
-  }
-
-  const typedInvoice = invoice as TeacherInvoice;
-  const { month_start } = typedInvoice;
-  const invoiceIsPaid = typedInvoice.status === "paid";
-  // Friendly invoice reference fallback
-function makeFriendlyInvoiceRef() {
-  const dt = new Date(month_start + "T00:00:00Z");
+function buildFriendlyInvoiceRef(
+  monthStart: string,
+  teacherLabel: string,
+): string {
+  const dt = new Date(`${monthStart}T00:00:00Z`);
   const month = dt.toLocaleString("en-GB", { month: "long" });
   const year = dt.getUTCFullYear();
 
-  // convert teacher name to safe slug
   const slug = teacherLabel
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
@@ -122,8 +28,50 @@ function makeFriendlyInvoiceRef() {
   return `teacherinvoice_${month.toLowerCase()}_${year}_${slug}`;
 }
 
+export default async function AdminTeacherInvoiceDetailPage({
+  params,
+}: {
+  params: Promise<{ teacherId: string; invoiceId: string }>;
+}) {
+  // 👇 NEW: await the params Promise
+  const { teacherId, invoiceId } = await params;
 
-  // 1b) Look up teacher's full name via teachers → profiles
+  const invoiceIdNumber = Number(invoiceId);
+
+  if (Number.isNaN(invoiceIdNumber)) {
+    return notFound();
+  }
+
+  // 1) Load the invoice snapshot (single helper, all views inside)
+  let snapshot;
+  try {
+    snapshot = await getAdminTeacherInvoiceSnapshot(teacherId, invoiceIdNumber);
+  } catch {
+    return notFound();
+  }
+
+  const {
+    invoice,
+    monthLabel,
+    monthStart,
+    lessonMinutesTotal,
+    lessonGrossPennies,
+    sncFreeMinutes,
+    sncChargedMinutes,
+    approvedExpensesPennies,
+    pendingExpensesPennies,
+    rejectedExpensesPennies,
+    totalPennies,
+    displayStatus,
+    expenseDetails,
+    studentEarnings,
+    studentNameById,
+  } = snapshot;
+
+  const invoiceIsPaid = invoice.status === "paid";
+
+  // 2) Look up teacher's full name via teachers → profiles
+  const supabase = getAdminSupabase();
   const { data: teacherRow } = await supabase
     .from("teachers")
     .select("profile_id")
@@ -144,98 +92,8 @@ function makeFriendlyInvoiceRef() {
     }
   }
 
-  // 2) Load monthly aggregates + itemised expenses + per-student earnings
-  const [
-    { data: summaryData },
-    { data: earningsData },
-    { data: expensesSummaryData },
-    { data: expensesDetailData },
-    { data: studentEarningsData },
-  ] = await Promise.all([
-    supabase
-      .from("v_teacher_invoice_summary")
-      .select(
-        "teacher_id, month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", month_start)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_lesson_earnings_by_month")
-      .select(
-        "teacher_id, month_start, lesson_minutes_total, gross_pennies, snc_free_minutes, snc_charged_minutes",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", month_start)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_expenses_summary")
-      .select(
-        "teacher_id, month_start, approved_pennies, pending_pennies, rejected_pennies",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", month_start)
-      .maybeSingle(),
-supabase
-  .from("v_teacher_expenses_detail_by_month")
-  .select(
-    "id, teacher_id, month_start, incurred_at, amount_pennies, status, description, category, student_id, student_name, student_full_name",
-  )
-  .eq("teacher_id", teacherId)
-  .eq("month_start", month_start)
-  .order("incurred_at", { ascending: true }),
-
-    supabase
-      .from("v_teacher_lesson_earnings_by_student_month")
-      .select(
-        "teacher_id, month_start, student_id, lesson_minutes_total, gross_pennies",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", month_start)
-      .order("student_id", { ascending: true }),
-  ]);
-
-  const monthLabel = formatInvoiceMonthLabel(month_start);
-  const summary = (summaryData ?? null) as InvoiceSummary | null;
-  const earnings = (earningsData ?? null) as LessonEarningsMonth | null;
-  const expenseSummary = (expensesSummaryData ?? null) as ExpenseSummary | null;
-  const expenseDetails = (expensesDetailData ?? []) as ExpenseDetail[];
-  const studentEarnings = (studentEarningsData ?? []) as StudentEarningsRow[];
-
-  // Map student_id -> full_name for the table
-  const studentIds = Array.from(
-    new Set(studentEarnings.map((row) => row.student_id).filter(Boolean)),
-  );
-
-  const studentNameById = new Map<string, string>();
-
-  if (studentIds.length > 0) {
-    const { data: studentNames, error: studentNamesError } = await supabase
-      .from("v_student_names")
-      .select("student_id, full_name")
-      .in("student_id", studentIds);
-
-    if (!studentNamesError && studentNames) {
-      for (const sn of studentNames as StudentNameRow[]) {
-        studentNameById.set(sn.student_id, sn.full_name);
-      }
-    }
-  }
-
-  const lessonMinutesTotal = earnings?.lesson_minutes_total ?? 0;
-  const lessonGrossPennies = earnings?.gross_pennies ?? 0;
-  const sncFreeMinutes = earnings?.snc_free_minutes ?? 0;
-  const sncChargedMinutes = earnings?.snc_charged_minutes ?? 0;
-
-  const approvedExpensesPennies = expenseSummary?.approved_pennies ?? 0;
-  const pendingExpensesPennies = expenseSummary?.pending_pennies ?? 0;
-  const rejectedExpensesPennies = expenseSummary?.rejected_pennies ?? 0;
-
-  const totalPennies =
-    summary?.total_pennies ?? lessonGrossPennies + approvedExpensesPennies;
-
-  // There IS an invoice row, so "not_generated" is only a display fallback.
-  const displayStatus: InvoiceStatus = summary?.status ?? "generated";
+  const friendlyInvoiceRef =
+    invoice.invoice_ref ?? buildFriendlyInvoiceRef(monthStart, teacherLabel);
 
   return (
     <Section
@@ -250,30 +108,36 @@ supabase
               <span className="font-semibold">Invoice ID:</span>{" "}
               {invoiceIdNumber}
             </div>
+
             <div className="flex items-center gap-2">
               <span className="font-semibold">Status:</span>
               <TeacherInvoiceStatusPill status={displayStatus} />
-              <Link
-  href={`/admin/teachers/${typedInvoice.teacher_id}/invoices/${typedInvoice.id}/download`}
-  className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
->
-  Download Excel
-</Link>
+
+              {displayStatus === "paid" ? (
+                <Link
+                  href={`/admin/teachers/${invoice.teacher_id}/invoices/${invoice.id}/download`}
+                  className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                >
+                  Download Excel
+                </Link>
+              ) : (
+                <span className="text-[11px] text-gray-500">
+                  Download available once invoice is marked paid.
+                </span>
+              )}
             </div>
+
             <div>
-  <span className="font-semibold">Invoice ref:</span>{" "}
-  {typedInvoice.invoice_ref ?? (
-    <span className="text-gray-800">
-      {makeFriendlyInvoiceRef()}
-    </span>
-  )}
-</div>
+              <span className="font-semibold">Invoice ref:</span>{" "}
+              <span className="text-gray-800">{friendlyInvoiceRef}</span>
+            </div>
+
             <div className="text-xs text-gray-500">
-              Created: {formatDateTimeLondon(typedInvoice.created_at)}
-              {typedInvoice.paid_at && (
+              Created: {formatDateTimeLondon(invoice.created_at)}
+              {invoice.paid_at && (
                 <>
                   {" "}
-                  · Paid: {formatDateTimeLondon(typedInvoice.paid_at)}
+                  · Paid: {formatDateTimeLondon(invoice.paid_at)}
                 </>
               )}
             </div>
@@ -298,14 +162,14 @@ supabase
               <div className="flex items-baseline justify-between">
                 <span className="text-gray-600">Lesson earnings total</span>
                 <span className="font-semibold text-gray-900">
-                  {formatPenniesAsPounds(lessonGrossPennies)}
+                  {formatTeacherMoney(lessonGrossPennies)}
                 </span>
               </div>
 
               <div className="flex items-baseline justify-between">
                 <span className="text-gray-600">Expenses (approved)</span>
                 <span className="font-semibold text-gray-900">
-                  {formatPenniesAsPounds(approvedExpensesPennies)}
+                  {formatTeacherMoney(approvedExpensesPennies)}
                 </span>
               </div>
 
@@ -315,7 +179,7 @@ supabase
                     Grand total
                   </span>
                   <span className="text-lg font-semibold text-gray-900">
-                    {formatPenniesAsPounds(totalPennies)}
+                    {formatTeacherMoney(totalPennies)}
                   </span>
                 </div>
                 <p className="mt-1 text-[11px] text-gray-500">
@@ -337,7 +201,7 @@ supabase
             Confirmed lessons in this invoice month:{" "}
             <span className="font-semibold">
               {formatMinutesAsHours(lessonMinutesTotal)} h ·{" "}
-              {formatPenniesAsPounds(lessonGrossPennies)} total
+              {formatTeacherMoney(lessonGrossPennies)} total
             </span>
           </p>
           <p className="text-xs text-gray-700">
@@ -385,7 +249,7 @@ supabase
                             {formatMinutesAsHours(minutes)}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
-                            {formatPenniesAsPounds(gross)}
+                            {formatTeacherMoney(gross)}
                           </td>
                         </tr>
                       );
@@ -406,19 +270,19 @@ supabase
               <div className="text-xs font-semibold text-gray-500">
                 Approved
               </div>
-              <div>{formatPenniesAsPounds(approvedExpensesPennies)}</div>
+              <div>{formatTeacherMoney(approvedExpensesPennies)}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-gray-500">
                 Pending
               </div>
-              <div>{formatPenniesAsPounds(pendingExpensesPennies)}</div>
+              <div>{formatTeacherMoney(pendingExpensesPennies)}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-gray-500">
                 Rejected
               </div>
-              <div>{formatPenniesAsPounds(rejectedExpensesPennies)}</div>
+              <div>{formatTeacherMoney(rejectedExpensesPennies)}</div>
             </div>
           </div>
 
@@ -430,33 +294,33 @@ supabase
           <div className="mt-3 overflow-hidden rounded-lg border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200 text-xs">
               <thead className="bg-gray-50">
-  <tr>
-    <th className="px-3 py-2 text-left font-medium text-gray-700">
-      Date
-    </th>
-    <th className="px-3 py-2 text-left font-medium text-gray-700">
-      Student
-    </th>
-    <th className="px-3 py-2 text-left font-medium text-gray-700">
-      Description
-    </th>
-    <th className="px-3 py-2 text-right font-medium text-gray-700">
-      Amount
-    </th>
-    <th className="px-3 py-2 text-left font-medium text-gray-700">
-      Status
-    </th>
-    <th className="px-3 py-2 text-right font-medium text-gray-700">
-      Admin
-    </th>
-  </tr>
-</thead>
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-gray-700">
+                    Date
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-700">
+                    Student
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-700">
+                    Description
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium text-gray-700">
+                    Amount
+                  </th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-700">
+                    Status
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium text-gray-700">
+                    Admin
+                  </th>
+                </tr>
+              </thead>
 
               <tbody className="divide-y divide-gray-100 bg-white">
                 {expenseDetails.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-3 py-3 text-center text-[11px] text-gray-500"
                     >
                       No expenses logged for this invoice month.
@@ -468,18 +332,21 @@ supabase
                       <td className="whitespace-nowrap px-3 py-2 text-gray-900">
                         {formatDateTimeLondon(exp.incurred_at)}
                       </td>
-                      {/* NEW student cell */}
-        <td className="px-3 py-2 text-gray-900">
-          <div className="text-xs">
-            {exp.student_name ||
-              exp.student_full_name ||
-              (exp.student_id ? (
-                <span className="text-gray-500">{exp.student_id}</span>
-              ) : (
-                <span className="text-gray-400">No student</span>
-              ))}
-          </div>
-        </td>
+                      <td className="px-3 py-2 text-gray-900">
+                        <div className="text-xs">
+                          {exp.student_name ||
+                            exp.student_full_name ||
+                            (exp.student_id ? (
+                              <span className="text-gray-500">
+                                {exp.student_id}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">
+                                No student
+                              </span>
+                            ))}
+                        </div>
+                      </td>
 
                       <td className="px-3 py-2 text-gray-900">
                         <div className="text-xs font-medium">
@@ -499,7 +366,7 @@ supabase
                       </td>
 
                       <td className="whitespace-nowrap px-3 py-2 text-right text-gray-900">
-                        {formatPenniesAsPounds(exp.amount_pennies)}
+                        {formatTeacherMoney(exp.amount_pennies)}
                       </td>
 
                       <td className="whitespace-nowrap px-3 py-2 text-gray-900">
@@ -507,18 +374,17 @@ supabase
                       </td>
 
                       <td className="whitespace-nowrap px-3 py-2 text-right text-[11px] text-gray-500">
-  {invoiceIsPaid ? (
-    <span className="text-gray-400">
-      Locked (invoice paid)
-    </span>
-  ) : (
-    <ExpenseStatusButtons
-      expenseId={exp.id}
-      currentStatus={exp.status}
-    />
-  )}
-</td>
-
+                        {invoiceIsPaid ? (
+                          <span className="text-gray-400">
+                            Locked (invoice paid)
+                          </span>
+                        ) : (
+                          <ExpenseStatusButtons
+                            expenseId={exp.id}
+                            currentStatus={exp.status}
+                          />
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}

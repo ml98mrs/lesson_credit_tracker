@@ -3,6 +3,8 @@
 
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { TIER_VALUES, formatTierLabel } from "@/lib/domain/tiers";
+import type { Tier } from "@/lib/enums";
 
 type TeacherOption = {
   id: string;
@@ -20,7 +22,7 @@ export default function NewStudentForm({ teacherOptions }: Props) {
   const [fullName, setFullName] = useState("");
   const [preferredName, setPreferredName] = useState("");
   const [timezone, setTimezone] = useState("Europe/London");
-  const [tier, setTier] = useState<"" | "basic" | "premium" | "elite">("");
+  const [tier, setTier] = useState<"" | Tier>("");
   const [teacherId, setTeacherId] = useState<string>("");
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -132,20 +134,20 @@ export default function NewStudentForm({ teacherOptions }: Props) {
       </div>
 
       <div className="space-y-1">
-        <label className="block text-sm font-medium">Tier</label>
-        <select
-          className="w-full rounded-md border px-3 py-2 text-sm"
-          value={tier}
-          onChange={(e) =>
-            setTier(e.target.value as "" | "basic" | "premium" | "elite")
-          }
-        >
-          <option value="">No tier yet</option>
-          <option value="basic">basic</option>
-          <option value="premium">premium</option>
-          <option value="elite">elite</option>
-        </select>
-      </div>
+  <label className="block text-sm font-medium">Tier</label>
+  <select
+    className="w-full rounded-md border px-3 py-2 text-sm"
+    value={tier}
+    onChange={(e) => setTier(e.target.value as "" | Tier)}
+  >
+    <option value="">No tier yet</option>
+    {TIER_VALUES.map((t) => (
+      <option key={t} value={t}>
+        {formatTierLabel(t)}
+      </option>
+    ))}
+  </select>
+</div>
 
       <div className="space-y-1">
         <label className="block text-sm font-medium">

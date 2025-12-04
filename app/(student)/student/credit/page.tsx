@@ -1,21 +1,16 @@
 // app/(student)/student/credit/page.tsx
 
-import React from "react"; // 👈 needed for React.Fragment
+import React from "react";
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { isExpiryWarningOnly } from "@/lib/domain/expiryPolicy";
-
-import type {
-  Delivery,
-  DeliveryRestriction,
-  ExpiryPolicy,
-} from "@/lib/enums";
+import { formatExpiryCell } from "@/lib/domain/expiryPolicy";
+import type { Delivery } from "@/lib/enums";
 
 import {
   formatMinutesAsHours,
   formatDateTimeLondon,
-  } from "@/lib/formatters";
+} from "@/lib/formatters";
 
 import {
   LotAllocationsTable,
@@ -23,21 +18,14 @@ import {
 } from "@/components/credit/LotAllocationsTable";
 import { formatLotLabel } from "@/lib/creditLots/labels";
 import type { CreditLotSource } from "@/lib/creditLots/types";
-import { formatDeliveryLabel } from "@/lib/domain/lessons";
+import {
+  creditLotRemainingBaseQuery,
+  type CreditLotRemainingRow,
+} from "@/lib/api/shared/creditLotsView";
+import { formatDeliveryRestrictionLabel } from "@/lib/domain/delivery";
+import { loadStudentDashboard } from "@/lib/api/student/dashboard";
 
 export const dynamic = "force-dynamic";
-
-type CreditLotRow = {
-  credit_lot_id: string;
-  source_type: CreditLotSource;
-  external_ref: string | null;
-  minutes_granted: number;
-  minutes_allocated: number;
-  minutes_remaining: number;
-  expiry_date: string | null;
-  expiry_policy: ExpiryPolicy;
-  delivery_restriction: DeliveryRestriction;
-};
 
 type SearchParams = {
   creditType?: string;
@@ -54,7 +42,12 @@ export default async function StudentCreditPage({
   // Next 16: searchParams is a Promise
   const sp = await searchParams;
   const creditType = sp.creditType || "";
-  const deliveryFilter = sp.delivery as Delivery | undefined;
+
+  // Narrow delivery filter to allowed values
+  const deliveryFilter: Delivery | undefined =
+    sp.delivery === "online" || sp.delivery === "f2f"
+      ? (sp.delivery as Delivery)
+      : undefined;
 
   // 1) Logged-in user
   const {
@@ -90,46 +83,34 @@ export default async function StudentCreditPage({
 
   const studentId = studentRow.id as string;
 
-  // 3) Fetch this student's credit lots from the view, with filters
-  let lotQuery = supabase
-    .from("v_credit_lot_remaining")
-    .select(
-      [
-        "credit_lot_id",
-        "source_type",
-        "external_ref",
-        "minutes_granted",
-        "minutes_allocated",
-        "minutes_remaining",
-        "expiry_date",
-        "expiry_policy",
-        "delivery_restriction",
-      ].join(","),
-    )
-    .eq("student_id", studentId);
+  // 3) Canonical credit summary (shared with student dashboard)
+  const dashboard = await loadStudentDashboard(studentId);
+  const totalRemaining = dashboard.remainingMin;
+
+  // 4) Fetch this student's credit lots from the view, with filters
+  let lotQuery = creditLotRemainingBaseQuery(supabase).eq(
+    "student_id",
+    studentId,
+  );
 
   if (creditType === "invoice" || creditType === "award") {
-    lotQuery = lotQuery.eq("source_type", creditType);
+    lotQuery = lotQuery.eq("source_type", creditType as CreditLotSource);
   }
 
-  if (deliveryFilter === "online" || deliveryFilter === "f2f") {
+  if (deliveryFilter) {
     lotQuery = lotQuery.eq("delivery_restriction", deliveryFilter);
   }
 
   lotQuery = lotQuery.order("start_date", { ascending: true });
 
-  const { data: lotData, error: lotErr } = await lotQuery;
+  const { data: lotData, error: lotErr } =
+    await lotQuery.returns<CreditLotRemainingRow[]>();
 
   if (lotErr) {
     throw new Error(lotErr.message);
   }
 
-  const rows = (lotData ?? []) as unknown as CreditLotRow[];
-
-  const totalRemaining = rows.reduce(
-    (sum, r) => sum + (r.minutes_remaining ?? 0),
-    0,
-  );
+  const rows: CreditLotRemainingRow[] = lotData ?? [];
 
   // 4) Load per-lot allocations (richer detail, shared with admin)
   const lotIds = rows.map((r) => r.credit_lot_id);
@@ -185,7 +166,15 @@ export default async function StudentCreditPage({
           <div className="text-2xl font-semibold">
             {formatMinutesAsHours(totalRemaining)} h
           </div>
+
+          <div className="mt-1 text-[11px] text-gray-500">
+            Next mandatory expiry (within 30 days):{" "}
+            {dashboard.nextMandatoryExpiry
+              ? formatDateTimeLondon(dashboard.nextMandatoryExpiry)
+              : "None"}
+          </div>
         </div>
+
         <p className="text-sm text-gray-600">
           You don&apos;t have any active credit matching your current filters.
         </p>
@@ -231,14 +220,17 @@ export default async function StudentCreditPage({
             Delivery
           </label>
           <select
-            id="delivery"
             name="delivery"
             defaultValue={deliveryFilter ?? ""}
-            className="rounded border px-2 py-1"
+            className="rounded-md border px-2 py-1"
           >
             <option value="">Any</option>
-            <option value="online">Online only</option>
-            <option value="f2f">F2F only</option>
+            <option value="online">
+              {formatDeliveryRestrictionLabel("online")}
+            </option>
+            <option value="f2f">
+              {formatDeliveryRestrictionLabel("f2f")}
+            </option>
           </select>
         </div>
 
@@ -281,33 +273,31 @@ export default async function StudentCreditPage({
                   {/* Main lot row */}
                   <tr className="border-b">
                     <td className="py-2 pr-4">
-                      {formatLotLabel(r.source_type, r.external_ref, null)}
+                      {formatLotLabel(
+                        r.source_type as CreditLotSource,
+                        r.external_ref ?? null,
+                        null,
+                      )}
                     </td>
                     <td className="py-2 px-3">
-  {r.delivery_restriction
-    ? formatDeliveryLabel(r.delivery_restriction)
-    : "—"}
-</td>
-                    <td className="py-2 pr-4">
-                      {formatMinutesAsHours(r.minutes_granted)} h
+                      {r.delivery_restriction
+                        ? formatDeliveryRestrictionLabel(
+                            r.delivery_restriction,
+                          )
+                        : "—"}
                     </td>
                     <td className="py-2 pr-4">
-                      {formatMinutesAsHours(r.minutes_allocated)} h
+                      {formatMinutesAsHours(r.minutes_granted ?? 0)} h
                     </td>
                     <td className="py-2 pr-4">
-                      {formatMinutesAsHours(r.minutes_remaining)} h
+                      {formatMinutesAsHours(r.minutes_allocated ?? 0)} h
                     </td>
                     <td className="py-2 pr-4">
-  {!r.expiry_date || r.expiry_policy === "none" ? (
-    "No expiry"
-  ) : (
-    <>
-      {formatDateTimeLondon(r.expiry_date)}
-      {isExpiryWarningOnly(r.expiry_policy) && " – purely advisory"}
-    </>
-  )}
-</td>
-
+                      {formatMinutesAsHours(r.minutes_remaining ?? 0)} h
+                    </td>
+                    <td className="py-2 pr-4">
+                      {formatExpiryCell(r.expiry_date, r.expiry_policy)}
+                    </td>
                   </tr>
 
                   {/* Per-lot usage (shared with admin, student variant) */}

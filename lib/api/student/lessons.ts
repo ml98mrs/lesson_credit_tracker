@@ -1,15 +1,15 @@
 // lib/api/student/lessons.ts
 
 import { getServerSupabase } from "@/lib/supabase/server";
-import type { Delivery, SncMode } from "@/lib/enums";
+import type { Delivery, SncMode, LessonState } from "@/lib/enums";
 
 // Convenience alias for the server Supabase client type
 export type ServerSupabaseClient = Awaited<
   ReturnType<typeof getServerSupabase>
 >;
 
-// DB delivery enum is 'online' | 'f2f'; we keep "hybrid" as a local UI-only extension.
-export type LessonDelivery = Delivery | "hybrid";
+// Lessons themselves are never hybrid: delivery is always 'online' or 'f2f'.
+export type LessonDelivery = Delivery;
 
 export type StudentLessonRow = {
   lesson_id: string;
@@ -17,18 +17,21 @@ export type StudentLessonRow = {
   duration_min: number;
   delivery: LessonDelivery;
   is_snc: boolean;
-  snc_mode: SncMode | string;
-  state: string;
+  snc_mode: SncMode;
+  state: LessonState;
   teacher_full_name: string;
   allocation_summary: string | null;
 };
+
+// SNC filter mode for student lesson history UI
+export type SncFilter = "snc" | "free" | "charged" | "none" | "";
 
 export type StudentLessonsFilter = {
   from?: string;
   to?: string;
   teacher?: string;
   delivery?: Delivery;
-  snc?: "snc" | "free" | "charged" | "none" | "";
+  snc?: SncFilter;
   month?: string; // "1".."12"
   year?: string;  // "2024" etc.
   invoice?: string;

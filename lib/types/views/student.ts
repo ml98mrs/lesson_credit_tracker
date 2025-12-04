@@ -3,6 +3,8 @@
 // Row types for student-related SQL views used across the app.
 // These mirror DB view shapes; keep them in sync with Supabase.
 
+import type { Delivery } from "@/lib/enums";
+
 export type VStudentCreditSummaryRow = {
   student_id: string;
   total_granted_min: number | null;
@@ -36,7 +38,7 @@ export type VStudentSncLessonRow = {
 
 export type VStudentDeliveryAlertRow = {
   student_id: string;
-  delivery: string;
+  delivery: Delivery;
   remaining_minutes: number;
   avg_month_hours: number | null;
   buffer_hours: number | null;

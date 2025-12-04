@@ -7,10 +7,9 @@ import { getAdminSupabase } from "@/lib/supabase/admin";
 import { pendingLessonsBaseQuery } from "@/lib/api/admin/lessons";
 import {
   AdminLessonListRow,
-  formatDeliveryLabel,
-  formatLessonLength,
   buildAdminLessonNameMaps,
 } from "@/lib/domain/lessons";
+import { formatDeliveryLabel } from "@/lib/domain/delivery";
 
 export const dynamic = "force-dynamic";
 
@@ -91,7 +90,7 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
                 <th className="py-2 pr-4">Student</th>
                 <th className="py-2 pr-4">Teacher</th>
                 <th className="py-2 pr-4">Delivery</th>
-                <th className="py-2 pr-4">Length</th>
+   
                 <th className="py-2 pr-4">Duration</th>
                 <th className="py-2 pr-4">Type</th>
                 <th className="py-2 pr-4">Notes</th>
@@ -114,9 +113,7 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
                   <td className="py-2 pr-4">
                     {formatDeliveryLabel(r.delivery)}
                   </td>
-                  <td className="py-2 pr-4">
-                    {formatLessonLength(r.length_cat, r.duration_min)}
-                  </td>
+                  
                   <td className="py-2 pr-4">{r.duration_min} min</td>
                   <td className="py-2 pr-4">
                     <LessonTypeBadge isSnc={r.is_snc} />

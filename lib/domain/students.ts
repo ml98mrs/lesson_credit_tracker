@@ -2,16 +2,18 @@
 
 import type {
   StudentRow,
+  StudentStatus,
   StudentCreditDeliverySummary,
   StudentAwardReasonSummary,
   StudentDeliveryLowCreditAlert,
 } from "@/lib/types/students";
-
+import type { VStudentDynamicCreditAlertByDeliveryRow } from "@/lib/types/views/credit";
 import type {
   VStudentCreditDeliverySummaryRow,
   VStudentAwardReasonSummaryRow,
 } from "@/lib/types/views/student";
-import type { VStudentDynamicCreditAlertByDeliveryRow } from "@/lib/types/views/credit";
+
+import { normaliseHours, normaliseMinutes } from "@/lib/domain/numeric";
 
 /**
  * Human-friendly label for student lifecycle status.
@@ -34,7 +36,14 @@ export function formatStudentStatus(
 
 /**
  * Map a credit-delivery view row into the app-level summary type.
+ *
  * All values remain minutes (DB convention); UI converts to hours.
+ *
+ * NOTE:
+ * - This helper focuses on per-delivery splits from v_student_credit_delivery_summary.
+ * - Top-level purchasedMin / awardedMin aggregates may be overridden by
+ *   higher-level loaders (e.g. Student Dashboard) to match the spec’s
+ *   canonical totals from v_student_credit_summary and invoice minutes.
  */
 export function mapCreditDeliverySummaryRow(
   row: VStudentCreditDeliverySummaryRow | null,
@@ -54,14 +63,14 @@ export function mapCreditDeliverySummaryRow(
     };
   }
 
-  const purchasedOnline = row.purchased_online_min ?? 0;
-  const purchasedF2f = row.purchased_f2f_min ?? 0;
+  const purchasedOnline = normaliseMinutes(row.purchased_online_min);
+  const purchasedF2f = normaliseMinutes(row.purchased_f2f_min);
 
-  const usedOnline = row.used_online_min ?? 0;
-  const usedF2f = row.used_f2f_min ?? 0;
+  const usedOnline = normaliseMinutes(row.used_online_min);
+  const usedF2f = normaliseMinutes(row.used_f2f_min);
 
-  const remainingOnline = row.remaining_online_min ?? 0;
-  const remainingF2f = row.remaining_f2f_min ?? 0;
+  const remainingOnline = normaliseMinutes(row.remaining_online_min);
+  const remainingF2f = normaliseMinutes(row.remaining_f2f_min);
 
   return {
     purchasedMin: purchasedOnline + purchasedF2f,
@@ -91,9 +100,9 @@ export function mapAwardReasonRows(
 
   return rows.map((r) => ({
     awardReasonCode: r.award_reason_code,
-    grantedAwardMin: r.granted_award_min ?? 0,
-    usedAwardMin: r.used_award_min ?? 0,
-    remainingAwardMin: r.remaining_award_min ?? 0,
+    grantedAwardMin: normaliseMinutes(r.granted_award_min),
+    usedAwardMin: normaliseMinutes(r.used_award_min),
+    remainingAwardMin: normaliseMinutes(r.remaining_award_min),
   }));
 }
 
@@ -106,19 +115,32 @@ export function mapDeliveryAlertRow(
   row: VStudentDynamicCreditAlertByDeliveryRow,
 ): StudentDeliveryLowCreditAlert {
   return {
-    delivery: row.delivery, // view guarantees 'online' | 'f2f'
+    // view guarantees 'online' | 'f2f'
+    delivery: row.delivery,
 
-    remainingMinutes: row.remaining_minutes ?? 0,
+    remainingMinutes: normaliseMinutes(row.remaining_minutes),
 
-    avgMonthHours:
-      row.avg_month_hours != null ? Number(row.avg_month_hours) : null,
-
-    bufferHours:
-      row.buffer_hours != null ? Number(row.buffer_hours) : null,
+    avgMonthHours: normaliseHours(row.avg_month_hours),
+    bufferHours: normaliseHours(row.buffer_hours),
 
     isGenericLow: row.is_generic_low,
     isDynamicLow: row.is_dynamic_low,
     isLowAny: row.is_low_any,
     isZeroPurchased: row.is_zero_purchased,
   };
+}
+
+export function getStudentStatusBadgeClass(
+  status: StudentStatus | null | undefined,
+): string {
+  switch (status) {
+    case "current":
+      return "bg-emerald-50 text-emerald-700";
+    case "dormant":
+      return "bg-amber-50 text-amber-700";
+    case "past":
+      return "bg-rose-50 text-rose-700";
+    default:
+      return "bg-gray-100 text-gray-600";
+  }
 }

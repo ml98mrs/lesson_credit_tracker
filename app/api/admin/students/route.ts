@@ -2,27 +2,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import { TIER } from "@/lib/enums";
 
 const BodySchema = z.object({
-  email: z.string().email(),
-  fullName: z.string().min(1),
-  preferredName: z.string().optional(),
+  email: z.string().trim().email(),
+  fullName: z.string().trim().min(1),
+  preferredName: z.string().trim().nullable().optional(),
   timezone: z.string().default("Europe/London"),
-  tier: z.enum(["basic", "premium", "elite"]).nullable().optional(),
+  tier: z.enum(TIER).nullable().optional(),
   teacherId: z.string().uuid().nullable().optional(),
 });
+
 
 export async function POST(req: NextRequest) {
   try {
     const json = await req.json().catch(() => null);
 
     const parsed = BodySchema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid body", details: parsed.error.flatten() },
-        { status: 400 }
-      );
-    }
+if (!parsed.success) {
+  const flat = parsed.error.flatten();
+  const firstFormError = flat.formErrors[0];
+  const firstFieldError = Object.values(flat.fieldErrors)[0]?.[0];
+
+  return NextResponse.json(
+    {
+      error: "Invalid body",
+      details: firstFormError || firstFieldError || "Invalid request payload",
+    },
+    { status: 400 }
+  );
+}
 
     const { email, fullName, preferredName, timezone, tier, teacherId } =
       parsed.data;
@@ -62,16 +71,26 @@ export async function POST(req: NextRequest) {
     );
 
     if (rpcErr) {
-      console.error("Create student: rpc_admin_create_student failed", rpcErr);
-      // Optional: clean up auth user here if you want strict consistency
-      return NextResponse.json(
-        {
-          error: "Failed to create student in DB",
-          details: rpcErr.message,
-        },
-        { status: 500 }
-      );
-    }
+  console.error("Create student: rpc_admin_create_student failed", rpcErr);
+
+  try {
+    await sb.auth.admin.deleteUser(authUserId);
+  } catch (cleanupErr) {
+    console.error(
+      "Create student: failed to delete orphan auth user",
+      cleanupErr
+    );
+  }
+
+  return NextResponse.json(
+    {
+      error: "Failed to create student in DB",
+      details: rpcErr.message,
+    },
+    { status: 500 }
+  );
+}
+
 
     const studentId = rpcData as string | null;
 

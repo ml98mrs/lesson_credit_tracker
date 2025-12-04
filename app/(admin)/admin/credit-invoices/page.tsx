@@ -1,18 +1,46 @@
 // app/(admin)/admin/credit-invoices/page.tsx
 
 import Link from "next/link";
-import { getAdminSupabase } from "@/lib/supabase/admin";
 import Section from "@/components/ui/Section";
-import { formatDateTimeLondon, formatMinutesAsHours } from "@/lib/formatters";
+
+import { getAdminSupabase } from "@/lib/supabase/admin";
+import { formatDateTimeUK, formatMinutesAsHours } from "@/lib/formatters";
 import type { ProfilesEmbed } from "@/lib/types/profiles";
 import { readProfileFullName } from "@/lib/types/profiles";
+
 import {
+  CREDIT_LOT_STATE,
   type Delivery,
   type Tier,
   type LengthCat,
   type ExpiryPolicy,
   type CreditLotState,
 } from "@/lib/enums";
+
+import {
+  DELIVERY,
+  type DeliveryRestriction,
+} from "@/lib/enums"; // DeliveryRestriction used via domain helper
+
+import {
+  deliveryRestrictionToUi,
+  formatDeliveryRestrictionLabel,
+} from "@/lib/domain/delivery";
+
+import {
+  LENGTH_RESTRICTIONS,
+  formatLengthRestrictionLabel,
+} from "@/lib/domain/lengths";
+
+import {
+  TIER_VALUES,
+  formatTierLabel,
+} from "@/lib/domain/tiers";
+
+import {
+  EXPIRY_POLICIES,
+  getExpiryPolicyLabel,
+} from "@/lib/domain/expiryPolicy";
 
 type CreditInvoiceLot = {
   id: string;
@@ -46,49 +74,65 @@ type InvoiceRow = {
   remainingMinutes: number | null;
 };
 
-// Small helpers for display
-const formatDeliveryRestriction = (d: Delivery | null): string => {
-  if (!d) return "Hybrid / unrestricted";
-  if (d === "online") return "Online only";
-  if (d === "f2f") return "Face to face only";
-  return d;
-};
+// ─────────────────────────────────────────────────────────────
+// Filter option metadata (DRY, using domain helpers)
+// ─────────────────────────────────────────────────────────────
 
-const formatTierRestriction = (t: Tier | null): string => {
-  if (!t) return "Unrestricted";
-  switch (t) {
-    case "basic":
-      return "Basic only";
-    case "premium":
-      return "Premium only";
-    case "elite":
-      return "Elite only";
-    default:
-      return t;
-  }
-};
+const DELIVERY_FILTER_OPTIONS = [
+  { value: "", label: "All" },
+  ...DELIVERY.map((d) => ({
+    value: d,
+    label: formatDeliveryRestrictionLabel(d),
+  })),
+  {
+    // DB null (no restriction) → UI "hybrid" label
+    value: "unrestricted",
+    label: formatDeliveryRestrictionLabel("hybrid"),
+  },
+];
 
-const formatLengthRestriction = (l: LengthCat | null): string => {
-  if (!l || l === "none") return "No length restriction";
-  if (l === "60") return "60 min";
-  if (l === "90") return "90 min";
-  if (l === "120") return "120 min";
-  return l;
-};
+const TIER_FILTER_OPTIONS = [
+  { value: "", label: "All" },
+  ...TIER_VALUES.map((t) => ({
+    value: t,
+    label: formatTierLabel(t),
+  })),
+  { value: "unrestricted", label: "Unrestricted" },
+];
 
-const formatPolicyBadge = (policy: ExpiryPolicy): string => {
-  if (policy === "none") return "none (no expiry)";
-  if (policy === "advisory") return "advisory (soft)";
-  return "mandatory (enforced)";
-};
+const LENGTH_FILTER_OPTIONS = [
+  { value: "", label: "All" },
+  ...LENGTH_RESTRICTIONS.map((l) => ({
+    value: l,
+    label: formatLengthRestrictionLabel(l),
+  })),
+  { value: "unrestricted", label: "Legacy / null" },
+];
+
+const STATE_FILTER_OPTIONS = [
+  { value: "", label: "All" },
+  ...CREDIT_LOT_STATE.map((s) => ({
+    value: s,
+    label: s.charAt(0).toUpperCase() + s.slice(1), // "open" → "Open"
+  })),
+];
+
+const POLICY_FILTER_OPTIONS = [
+  { value: "", label: "All" },
+  ...EXPIRY_POLICIES.map((p) => ({
+    value: p,
+    label: getExpiryPolicyLabel(p),
+  })),
+];
 
 export default async function Page({
   searchParams,
 }: {
-  searchParams?: { [key: string]: string | string[] | undefined };
+  // Next 16: searchParams is a Promise – we await it
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const sb = getAdminSupabase();
-  const sp = searchParams ?? {};
+  const sp = (await searchParams) ?? {};
 
   const getParam = (key: string): string =>
     typeof sp[key] === "string" ? (sp[key] as string) : "";
@@ -140,12 +184,8 @@ export default async function Page({
     } else {
       lots = data ?? [];
     }
-  } catch (e: unknown) {
-    if (e instanceof Error) {
-      errorMsg = e.message;
-    } else {
-      errorMsg = "Unknown error while loading credit invoices";
-    }
+  } catch (e: any) {
+    errorMsg = e?.message ?? "Unknown error while loading credit invoices";
   }
 
   //
@@ -349,12 +389,11 @@ export default async function Page({
                 defaultValue={deliveryFilter}
                 className="h-7 rounded border px-2 text-xs"
               >
-                <option value="">All</option>
-                <option value="online">Online only</option>
-                <option value="f2f">Face to face only</option>
-                <option value="unrestricted">
-                  Hybrid / unrestricted
-                </option>
+                {DELIVERY_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -367,11 +406,11 @@ export default async function Page({
                 defaultValue={tierFilter}
                 className="h-7 rounded border px-2 text-xs"
               >
-                <option value="">All</option>
-                <option value="basic">Basic only</option>
-                <option value="premium">Premium only</option>
-                <option value="elite">Elite only</option>
-                <option value="unrestricted">Unrestricted</option>
+                {TIER_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -384,27 +423,28 @@ export default async function Page({
                 defaultValue={lengthFilter}
                 className="h-7 rounded border px-2 text-xs"
               >
-                <option value="">All</option>
-                <option value="60">60 min</option>
-                <option value="90">90 min</option>
-                <option value="120">120 min</option>
-                <option value="none">No length restriction</option>
-                <option value="unrestricted">Legacy / null</option>
+                {LENGTH_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">State</label>
+              <label className="text-[11px] text-gray-500">
+                State
+              </label>
               <select
                 name="state"
                 defaultValue={stateFilter}
                 className="h-7 rounded border px-2 text-xs"
               >
-                <option value="">All</option>
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-                <option value="expired">Expired</option>
-                <option value="cancelled">Cancelled</option>
+                {STATE_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -417,14 +457,15 @@ export default async function Page({
                 defaultValue={policyFilter}
                 className="h-7 rounded border px-2 text-xs"
               >
-                <option value="">All</option>
-                <option value="none">None (no expiry)</option>
-                <option value="advisory">Advisory</option>
-                <option value="mandatory">Mandatory</option>
+                {POLICY_FILTER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
-            {/* Sort controls */}
+            {/* Sort controls (simple strings; no domain helpers needed) */}
             <div className="flex flex-col gap-1">
               <label className="text-[11px] text-gray-500">
                 Remaining hours
@@ -491,8 +532,8 @@ export default async function Page({
 
                   const invoiceRef = lot.external_ref ?? lot.id;
 
-                  const policyBadge = formatPolicyBadge(
-                    lot.expiry_policy,
+                  const deliveryUi = deliveryRestrictionToUi(
+                    lot.delivery_restriction as DeliveryRestriction | null,
                   );
 
                   return (
@@ -520,23 +561,25 @@ export default async function Page({
                       </td>
                       <td className="py-2 pr-4">{amount}</td>
                       <td className="py-2 pr-4">
-                        {formatDeliveryRestriction(
-                          lot.delivery_restriction,
-                        )}
+                        {formatDeliveryRestrictionLabel(deliveryUi)}
                       </td>
                       <td className="py-2 pr-4">
-                        {formatTierRestriction(lot.tier_restriction)}
+                        {lot.tier_restriction
+                          ? formatTierLabel(lot.tier_restriction)
+                          : "Unrestricted"}
                       </td>
                       <td className="py-2 pr-4">
-                        {formatLengthRestriction(
-                          lot.length_restriction,
-                        )}
-                      </td>
+  {formatLengthRestrictionLabel(
+    (lot.length_restriction ?? "none") as LengthCat,
+  )}
+</td>
                       <td className="py-2 pr-4">{lot.state}</td>
-                      <td className="py-2 pr-4">{policyBadge}</td>
+                      <td className="py-2 pr-4">
+                        {getExpiryPolicyLabel(lot.expiry_policy)}
+                      </td>
                       <td className="py-2 pr-4">
                         {lot.expiry_date
-                          ? formatDateTimeLondon(lot.expiry_date)
+                          ? formatDateTimeUK(lot.expiry_date)
                           : "—"}
                       </td>
                       <td className="py-2 pr-4">

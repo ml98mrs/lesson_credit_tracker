@@ -16,11 +16,6 @@ import type {
 } from "@/lib/enums";
 import { TIER_VALUES, formatTierLabel } from "@/lib/domain/tiers";
 import {
-  type DeliveryUi,
-  DELIVERY_RESTRICTION_VALUES,
-  formatDeliveryRestrictionLabel,
-} from "@/lib/domain/delivery";
-import {
   AWARD_REASON_CODES,
   type AwardReasonCode,
   getAwardReasonLabel,
@@ -34,6 +29,13 @@ import {
   getExpiryPolicyLabel,
   getExpiryPolicyDescription,
 } from "@/lib/domain/expiryPolicy";
+import {
+  type DeliveryUi,
+  DELIVERY_RESTRICTION_VALUES,
+  formatDeliveryRestrictionLabel,
+  deliveryRestrictionToUi,
+  deliveryUiToRestriction,
+} from "@/lib/domain/delivery";
 
 type Props = {
   studentId: string;
@@ -256,9 +258,8 @@ export default function AddCreditModal({
       router.refresh();
 
       // Auto-close if parent controls the modal
-      if (onClose) {
-        onClose();
-      }
+      handleClose();
+      
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message || "Unknown error");
@@ -306,9 +307,8 @@ export default function AddCreditModal({
       router.refresh();
 
       // Auto-close if parent controls the modal
-      if (onClose) {
-        onClose();
-      }
+      handleClose();
+        
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message || "Unknown error");
@@ -477,12 +477,10 @@ export default function AddCreditModal({
               <label className="flex flex-col gap-1">
   <span className="text-sm text-gray-600">Delivery restriction</span>
   <select
-    // null in DB = "hybrid" in UI
-    value={(deliveryRestriction ?? "hybrid") as DeliveryUi}
+    value={deliveryRestrictionToUi(deliveryRestriction)}
     onChange={(e) => {
       const value = e.target.value as DeliveryUi;
-      // map "hybrid" back to null for DB
-      setDeliveryRestriction(value === "hybrid" ? null : value);
+      setDeliveryRestriction(deliveryUiToRestriction(value));
     }}
     className="rounded-md border p-2"
   >
@@ -493,6 +491,7 @@ export default function AddCreditModal({
     ))}
   </select>
 </label>
+
 
 
               <label className="flex flex-col gap-1">
@@ -533,20 +532,23 @@ export default function AddCreditModal({
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm text-gray-600">
-                    Minutes per lesson (D)
-                  </span>
-                  <select
-                    value={durationPerLessonMins}
-                    onChange={(e) => setDurationPerLessonMins(e.target.value)}
-                    className="rounded-md border p-2"
-                  >
-                    <option value="">(select)</option>
-                    <option value="60">60</option>
-                    <option value="90">90</option>
-                    <option value="120">120</option>
-                  </select>
-                </label>
+  <span className="text-sm text-gray-600">
+    Minutes per lesson (D)
+  </span>
+  <select
+    value={durationPerLessonMins}
+    onChange={(e) => setDurationPerLessonMins(e.target.value)}
+    className="rounded-md border p-2"
+  >
+    <option value="">(select)</option>
+    {LENGTH_RESTRICTIONS.filter((len) => len !== "none").map((len) => (
+      <option key={len} value={len}>
+        {formatLengthRestrictionLabel(len)}
+      </option>
+    ))}
+  </select>
+</label>
+
                 <label className="flex flex-col gap-1">
                   <span className="text-sm text-gray-600">
                     Buffer B (0.5 = 50%)

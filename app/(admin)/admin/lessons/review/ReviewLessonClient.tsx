@@ -13,8 +13,21 @@ import { formatLotLabel } from "@/lib/creditLots/labels";
 import type { CreditLotSource } from "@/lib/creditLots/types";
 import LessonHazards from "@/components/admin/LessonHazards";
 import SNCInfoPanel, { SncStats } from "@/components/admin/SNCInfoPanel";
-import { Tier, TierBadge } from "@/components/admin/TierBadge";
-import type { Delivery, LengthCat, LessonState } from "@/lib/enums";
+import { TierBadge } from "@/components/admin/TierBadge";
+import type {
+  Delivery,
+  DeliveryRestriction,
+  LengthCat,
+  LessonState,
+  Tier,
+  SncMode,
+} from "@/lib/enums";
+import {
+  LENGTH_RESTRICTIONS,
+  formatLengthRestrictionLabel,
+} from "@/lib/domain/lengths";
+import { DELIVERY} from "@/lib/enums";
+import { formatDeliveryUiLabel, formatDeliveryRestrictionLabel } from "@/lib/domain/delivery";
 
 type Lesson = {
   id: string;
@@ -26,7 +39,7 @@ type Lesson = {
   length_cat: LengthCat;
   state: LessonState;
   is_snc: boolean;
-  snc_mode: "none" | "free" | "charged";
+  snc_mode: SncMode;
   notes: string | null;
 };
 
@@ -39,9 +52,9 @@ type LotRow = {
   minutes_granted: number;
   minutes_allocated: number;
   minutes_remaining: number;
-  delivery_restriction: "online" | "f2f" | null;
-  tier_restriction: "basic" | "premium" | "elite" | null;
-  length_restriction: "none" | "60" | "90" | "120" | null;
+  delivery_restriction: DeliveryRestriction;
+  tier_restriction: Tier | null;
+  length_restriction: LengthCat | null;
   start_date: string;
   expiry_date: string | null;
   state: "open" | "closed" | "expired" | "cancelled";
@@ -50,9 +63,9 @@ type LotRow = {
 type PreviewStep = {
   creditLotId: string | null;
   sourceType: CreditLotSource | "overdraft";
-  deliveryRestriction: "online" | "f2f" | null;
-  lengthRestriction: "none" | "60" | "90" | "120" | null;
-  tierRestriction: "basic" | "premium" | "elite" | null;
+  deliveryRestriction: DeliveryRestriction;
+  lengthRestriction: LengthCat | null;
+  tierRestriction: Tier | null;
   fromRemaining: number;
   allocate: number;
   toRemaining: number;
@@ -67,7 +80,7 @@ type PreviewPlan = {
   teacherId: string;
   isSnc: boolean;
   isFreeSnc: boolean;
-  sncMode: "none" | "free" | "charged";
+  sncMode: SncMode;
   tier: Tier | null;
   plan: PreviewStep[];
   counterDelivery: boolean;
@@ -148,18 +161,17 @@ export default function ReviewLessonClient() {
         throw new Error(j.error || "Failed to load preview");
       }
 
-setPreview(j as PreviewPlan);
-} catch (e: unknown) {
-  setPreview(null);
-  if (e instanceof Error) {
-    setPreviewErr(e.message);
-  } else {
-    setPreviewErr("Unknown error while generating preview");
-  }
-} finally {
-  setPreviewLoading(false);
-}
-
+      setPreview(j as PreviewPlan);
+    } catch (e: unknown) {
+      setPreview(null);
+      if (e instanceof Error) {
+        setPreviewErr(e.message);
+      } else {
+        setPreviewErr("Unknown error while generating preview");
+      }
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   // --- Initial load -----------------------------------------------------
@@ -175,7 +187,9 @@ setPreview(j as PreviewPlan);
       return;
     }
 
-    fetch(`/api/admin/lessons/review?lessonId=${encodeURIComponent(lessonId)}`)
+    fetch(
+      `/api/admin/lessons/review?lessonId=${encodeURIComponent(lessonId)}`,
+    )
       .then(async (r) => {
         if (!r.ok) {
           const j = await r.json().catch(() => ({}));
@@ -227,7 +241,7 @@ setPreview(j as PreviewPlan);
     try {
       if (override && overrideReason.trim().length < 5) {
         throw new Error(
-          "Please provide a short override reason (min 5 characters)."
+          "Please provide a short override reason (min 5 characters).",
         );
       }
 
@@ -275,7 +289,7 @@ setPreview(j as PreviewPlan);
         j.statusMessage ??
           (needsUpdate
             ? "Edits saved, lesson confirmed."
-            : "Lesson confirmed.")
+            : "Lesson confirmed."),
       );
 
       // Reflect confirmed + edits locally
@@ -286,15 +300,15 @@ setPreview(j as PreviewPlan);
         length_cat: editLength,
         duration_min: newDuration || lesson.duration_min,
       });
-  } catch (e: unknown) {
-  if (e instanceof Error) {
-    setConfirmMsg(e.message);
-  } else {
-    setConfirmMsg("Unknown error while confirming");
-  }
-} finally {
-  setConfirming(false);
-}
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        setConfirmMsg(e.message);
+      } else {
+        setConfirmMsg("Unknown error while confirming");
+      }
+    } finally {
+      setConfirming(false);
+    }
   }
 
   const isPending = lesson?.state === "pending";
@@ -404,17 +418,20 @@ setPreview(j as PreviewPlan);
 
         {/* Delivery (editable) */}
         <label className="flex items-center gap-2">
-          <span className="text-gray-500">Delivery:</span>
-          <select
-            className="rounded border px-2 py-1"
-            value={editDelivery}
-            onChange={(e) => setEditDelivery(e.target.value as Delivery)}
-            disabled={!isPending}
-          >
-            <option value="online">Online</option>
-            <option value="f2f">F2F</option>
-          </select>
-        </label>
+  <span className="text-gray-500">Delivery:</span>
+  <select
+    className="rounded border px-2 py-1"
+    value={editDelivery}
+    onChange={(e) => setEditDelivery(e.target.value as Delivery)}
+  >
+    {DELIVERY.map((value) => (
+      <option key={value} value={value}>
+        {formatDeliveryUiLabel(value)}
+      </option>
+    ))}
+  </select>
+</label>
+
 
         {/* Length category (editable) */}
         <label className="flex items-center gap-2">
@@ -425,10 +442,13 @@ setPreview(j as PreviewPlan);
             onChange={(e) => setEditLength(e.target.value as LengthCat)}
             disabled={!isPending}
           >
-            <option value="none">—</option>
-            <option value="60">60</option>
-            <option value="90">90</option>
-            <option value="120">120</option>
+            {LENGTH_RESTRICTIONS.map((length) => (
+              <option key={length} value={length}>
+                {length === "none"
+                  ? "—"
+                  : formatLengthRestrictionLabel(length)}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -589,25 +609,25 @@ setPreview(j as PreviewPlan);
                   : formatLotLabel(
                       lot.source_type,
                       lot.external_ref,
-                      lot.award_reason_code
+                      lot.award_reason_code,
                     );
 
                 const constraints = lot
-                  ? [
-                      lot.delivery_restriction
-                        ? lot.delivery_restriction === "f2f"
-                          ? "F2F only"
-                          : "Online only"
-                        : null,
-                      lot.tier_restriction ? `${lot.tier_restriction}` : null,
-                      lot.length_restriction &&
-                      lot.length_restriction !== "none"
-                        ? `${lot.length_restriction} min only`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "Any"
-                  : "—";
+  ? [
+      lot.delivery_restriction
+        ? formatDeliveryRestrictionLabel(lot.delivery_restriction)
+        : null,
+      lot.tier_restriction ? `${lot.tier_restriction}` : null,
+      lot.length_restriction && lot.length_restriction !== "none"
+        ? `${formatLengthRestrictionLabel(
+            lot.length_restriction,
+          )} min only`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Any"
+  : "—";
+
 
                 return (
                   <tr key={idx} className="border-b">

@@ -13,12 +13,13 @@ import {
 import type { LessonState, SncMode, Delivery } from "@/lib/enums";
 import { loadStudentDashboard } from "@/lib/api/student/dashboard";
 import { buildAwardLine } from "@/lib/awardReasons";
+import { DELIVERY } from "@/lib/enums";
+import { formatDeliveryUiLabel, formatDeliveryLabel } from "@/lib/domain/delivery";
+import type { VTeacherLessonRow } from "@/lib/types/views/teacher";
 
 export const dynamic = "force-dynamic";
 
-type StudentNameRow = {
-  student_name: string | null;
-};
+type StudentNameRow = Pick<VTeacherLessonRow, "student_name">;
 
 type LessonEarningRow = {
   lesson_id: string;
@@ -504,17 +505,24 @@ export default async function TeacherStudentDetail(props: {
 
               {/* Delivery filter */}
               <div className="flex flex-col gap-1">
-                <span className="text-[11px] text-gray-500">Delivery</span>
-                <select
-                  name="delivery"
-                  defaultValue={deliveryFilter}
-                  className="h-7 rounded border px-2 text-xs"
-                >
-                  <option value="">Any</option>
-                  <option value="online">Online</option>
-                  <option value="f2f">Face to face</option>
-                </select>
-              </div>
+  <label htmlFor="delivery" className="text-gray-600">
+    Delivery
+  </label>
+  <select
+    id="delivery"
+    name="delivery"
+    defaultValue={deliveryFilter ?? ""}
+    className="rounded-md border px-2 py-1"
+  >
+    <option value="">Any</option>
+    {DELIVERY.map((value) => (
+      <option key={value} value={value}>
+        {formatDeliveryUiLabel(value)}
+      </option>
+    ))}
+  </select>
+</div>
+
 
               {/* SNC filter */}
               <div className="flex flex-col gap-1">
@@ -594,12 +602,7 @@ export default async function TeacherStudentDetail(props: {
                         ? "—"
                         : formatPenniesAsPounds(lesson.gross_pennies);
 
-                    const deliveryLabel =
-                      lesson.delivery === "online"
-                        ? "Online"
-                        : lesson.delivery === "f2f"
-                        ? "Face to face"
-                        : lesson.delivery;
+                    const deliveryLabel = formatDeliveryLabel(lesson.delivery);
 
                     return (
                       <tr key={lesson.lesson_id}>

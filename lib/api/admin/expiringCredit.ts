@@ -1,11 +1,9 @@
-// lib/api/admin/expiringCredit.ts
-//
-// Read-only helpers for expiring credit.
-// Uses v_credit_lot_remaining so all expiry rules live in SQL.
-
 import type { ExpiryPolicy as ExpiryPolicyEnum } from "@/lib/enums";
-import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
 import { getAdminClient, logAdminError } from "@/lib/api/admin/_shared";
+import {
+  creditLotRemainingBaseQuery,
+  type CreditLotRemainingRow,
+} from "@/lib/api/shared/creditLotsView";
 
 // Only "mandatory" and "advisory" are relevant for expiring-lot lists.
 export type ExpiryPolicy = Extract<
@@ -36,11 +34,7 @@ export async function getExpiringLotsByPolicy(
 ): Promise<ExpiringLotRow[]> {
   const sb = getAdminClient();
 
-  const { data, error } = await sb
-    .from("v_credit_lot_remaining")
-    .select(
-      "credit_lot_id, student_id, minutes_remaining, expiry_date, expiry_policy, expiry_within_30d, state",
-    )
+  const { data, error } = await creditLotRemainingBaseQuery(sb)
     .eq("expiry_within_30d", true)
     .eq("state", "open")
     .gt("minutes_remaining", 0)
@@ -52,21 +46,19 @@ export async function getExpiringLotsByPolicy(
     return [];
   }
 
-  const rows =
-    (data ?? []) as unknown as VCreditLotRemainingRow[];
+  const rows = (data ?? []) as unknown as CreditLotRemainingRow[];
 
-  // Map from generic view row → narrowed ExpiringLotRow
   return rows.map(
     (row): ExpiringLotRow => ({
       credit_lot_id: row.credit_lot_id,
       student_id: row.student_id,
       minutes_remaining: row.minutes_remaining ?? 0,
       expiry_date: row.expiry_date,
-      // We know we're filtering by `policy`, so we can safely use it
       expiry_policy: policy,
     }),
   );
 }
+
 
 /**
  * Group expiring lots by student for a given policy.
