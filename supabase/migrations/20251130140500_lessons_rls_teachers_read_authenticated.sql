@@ -1,17 +1,5 @@
--- RLS: teachers read own lessons -> authenticated-only
-
-begin;
-
-alter policy "teachers read own lessons"
-on public.lessons
-to authenticated
-using (
-  exists (
-    select 1
-    from teachers t
-    where t.id = lessons.teacher_id
-      and t.profile_id = auth.uid()
-  )
-);
-
-commit;
+-- 20251130140500_lessons_rls_teachers_read_authenticated.sql
+-- Historical RLS change for "teachers read own lessons".
+-- This policy no longer exists in the baseline schema and its logic
+-- is already baked into 20250101000000_baseline_schema.sql.
+-- Intentionally left as a no-op so the migration can be applied safely.
