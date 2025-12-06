@@ -132,8 +132,14 @@ export default async function ExpiryAnalyticsPage({
         className="mb-4 grid gap-3 rounded-lg border bg-white p-3 text-xs md:grid-cols-4 lg:grid-cols-6"
       >
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Expiry month</label>
+          <label
+            htmlFor="month"
+            className="font-medium text-gray-700"
+          >
+            Expiry month
+          </label>
           <input
+            id="month"
             type="month"
             name="month"
             defaultValue={monthInput}
@@ -142,8 +148,14 @@ export default async function ExpiryAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Student name</label>
+          <label
+            htmlFor="studentName"
+            className="font-medium text-gray-700"
+          >
+            Student name
+          </label>
           <input
+            id="studentName"
             type="text"
             name="studentName"
             defaultValue={studentNameFilter}
@@ -153,10 +165,14 @@ export default async function ExpiryAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">
+          <label
+            htmlFor="tier"
+            className="font-medium text-gray-700"
+          >
             Tier (restriction)
           </label>
           <select
+            id="tier"
             name="tier"
             defaultValue={tierFilter}
             className="rounded-md border px-2 py-1"
@@ -170,8 +186,14 @@ export default async function ExpiryAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Lot type</label>
+          <label
+            htmlFor="sourceType"
+            className="font-medium text-gray-700"
+          >
+            Lot type
+          </label>
           <select
+            id="sourceType"
             name="sourceType"
             defaultValue={sourceType}
             className="rounded-md border px-2 py-1"
@@ -185,8 +207,14 @@ export default async function ExpiryAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Expiry policy</label>
+          <label
+            htmlFor="expiryPolicy"
+            className="font-medium text-gray-700"
+          >
+            Expiry policy
+          </label>
           <select
+            id="expiryPolicy"
             name="expiryPolicy"
             defaultValue={expiryPolicyFilter}
             className="rounded-md border px-2 py-1"

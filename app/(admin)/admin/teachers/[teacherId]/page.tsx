@@ -29,6 +29,7 @@ import type { TeacherStatus } from "@/lib/types/teachers";
 import type { VTeacherLessonRow } from "@/lib/types/views/teacher";
 
 import { SetTeacherPastButton } from "./SetTeacherPastButton";
+import { LessonState } from "@/lib/enums";
 
 
 export const dynamic = "force-dynamic";
@@ -595,8 +596,9 @@ export default async function AdminTeacherPage({ params }: PageProps) {
                     </td>
                     <td className="py-2 pr-4">{l.duration_min} min</td>
                     <td className="py-2 pr-4">
-  {formatLessonState(l.state)}
-</td>
+                    {formatLessonState(l.state as LessonState)}
+                    </td>
+
                   </tr>
                 ))}
               </tbody>

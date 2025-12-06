@@ -1,13 +1,15 @@
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { buildTeacherSummary } from "@/lib/types/analytics";        
+import { buildTeacherSummary } from "@/lib/types/analytics";
 import { TIER_VALUES, formatTierFilterLabel } from "@/lib/domain/tiers";
-import { LENGTH_RESTRICTIONS, formatLengthRestrictionLabel } from "@/lib/domain/lengths";
+import {
+  LENGTH_RESTRICTIONS,
+  formatLengthRestrictionLabel,
+} from "@/lib/domain/lengths";
 import type { Tier, LengthCat } from "@/lib/enums";
 import { DELIVERY } from "@/lib/enums";
 import { formatDeliveryUiLabel } from "@/lib/domain/delivery";
-import type { LessonMarginRow } from "@/lib/types/views/analytics"; 
-
+import type { LessonMarginRow } from "@/lib/types/views/analytics";
 
 type LengthCatFilter = "" | LengthCat;
 
@@ -29,9 +31,9 @@ type SearchParams = {
 export default async function ReportRevenueCost({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParams>;
+  searchParams?: SearchParams;
 }) {
-  const sp = ((await searchParams) ?? {}) as SearchParams;
+  const sp = searchParams ?? {};
 
   const getParam = (key: string) => {
     const val = sp[key];
@@ -45,13 +47,13 @@ export default async function ReportRevenueCost({
   const teacherNameFilter = getParam("teacherName");
   const studentNameFilter = getParam("studentName");
   const delivery = getParam("delivery");
-const tierParam = getParam("tier");
-const lengthCat = getParam("lengthCat") as LengthCatFilter;
+  const tierParam = getParam("tier");
+  const lengthCat = getParam("lengthCat") as LengthCatFilter;
 
-// Narrow tierParam to a valid Tier (or null if empty/invalid)
-const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
-  ? (tierParam as Tier)
-  : null;
+  // Narrow tierParam to a valid Tier (or null if empty/invalid)
+  const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
+    ? (tierParam as Tier)
+    : null;
 
   const monthStart =
     monthInput && monthInput.length === 7 ? `${monthInput}-01` : undefined;
@@ -80,7 +82,7 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
       margin_after_drinks_pct,
       student_tier,
       length_cat
-    `
+    `,
     );
 
   if (monthStart) {
@@ -104,12 +106,11 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
     lessonQuery = lessonQuery.eq("delivery", delivery);
   }
   if (tier) {
-
-  lessonQuery = lessonQuery.eq("student_tier", tier);
-}
+    lessonQuery = lessonQuery.eq("student_tier", tier);
+  }
   if (lengthCat) {
-  lessonQuery = lessonQuery.eq("length_cat", lengthCat);
-}
+    lessonQuery = lessonQuery.eq("length_cat", lengthCat);
+  }
 
   const { data: lessonData, error: lessonError } = await lessonQuery
     .order("month_start", { ascending: false })
@@ -144,8 +145,11 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
         className="mb-4 grid gap-3 rounded-lg border bg-white p-3 text-xs md:grid-cols-4 lg:grid-cols-6"
       >
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Month</label>
+          <label htmlFor="month" className="font-medium text-gray-700">
+            Month
+          </label>
           <input
+            id="month"
             type="month"
             name="month"
             defaultValue={monthInput}
@@ -154,8 +158,11 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">From (date)</label>
+          <label htmlFor="from" className="font-medium text-gray-700">
+            From (date)
+          </label>
           <input
+            id="from"
             type="date"
             name="from"
             defaultValue={fromInput}
@@ -164,8 +171,11 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">To (date)</label>
+          <label htmlFor="to" className="font-medium text-gray-700">
+            To (date)
+          </label>
           <input
+            id="to"
             type="date"
             name="to"
             defaultValue={toInput}
@@ -174,8 +184,14 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Teacher name</label>
+          <label
+            htmlFor="teacherName"
+            className="font-medium text-gray-700"
+          >
+            Teacher name
+          </label>
           <input
+            id="teacherName"
             type="text"
             name="teacherName"
             defaultValue={teacherNameFilter}
@@ -184,8 +200,14 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Student name</label>
+          <label
+            htmlFor="studentName"
+            className="font-medium text-gray-700"
+          >
+            Student name
+          </label>
           <input
+            id="studentName"
             type="text"
             name="studentName"
             defaultValue={studentNameFilter}
@@ -194,54 +216,65 @@ const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Delivery</label>
-         <select
-  name="delivery"
-  defaultValue={delivery}
-  className="rounded-md border px-2 py-1"
->
-  <option value="">Any</option>
-  {DELIVERY.map((value) => (
-    <option key={value} value={value}>
-      {formatDeliveryUiLabel(value)}
-    </option>
-  ))}
-</select>
+          <label
+            htmlFor="delivery"
+            className="font-medium text-gray-700"
+          >
+            Delivery
+          </label>
+          <select
+            id="delivery"
+            name="delivery"
+            defaultValue={delivery}
+            className="rounded-md border px-2 py-1"
+          >
+            <option value="">Any</option>
+            {DELIVERY.map((value) => (
+              <option key={value} value={value}>
+                {formatDeliveryUiLabel(value)}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex flex-col gap-1">
-  <label className="font-medium text-gray-700">Tier</label>
-  <select
-    name="tier"
-    defaultValue={tierParam}  // <-- change from `tier` to `tierParam`
-    className="rounded-md border px-2 py-1"
-  >
-    {(["", ...TIER_VALUES] as const).map((v) => (
-      <option key={v} value={v}>
-        {formatTierFilterLabel(v as "" | Tier)}
-      </option>
-    ))}
-  </select>
-</div>
+          <label htmlFor="tier" className="font-medium text-gray-700">
+            Tier
+          </label>
+          <select
+            id="tier"
+            name="tier"
+            defaultValue={tierParam}
+            className="rounded-md border px-2 py-1"
+          >
+            {(["", ...TIER_VALUES] as const).map((v) => (
+              <option key={v} value={v}>
+                {formatTierFilterLabel(v as "" | Tier)}
+              </option>
+            ))}
+          </select>
+        </div>
 
-
-       <div className="flex flex-col gap-1">
-  <label className="font-medium text-gray-700">Length cat</label>
-  <select
-    name="lengthCat"
-    defaultValue={lengthCat}
-    className="rounded-md border px-2 py-1"
-  >
-    {(["", ...LENGTH_RESTRICTIONS] as const).map((v) => (
-      <option key={v} value={v}>
-        {v === ""
-          ? "Any"
-          : formatLengthRestrictionLabel(v as LengthCat)}
-      </option>
-    ))}
-  </select>
-</div>
-
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="lengthCat"
+            className="font-medium text-gray-700"
+          >
+            Length cat
+          </label>
+          <select
+            id="lengthCat"
+            name="lengthCat"
+            defaultValue={lengthCat}
+            className="rounded-md border px-2 py-1"
+          >
+            {(["", ...LENGTH_RESTRICTIONS] as const).map((v) => (
+              <option key={v} value={v}>
+                {v === "" ? "Any" : formatLengthRestrictionLabel(v as LengthCat)}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="flex items-end gap-2">
           <button

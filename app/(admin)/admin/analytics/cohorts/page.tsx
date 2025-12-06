@@ -4,11 +4,11 @@ import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { formatMinutesAsHours } from "@/lib/formatters";
 import { TIER_VALUES, formatTierFilterLabel } from "@/lib/domain/tiers";
-import type {Tier,} from "@/lib/enums";
+import type { Tier } from "@/lib/enums";
 
 type CohortSummaryRow = {
   cohort_month: string;
-  student_tier: string | null;
+  student_tier: Tier | null;
   first_teacher_id: string | null;
   first_teacher_name: string | null;
   cohort_size: number;
@@ -44,9 +44,9 @@ export const dynamic = "force-dynamic";
 export default async function CohortReportPage({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParams>;
+  searchParams?: SearchParams;
 }) {
-  const sp = ((await searchParams) ?? {}) as SearchParams;
+  const sp = searchParams ?? {};
 
   const getParam = (key: string) => {
     const val = sp[key];
@@ -55,7 +55,7 @@ export default async function CohortReportPage({
   };
 
   const cohortMonth = getParam("cohortMonth"); // "YYYY-MM"
-  const tierParam = getParam("tier");          // raw string from URL
+  const tierParam = getParam("tier"); // raw string from URL
   const teacherName = getParam("teacherName");
 
   // Narrow to a valid Tier (or null if invalid/empty)
@@ -89,11 +89,11 @@ export default async function CohortReportPage({
     `);
 
   if (cohortMonth && cohortMonth.length === 7) {
+    // view stores cohort_month as date (YYYY-MM-01)
     query = query.eq("cohort_month", `${cohortMonth}-01`);
   }
 
   if (tier) {
-    // here `tier` is narrowed to `Tier`, which matches the Supabase type
     query = query.eq("student_tier", tier);
   }
 
@@ -121,10 +121,14 @@ export default async function CohortReportPage({
         className="mb-4 grid gap-3 rounded-lg border bg-white p-3 text-xs md:grid-cols-4"
       >
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">
+          <label
+            htmlFor="cohortMonth"
+            className="font-medium text-gray-700"
+          >
             Cohort month (first lesson)
           </label>
           <input
+            id="cohortMonth"
             type="month"
             name="cohortMonth"
             defaultValue={cohortMonth}
@@ -133,23 +137,35 @@ export default async function CohortReportPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Tier</label>
+          <label
+            htmlFor="tier"
+            className="font-medium text-gray-700"
+          >
+            Tier
+          </label>
           <select
-  name="tier"
-  defaultValue={tierParam}   // ⬅ string, so TS is happy
-  className="rounded-md border px-2 py-1"
->
-  {(["", ...TIER_VALUES] as const).map((v) => (
-    <option key={v} value={v}>
-      {formatTierFilterLabel(v as "" | Tier)}
-    </option>
-  ))}
-</select>
+            id="tier"
+            name="tier"
+            defaultValue={tierParam}
+            className="rounded-md border px-2 py-1"
+          >
+            {(["", ...TIER_VALUES] as const).map((v) => (
+              <option key={v} value={v}>
+                {formatTierFilterLabel(v as "" | Tier)}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">First teacher name</label>
+          <label
+            htmlFor="teacherName"
+            className="font-medium text-gray-700"
+          >
+            First teacher name
+          </label>
           <input
+            id="teacherName"
             type="text"
             name="teacherName"
             defaultValue={teacherName}
@@ -165,7 +181,7 @@ export default async function CohortReportPage({
             Apply
           </button>
           <a
-            href="/admin/reports/cohorts"
+            href="/admin/analytics/cohorts"
             className="text-xs text-gray-600 underline"
           >
             Reset
@@ -210,7 +226,9 @@ export default async function CohortReportPage({
                 </tr>
               ) : (
                 rows.map((row) => (
-                  <tr key={`${row.cohort_month}-${row.first_teacher_id}-${row.student_tier ?? "any"}`}>
+                  <tr
+                    key={`${row.cohort_month}-${row.first_teacher_id}-${row.student_tier ?? "any"}`}
+                  >
                     <td className="px-3 py-2 text-[11px] text-gray-700">
                       {row.cohort_month}
                     </td>

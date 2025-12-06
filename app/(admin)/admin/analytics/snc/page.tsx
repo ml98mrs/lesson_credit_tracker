@@ -4,7 +4,7 @@ import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { formatPenniesAsPounds } from "@/lib/formatters";
 import { TIER_VALUES, formatTierFilterLabel } from "@/lib/domain/tiers";
-import type {Tier,} from "@/lib/enums";
+import type { Tier } from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ type SncStatsRow = {
   teacher_name: string | null;
   student_id: string;
   student_name: string | null;
-  student_tier: string | null;
+  student_tier: Tier | null;
 
   lesson_count_total: number | null;
   lesson_minutes_total: number | null;
@@ -52,9 +52,9 @@ function formatMinutes(m: number | null | undefined) {
 export default async function SncAnalyticsPage({
   searchParams,
 }: {
-  searchParams?: Promise<SearchParams>;
+  searchParams?: SearchParams;
 }) {
-  const sp = ((await searchParams) ?? {}) as SearchParams;
+  const sp = searchParams ?? {};
 
   const getParam = (key: string) => {
     const val = sp[key];
@@ -100,7 +100,7 @@ export default async function SncAnalyticsPage({
       free_snc_teacher_pay_pennies,
       charged_snc_revenue_pennies,
       charged_snc_teacher_pay_pennies
-    `
+    `,
     );
 
   if (monthStart) {
@@ -116,7 +116,6 @@ export default async function SncAnalyticsPage({
   }
 
   if (tier) {
-    
     query = query.eq("student_tier", tier);
   }
 
@@ -139,8 +138,14 @@ export default async function SncAnalyticsPage({
         className="mb-4 grid gap-3 rounded-lg border bg-white p-3 text-xs md:grid-cols-4 lg:grid-cols-6"
       >
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Month</label>
+          <label
+            htmlFor="month"
+            className="font-medium text-gray-700"
+          >
+            Month
+          </label>
           <input
+            id="month"
             type="month"
             name="month"
             defaultValue={monthInput}
@@ -149,8 +154,14 @@ export default async function SncAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Teacher name</label>
+          <label
+            htmlFor="teacherName"
+            className="font-medium text-gray-700"
+          >
+            Teacher name
+          </label>
           <input
+            id="teacherName"
             type="text"
             name="teacherName"
             defaultValue={teacherNameFilter}
@@ -160,8 +171,14 @@ export default async function SncAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Student name</label>
+          <label
+            htmlFor="studentName"
+            className="font-medium text-gray-700"
+          >
+            Student name
+          </label>
           <input
+            id="studentName"
             type="text"
             name="studentName"
             defaultValue={studentNameFilter}
@@ -171,20 +188,25 @@ export default async function SncAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-  <label className="font-medium text-gray-700">Tier</label>
-  <select
-    name="tier"
-    defaultValue={tierParam}  // ← use the raw string param
-    className="rounded-md border px-2 py-1"
-  >
-    {(["", ...TIER_VALUES] as const).map((v) => (
-      <option key={v} value={v}>
-        {formatTierFilterLabel(v as "" | Tier)}
-      </option>
-    ))}
-  </select>
-</div>
-
+          <label
+            htmlFor="tier"
+            className="font-medium text-gray-700"
+          >
+            Tier
+          </label>
+          <select
+            id="tier"
+            name="tier"
+            defaultValue={tierParam} // raw string param
+            className="rounded-md border px-2 py-1"
+          >
+            {(["", ...TIER_VALUES] as const).map((v) => (
+              <option key={v} value={v}>
+                {formatTierFilterLabel(v as "" | Tier)}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="flex items-end gap-2">
           <button

@@ -32,10 +32,7 @@ import {
   formatLengthRestrictionLabel,
 } from "@/lib/domain/lengths";
 
-import {
-  TIER_VALUES,
-  formatTierLabel,
-} from "@/lib/domain/tiers";
+import { TIER_VALUES, formatTierLabel } from "@/lib/domain/tiers";
 
 import {
   EXPIRY_POLICIES,
@@ -137,15 +134,15 @@ export default async function Page({
   const getParam = (key: string): string =>
     typeof sp[key] === "string" ? (sp[key] as string) : "";
 
-  const deliveryFilter = getParam("delivery"); 
-  const tierFilter = getParam("tier"); 
-  const lengthFilter = getParam("length"); 
-  const stateFilter = getParam("state"); 
-  const policyFilter = getParam("policy"); 
-  const studentFilter = getParam("student"); 
-  const extRefFilter = getParam("extRef"); 
-  const sortRemaining = getParam("sortRemaining"); 
-  const sortAmount = getParam("sortAmount"); 
+  const deliveryFilter = getParam("delivery");
+  const tierFilter = getParam("tier");
+  const lengthFilter = getParam("length");
+  const stateFilter = getParam("state");
+  const policyFilter = getParam("policy");
+  const studentFilter = getParam("student");
+  const extRefFilter = getParam("extRef");
+  const sortRemaining = getParam("sortRemaining");
+  const sortAmount = getParam("sortAmount");
 
   //
   // 1) Load recent invoice-backed credit lots
@@ -221,9 +218,7 @@ export default async function Page({
 
   if (lots.length > 0) {
     try {
-      const studentIds = Array.from(
-        new Set(lots.map((l) => l.student_id)),
-      );
+      const studentIds = Array.from(new Set(lots.map((l) => l.student_id)));
       const { data, error } = await sb
         .from("students")
         .select("id, profiles(full_name)")
@@ -245,8 +240,7 @@ export default async function Page({
   // Enrich lots into rows (with studentName + remainingMinutes)
   let rows: InvoiceRow[] = lots.map((lot) => ({
     lot,
-    studentName:
-      nameByStudentId.get(lot.student_id) ?? lot.student_id,
+    studentName: nameByStudentId.get(lot.student_id) ?? lot.student_id,
     remainingMinutes: remainingByLotId.get(lot.id) ?? null,
   }));
 
@@ -286,9 +280,7 @@ export default async function Page({
   }
 
   if (policyFilter) {
-    rows = rows.filter(
-      ({ lot }) => lot.expiry_policy === policyFilter,
-    );
+    rows = rows.filter(({ lot }) => lot.expiry_policy === policyFilter);
   }
 
   if (studentFilter.trim()) {
@@ -324,13 +316,9 @@ export default async function Page({
   if (sortAmount === "asc" || sortAmount === "desc") {
     rows.sort((a, b) => {
       const aVal =
-        typeof a.lot.amount_pennies === "number"
-          ? a.lot.amount_pennies
-          : -1;
+        typeof a.lot.amount_pennies === "number" ? a.lot.amount_pennies : -1;
       const bVal =
-        typeof b.lot.amount_pennies === "number"
-          ? b.lot.amount_pennies
-          : -1;
+        typeof b.lot.amount_pennies === "number" ? b.lot.amount_pennies : -1;
       if (aVal === bVal) return 0;
       const cmp = aVal < bVal ? -1 : 1;
       return sortAmount === "asc" ? cmp : -cmp;
@@ -347,9 +335,7 @@ export default async function Page({
           Error loading credit invoices: {errorMsg}
         </p>
       ) : lots.length === 0 ? (
-        <p className="text-sm text-gray-700">
-          No invoice-backed credit yet.
-        </p>
+        <p className="text-sm text-gray-700">No invoice-backed credit yet.</p>
       ) : (
         <>
           {/* Filters */}
@@ -359,10 +345,14 @@ export default async function Page({
           >
             {/* Text filters */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="student"
+                className="text-[11px] text-gray-500"
+              >
                 Student
               </label>
               <input
+                id="student"
                 name="student"
                 defaultValue={studentFilter}
                 placeholder="Search by student name…"
@@ -371,10 +361,14 @@ export default async function Page({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="extRef"
+                className="text-[11px] text-gray-500"
+              >
                 Invoice / external ref
               </label>
               <input
+                id="extRef"
                 name="extRef"
                 defaultValue={extRefFilter}
                 placeholder="Search by invoice #…"
@@ -384,10 +378,14 @@ export default async function Page({
 
             {/* Dropdown filters */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="delivery"
+                className="text-[11px] text-gray-500"
+              >
                 Delivery restriction
               </label>
               <select
+                id="delivery"
                 name="delivery"
                 defaultValue={deliveryFilter}
                 className="h-7 rounded border px-2 text-xs"
@@ -401,10 +399,14 @@ export default async function Page({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="tier"
+                className="text-[11px] text-gray-500"
+              >
                 Tier restriction
               </label>
               <select
+                id="tier"
                 name="tier"
                 defaultValue={tierFilter}
                 className="h-7 rounded border px-2 text-xs"
@@ -418,10 +420,14 @@ export default async function Page({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="length"
+                className="text-[11px] text-gray-500"
+              >
                 Length restriction
               </label>
               <select
+                id="length"
                 name="length"
                 defaultValue={lengthFilter}
                 className="h-7 rounded border px-2 text-xs"
@@ -435,10 +441,14 @@ export default async function Page({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="state"
+                className="text-[11px] text-gray-500"
+              >
                 State
               </label>
               <select
+                id="state"
                 name="state"
                 defaultValue={stateFilter}
                 className="h-7 rounded border px-2 text-xs"
@@ -452,10 +462,14 @@ export default async function Page({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="policy"
+                className="text-[11px] text-gray-500"
+              >
                 Expiry policy
               </label>
               <select
+                id="policy"
                 name="policy"
                 defaultValue={policyFilter}
                 className="h-7 rounded border px-2 text-xs"
@@ -470,10 +484,14 @@ export default async function Page({
 
             {/* Sort controls (simple strings; no domain helpers needed) */}
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="sortRemaining"
+                className="text-[11px] text-gray-500"
+              >
                 Remaining hours
               </label>
               <select
+                id="sortRemaining"
                 name="sortRemaining"
                 defaultValue={sortRemaining}
                 className="h-7 rounded border px-2 text-xs"
@@ -485,10 +503,14 @@ export default async function Page({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] text-gray-500">
+              <label
+                htmlFor="sortAmount"
+                className="text-[11px] text-gray-500"
+              >
                 Amount
               </label>
               <select
+                id="sortAmount"
                 name="sortAmount"
                 defaultValue={sortAmount}
                 className="h-7 rounded border px-2 text-xs"
@@ -557,9 +579,7 @@ export default async function Page({
                       </td>
                       <td className="py-2 pr-4">
                         {typeof remainingMinutes === "number"
-                          ? `${formatMinutesAsHours(
-                              remainingMinutes,
-                            )} h`
+                          ? `${formatMinutesAsHours(remainingMinutes)} h`
                           : "—"}
                       </td>
                       <td className="py-2 pr-4">{amount}</td>
@@ -572,10 +592,10 @@ export default async function Page({
                           : "Unrestricted"}
                       </td>
                       <td className="py-2 pr-4">
-  {formatLengthRestrictionLabel(
-    (lot.length_restriction ?? "none") as LengthCat,
-  )}
-</td>
+                        {formatLengthRestrictionLabel(
+                          (lot.length_restriction ?? "none") as LengthCat,
+                        )}
+                      </td>
                       <td className="py-2 pr-4">{lot.state}</td>
                       <td className="py-2 pr-4">
                         {getExpiryPolicyLabel(lot.expiry_policy)}

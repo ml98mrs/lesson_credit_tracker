@@ -64,9 +64,7 @@ export function formatLessonLength(lengthCat: LengthCat): string {
  * Human-friendly label for lesson state.
  * Keep this in sync with admin UI copy.
  */
-export function formatLessonState(
-  state: LessonState | string,
-): string {
+export function formatLessonState(state: LessonState): string {
   switch (state) {
     case "pending":
       return "Pending";
@@ -74,8 +72,6 @@ export function formatLessonState(
       return "Confirmed";
     case "declined":
       return "Declined";
-    default:
-      return state;
   }
 }
 
@@ -162,8 +158,12 @@ export function buildAdminNameOptionsFromMaps(
   const { studentNameById, teacherNameById } = maps;
 
   return {
-    studentOptions: Array.from(new Set(studentNameById.values())).sort(),
-    teacherOptions: Array.from(new Set(teacherNameById.values())).sort(),
+    studentOptions: Array.from(new Set(studentNameById.values())).sort(
+  (a, b) => a.localeCompare(b, "en", { sensitivity: "base" }),
+),
+teacherOptions: Array.from(new Set(teacherNameById.values())).sort(
+  (a, b) => a.localeCompare(b, "en", { sensitivity: "base" }),
+),
   };
 }
 
