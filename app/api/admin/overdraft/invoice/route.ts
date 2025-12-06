@@ -2,8 +2,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import type { OverdraftSettlementResult } from "@/lib/types/credits/overdraft";
+import type { Database } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
+
+type InvoiceOverdraftArgs =
+  Database["public"]["Functions"]["rpc_invoice_overdraft"]["Args"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,8 +27,8 @@ export async function POST(req: NextRequest) {
     };
 
     const studentId = body.studentId;
-    const invoiceRef = body.invoiceRef;
-    const note = body.note ?? null;
+    const invoiceRef = body.invoiceRef?.trim();
+    const note = body.note;
 
     if (!studentId) {
       return NextResponse.json(
@@ -33,20 +37,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!invoiceRef || !invoiceRef.trim()) {
+    if (!invoiceRef) {
       return NextResponse.json(
         { error: "invoiceRef is required" },
         { status: 400 },
       );
     }
 
-    const sb = await getAdminSupabase();
+    const sb = getAdminSupabase();
 
-    const { data, error } = await sb.rpc("rpc_invoice_overdraft", {
+    const args: InvoiceOverdraftArgs = {
       p_student_id: studentId,
       p_invoice_ref: invoiceRef,
-      p_note: note,
-    });
+    };
+
+    // Generated types typically have p_note as string | undefined.
+    // SQL treats NULL as "no note", so omitting the arg is equivalent.
+    if (note !== null && note !== undefined && note.trim() !== "") {
+      args.p_note = note;
+    }
+
+    const { data, error } = await sb.rpc("rpc_invoice_overdraft", args);
 
     if (error) {
       return NextResponse.json(
@@ -57,10 +68,8 @@ export async function POST(req: NextRequest) {
 
     const result = data as OverdraftSettlementResult;
 
-    // Same pattern as award route – just forward the RPC JSON
+    // Forward the RPC JSON directly
     return NextResponse.json(result);
-    // or, if you prefer the wrapper:
-    // return NextResponse.json({ ok: true, result } as const);
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Unknown error";

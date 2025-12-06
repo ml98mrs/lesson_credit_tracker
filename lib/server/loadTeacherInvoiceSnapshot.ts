@@ -1,10 +1,15 @@
 // lib/server/loadTeacherInvoiceSnapshot.ts
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/database.types";
+
 import {
   formatInvoiceMonthLabel,
   type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import type { TeacherInvoiceRow } from "@/lib/types/teachers";
+
+// Canonical typed Supabase client for this file
+type Supa = SupabaseClient<Database>;
 
 type InvoiceSummary = {
   teacher_id: string;
@@ -85,7 +90,7 @@ export type TeacherInvoiceSnapshot = {
 };
 
 type LoadOpts = {
-  supabase: SupabaseClient;
+  supabase: Supa;
   teacherId: string;
   invoiceId: number;
   requirePaid?: boolean;
@@ -95,7 +100,7 @@ export async function loadTeacherInvoiceSnapshot({
   supabase,
   teacherId,
   invoiceId,
-  requirePaid,
+  requirePaid = false,
 }: LoadOpts): Promise<TeacherInvoiceSnapshot> {
   // 1) Invoice row (and teacher ownership)
   const { data: invoiceRow, error: invoiceError } = await supabase

@@ -1,11 +1,12 @@
 // lib/supabase/middleware.ts
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { NextRequest } from "next/server";
+import type { Database } from "@/lib/database.types";
 
 export function createMiddlewareSupabaseClient(req: NextRequest) {
-  const res = new Response(); // or accept Response in args if you prefer
+  const res = new Response();
 
-  const supabase = createServerClient(
+  const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {

@@ -55,11 +55,14 @@ const WARNING_SECTIONS: WarningSection[] = [
 function emphasisClasses(emphasis: WarningSection["emphasis"]) {
   switch (emphasis) {
     case "high":
-      return "border-red-400/70 bg-red-50/60";
+      // Critical lists: overdraft, hazards
+      return "border-red-300 bg-red-50";
     case "medium":
-      return "border-amber-300/70 bg-amber-50/60";
+      // Soft warnings: expiring credit, low credit
+      return "border-amber-300 bg-amber-50";
     case "low":
     default:
+      // Neutral / low-risk lists: cancelled SNC
       return "border-slate-200 bg-slate-50";
   }
 }

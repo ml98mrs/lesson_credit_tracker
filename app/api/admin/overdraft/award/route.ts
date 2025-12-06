@@ -2,8 +2,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import type { OverdraftSettlementResult } from "@/lib/types/credits/overdraft";
+import type { Database } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
+
+type AwardOverdraftArgs =
+  Database["public"]["Functions"]["rpc_award_overdraft"]["Args"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,8 +27,8 @@ export async function POST(req: NextRequest) {
     };
 
     const studentId = body.studentId;
-    const awardReasonCode = body.awardReasonCode;
-    const note = body.note ?? null;
+    const awardReasonCode = body.awardReasonCode?.trim();
+    const note = body.note;
 
     if (!studentId) {
       return NextResponse.json(
@@ -33,20 +37,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!awardReasonCode || !awardReasonCode.trim()) {
+    if (!awardReasonCode) {
       return NextResponse.json(
         { error: "awardReasonCode is required" },
         { status: 400 },
       );
     }
 
-    const sb = await getAdminSupabase();
+    const sb = getAdminSupabase();
 
-    const { data, error } = await sb.rpc("rpc_award_overdraft", {
+    const args: AwardOverdraftArgs = {
       p_student_id: studentId,
       p_award_reason_code: awardReasonCode,
-      p_note: note,
-    });
+    };
+
+    // Generated types usually have p_note as string | undefined.
+    // The SQL function treats NULL as "no note", so omitting the arg
+    // is equivalent to passing NULL.
+    if (note !== null && note !== undefined && note.trim() !== "") {
+      args.p_note = note;
+    }
+
+    const { data, error } = await sb.rpc("rpc_award_overdraft", args);
 
     if (error) {
       return NextResponse.json(
@@ -58,11 +70,7 @@ export async function POST(req: NextRequest) {
     // Trust the SQL shape and cast it:
     const result = data as OverdraftSettlementResult;
 
-    // Option A: forward the RPC JSON as-is (recommended)
     return NextResponse.json(result);
-
-    // If you *really* want to keep an outer wrapper, you could do:
-    // return NextResponse.json({ ok: true, result } as const);
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Unknown error";

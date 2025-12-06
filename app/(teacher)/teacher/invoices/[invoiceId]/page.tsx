@@ -90,6 +90,13 @@ export default async function TeacherInvoiceDetailPage(props: {
     studentNameById,
   } = snapshot;
 
+  
+  // 👇 Only show "Rejected" summary if there is at least one rejected expense
+  const hasRejectedExpenses =
+    (rejectedExpensesPennies ?? 0) > 0 ||
+    expenseDetails.some((exp) => exp.status === "rejected");
+
+
   return (
     <Section title="Invoice details" subtitle={monthLabel}>
       <div className="space-y-6">
@@ -238,11 +245,17 @@ export default async function TeacherInvoiceDetailPage(props: {
           </div>
         </div>
 
-        {/* Expenses panel */}
+               {/* Expenses panel */}
         <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-900">Expenses</h2>
 
-          <div className="grid grid-cols-3 gap-4 text-sm text-gray-900">
+          {/* Summary tiles */}
+          <div
+            className={[
+              "grid gap-4 text-sm text-gray-900",
+              hasRejectedExpenses ? "grid-cols-3" : "grid-cols-2",
+            ].join(" ")}
+          >
             <div>
               <div className="text-xs font-semibold text-gray-500">
                 Approved
@@ -255,18 +268,21 @@ export default async function TeacherInvoiceDetailPage(props: {
               </div>
               <div>{formatTeacherMoney(pendingExpensesPennies)}</div>
             </div>
-            <div>
-              <div className="text-xs font-semibold text-gray-500">
-                Rejected
+            {hasRejectedExpenses && (
+              <div>
+                <div className="text-xs font-semibold text-gray-500">
+                  Rejected
+                </div>
+                <div>{formatTeacherMoney(rejectedExpensesPennies)}</div>
               </div>
-              <div>{formatTeacherMoney(rejectedExpensesPennies)}</div>
-            </div>
+            )}
           </div>
 
           <p className="text-xs text-gray-600">
             Only approved expenses are included in the invoice total above.
           </p>
 
+          {/* Detailed expense list */}
           <div className="mt-3 overflow-hidden rounded-lg border border-gray-200">
             <table className="min-w-full divide-y divide-gray-200 text-xs">
               <thead className="bg-gray-50">

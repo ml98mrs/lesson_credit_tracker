@@ -90,7 +90,6 @@ export default async function PendingLessonsPage({ searchParams }: PageProps) {
                 <th className="py-2 pr-4">Student</th>
                 <th className="py-2 pr-4">Teacher</th>
                 <th className="py-2 pr-4">Delivery</th>
-   
                 <th className="py-2 pr-4">Duration</th>
                 <th className="py-2 pr-4">Type</th>
                 <th className="py-2 pr-4">Notes</th>

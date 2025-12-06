@@ -55,15 +55,19 @@ export default async function CohortReportPage({
   };
 
   const cohortMonth = getParam("cohortMonth"); // "YYYY-MM"
-  const tier = getParam("tier");
+  const tierParam = getParam("tier");          // raw string from URL
   const teacherName = getParam("teacherName");
+
+  // Narrow to a valid Tier (or null if invalid/empty)
+  const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
+    ? (tierParam as Tier)
+    : null;
 
   const supabase = getAdminSupabase();
 
   let query = supabase
     .from("v_student_cohort_summary")
-    .select(
-      `
+    .select(`
       cohort_month,
       student_tier,
       first_teacher_id,
@@ -82,14 +86,14 @@ export default async function CohortReportPage({
       minutes_0_6m_avg,
       minutes_0_12m_avg,
       reactivated_count
-    `
-    );
+    `);
 
   if (cohortMonth && cohortMonth.length === 7) {
     query = query.eq("cohort_month", `${cohortMonth}-01`);
   }
 
   if (tier) {
+    // here `tier` is narrowed to `Tier`, which matches the Supabase type
     query = query.eq("student_tier", tier);
   }
 
@@ -132,7 +136,7 @@ export default async function CohortReportPage({
           <label className="font-medium text-gray-700">Tier</label>
           <select
   name="tier"
-  defaultValue={tier}
+  defaultValue={tierParam}   // ⬅ string, so TS is happy
   className="rounded-md border px-2 py-1"
 >
   {(["", ...TIER_VALUES] as const).map((v) => (

@@ -1,11 +1,12 @@
 // lib/supabase/server.ts
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import type { Database } from "@/lib/database.types";
 
 export async function getServerSupabase() {
-  const cookieStore = await cookies(); // ← await is required in your Next version
+  const cookieStore = await cookies();
 
-  return createServerClient(
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -14,8 +15,7 @@ export async function getServerSupabase() {
           return cookieStore.get(name)?.value;
         },
         // On pure Server Components we don't set/remove cookies.
-        // (Middleware handles refresh; Route Handlers can use a different helper below.)
       },
-    }
+    },
   );
 }

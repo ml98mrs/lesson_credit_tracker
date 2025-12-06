@@ -84,7 +84,7 @@ export default async function TeacherLessonDetailPage({
     );
   }
 
-  if (!data) {
+    if (!data) {
     return (
       <Section title="Lesson detail">
         <p className="mb-3 text-sm text-gray-700">
@@ -109,6 +109,25 @@ export default async function TeacherLessonDetailPage({
     );
   }
 
+  // Extra safety: handle any incomplete record shapes
+  if (
+    !data.id ||
+    !data.start_at ||
+    data.duration_min == null ||
+    !data.student_id ||
+    !data.state
+  ) {
+    return (
+      <Section title="Lesson detail">
+        <p className="mb-3 text-sm text-red-600">
+          This lesson record is missing some required fields (id, start time,
+          duration, student, or state). Please contact the office if this
+          persists.
+        </p>
+      </Section>
+    );
+  }
+
   const lesson: LessonDetailRow = {
     id: data.id,
     start_at: data.start_at,
@@ -117,6 +136,7 @@ export default async function TeacherLessonDetailPage({
     state: data.state,
     student_name: data.student_name,
   };
+
 
   const studentLabel =
     lesson.student_name ?? `${lesson.student_id.slice(0, 8)}…`;

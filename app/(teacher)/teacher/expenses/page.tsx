@@ -1,5 +1,5 @@
 // app/(teacher)/teacher/expenses/page.tsx
-import Link from "next/link";
+
 import Section from "@/components/ui/Section";
 import { getServerSupabase } from "@/lib/supabase/server";
 import {
@@ -116,6 +116,13 @@ export default async function TeacherExpensesPage() {
     return "Other";
   }
 
+  const hasRejected = summaryRows.some(
+    (row) => (row.rejected_pennies ?? 0) > 0,
+  );
+
+  const summaryColCount = hasRejected ? 4 : 3;
+
+
   return (
     <Section
       title="My expenses"
@@ -123,12 +130,7 @@ export default async function TeacherExpensesPage() {
     >
       {/* 🔗 Link to add a new expense */}
       <div className="mb-4 flex justify-end">
-        <Link
-          href="/teacher/expenses/new"
-          className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-        >
-          + Log new expense
-        </Link>
+        {/* ... */}
       </div>
 
       <div className="space-y-8">
@@ -155,16 +157,18 @@ export default async function TeacherExpensesPage() {
                   <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">
                     Pending
                   </th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Rejected
-                  </th>
+                  {hasRejected && (
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      Rejected
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
                 {summaryRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={summaryColCount}
                       className="px-3 py-4 text-center text-xs text-gray-500"
                     >
                       No expenses logged yet.
@@ -189,9 +193,11 @@ export default async function TeacherExpensesPage() {
                         <td className="px-3 py-2 text-right text-sm text-gray-900">
                           {formatPenniesAsPounds(row.pending_pennies)}
                         </td>
-                        <td className="px-3 py-2 text-right text-sm text-gray-900">
-                          {formatPenniesAsPounds(row.rejected_pennies)}
-                        </td>
+                        {hasRejected && (
+                          <td className="px-3 py-2 text-right text-sm text-gray-900">
+                            {formatPenniesAsPounds(row.rejected_pennies)}
+                          </td>
+                        )}
                       </tr>
                     );
                   })

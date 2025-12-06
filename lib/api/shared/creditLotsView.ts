@@ -1,9 +1,10 @@
 // lib/api/shared/creditLotsView.ts
 import type { VCreditLotRemainingRow } from "@/lib/types/views/credit";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/database.types";
 
 export function creditLotRemainingBaseQuery(
-  sb: SupabaseClient,
+  sb: SupabaseClient<Database>,
 ) {
   return sb
     .from("v_credit_lot_remaining")

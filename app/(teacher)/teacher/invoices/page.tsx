@@ -11,7 +11,7 @@ import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill"
 import { formatTeacherMoney } from "@/lib/domain/teachers";
 import { listTeacherInvoicesForTeacher } from "@/lib/server/listTeacherInvoices";
 import type { TeacherInvoiceSummary } from "@/lib/types/teachers";
-
+import { getTeacherPortalInvoiceSnapshot } from "@/lib/server/getTeacherPortalInvoiceSnapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +68,7 @@ export default async function TeacherInvoicesIndex() {
         subtitle="Monthly earnings and expenses summary."
       >
         <p className="mb-4 text-sm text-gray-600">
-          Sorry — we couldn’t load your invoice data right now.
+          Sorry — we couldn&apos;t load your invoice data right now.
         </p>
         <Link
           href={`/teacher/invoices/previous-month?monthStart=${invoiceMonthKey}`}
@@ -83,6 +83,30 @@ export default async function TeacherInvoicesIndex() {
   // Limit to latest 12 months (matching previous behaviour)
   const summaries = invoiceSummaries.slice(0, 12);
 
+  // Preload invoice snapshots so totals match the detail view
+  const snapshotByInvoiceId = new Map<
+    number,
+    Awaited<ReturnType<typeof getTeacherPortalInvoiceSnapshot>>
+  >();
+
+  await Promise.all(
+    summaries.map(async (row) => {
+      try {
+        const snapshot = await getTeacherPortalInvoiceSnapshot(
+          teacherId,
+          row.id,
+        );
+        snapshotByInvoiceId.set(row.id, snapshot);
+      } catch (err) {
+        console.error("[teacher] Error loading invoice snapshot", {
+          teacherId,
+          invoiceId: row.id,
+          err,
+        });
+      }
+    }),
+  );
+
   // Latest invoice month = previous calendar month (shared helper)
   const invoiceMonthKey = getInvoiceMonthKey();
   const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
@@ -96,9 +120,13 @@ export default async function TeacherInvoicesIndex() {
     (row) => row.monthStart !== invoiceMonthKey,
   );
 
-  const invoiceLessonGross = invoiceSummary?.lessonGrossPennies ?? 0;
-  const invoiceExpenses = invoiceSummary?.expensesPennies ?? 0;
-  const invoiceTotal = invoiceSummary?.totalPennies ?? 0;
+  const invoiceSnapshot = invoiceSummary
+    ? snapshotByInvoiceId.get(invoiceSummary.id)
+    : undefined;
+
+  const invoiceLessonGross = invoiceSnapshot?.lessonGrossPennies ?? 0;
+  const invoiceExpenses = invoiceSnapshot?.approvedExpensesPennies ?? 0;
+  const invoiceTotal = invoiceSnapshot?.totalPennies ?? 0;
 
   return (
     <Section
@@ -159,8 +187,8 @@ export default async function TeacherInvoicesIndex() {
 
           {historyRows.length === 0 ? (
             <p className="text-xs text-gray-500">
-              No other months to show yet. You’ll see previous months here once
-              invoices have been generated.
+              No other months to show yet. You&apos;ll see previous months here
+              once invoices have been generated.
             </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -189,9 +217,12 @@ export default async function TeacherInvoicesIndex() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {historyRows.map((row) => {
-                    const lessonGross = row.lessonGrossPennies ?? 0;
-                    const expenses = row.expensesPennies ?? 0;
-                    const total = row.totalPennies ?? 0;
+                    const snapshot = snapshotByInvoiceId.get(row.id);
+
+                    const lessonGross = snapshot?.lessonGrossPennies ?? 0;
+                    const expenses =
+                      snapshot?.approvedExpensesPennies ?? 0;
+                    const total = snapshot?.totalPennies ?? 0;
 
                     const monthLabel = formatInvoiceMonthLabel(row.monthStart);
 

@@ -1,18 +1,12 @@
 // lib/server/listTeacherInvoices.ts
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { TeacherInvoiceSummary } from "@/lib/types/teachers";
 
-/**
- * List all teacher_invoices rows for a given teacher, newest month first.
- *
- * This is intentionally DB-row-shaped data (from teacher_invoices), mapped into
- * the narrow TeacherInvoiceSummary used by admin/teacher UIs.
- *
- * Per-month totals still come from v_teacher_invoice_summary in the pages
- * that call this helper.
- */
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/database.types";
+import type { TeacherInvoiceSummary } from "@/lib/types/teachers";
+import type { InvoiceStatus } from "@/lib/teacherInvoices";
+
 export async function listTeacherInvoicesForTeacher(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient<Database>,
   teacherId: string,
 ): Promise<TeacherInvoiceSummary[]> {
   const { data, error } = await supabase
@@ -29,9 +23,7 @@ export async function listTeacherInvoicesForTeacher(
     id: row.id,
     teacherId: row.teacher_id,
     monthStart: row.month_start,
-    status: row.status,
+    status: row.status as InvoiceStatus,
     invoiceRef: row.invoice_ref,
-    // Totals still come from v_teacher_invoice_summary in the caller.
-    totalPennies: null,
   }));
 }

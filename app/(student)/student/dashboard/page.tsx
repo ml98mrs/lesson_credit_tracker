@@ -14,7 +14,6 @@ import { getServerSupabase } from "@/lib/supabase/server";
 import { formatStudentDateTime } from "@/lib/formatters";
 import { buildAwardLine } from "@/lib/awardReasons";
 import { loadStudentDashboard } from "@/lib/api/student/dashboard";
-import type { ProfileRow } from "@/lib/types/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -70,18 +69,19 @@ export default async function StudentDashboard({
 
   const studentId = studentRow.id as string;
 
-  // 3) Profile timezone (student's local time zone)
+  // 3) Profile timezone (student's local time zone) + full name for greeting
   const { data: profileRow, error: profileErr } = await supabase
     .from("profiles")
-    .select("timezone")
+    .select("timezone, full_name")
     .eq("id", user.id)
-    .single<Pick<ProfileRow, "timezone">>();
+    .single();
 
   if (profileErr) {
     throw new Error(profileErr.message);
   }
 
   const studentTimeZone = profileRow?.timezone ?? "Europe/London";
+  const studentFullName = profileRow?.full_name ?? null;
 
   // 4) Unseen admin replies for this student (for notifications)
   const { data: qData, error: qErr } = await supabase
@@ -187,7 +187,7 @@ export default async function StudentDashboard({
         title="Overview"
         subtitle="A quick snapshot of your current credit."
       >
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           {/* Brand-ish status card */}
           <div className="flex-1 rounded-2xl bg-blue-900 px-4 py-3 text-sm text-white shadow-sm">
             <div className="flex items-center justify-between gap-2">
@@ -195,6 +195,12 @@ export default async function StudentDashboard({
                 <div className="text-xs uppercase tracking-wide text-blue-100">
                   PS English · Credit portal
                 </div>
+                {studentFullName && (
+                  <div className="mt-1 text-xs text-blue-100/90">
+                    Welcome back,{" "}
+                    <span className="font-semibold">{studentFullName}</span>
+                  </div>
+                )}
                 <div className="mt-1 text-base font-semibold">
                   Your lesson credit at a glance
                 </div>
@@ -213,6 +219,7 @@ export default async function StudentDashboard({
             )}
           </div>
         </div>
+
 
         {/* Low-credit banners */}
         {!hasBothDeliveries && (

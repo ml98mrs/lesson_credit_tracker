@@ -190,6 +190,14 @@ export function getCurrentLondonMonthStartISO(): string {
   return getLondonMonthStartISO(new Date());
 }
 
+export function getPreviousLondonMonthStartISO(): string {
+  const thisMonthStart = getLondonMonthStartISO(new Date());
+  const d = new Date(thisMonthStart + "T00:00:00Z");
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return d.toISOString().slice(0, 10); // 'YYYY-MM-DD'
+}
+
+
 // --- Percent helpers (for analytics / margins) ------------------------------
 
 /**

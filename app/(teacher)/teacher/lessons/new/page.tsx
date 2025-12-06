@@ -12,8 +12,7 @@ import {
 } from "@/lib/types/profiles";
 // at top of these files
 import { DELIVERY } from "@/lib/enums";
-import { formatDeliveryUiLabel } from "@/lib/domain/delivery";
-
+import { formatDeliveryLabel, formatDeliveryUiLabel } from "@/lib/domain/delivery";
 
 const supabase = getBrowserSupabase();
 
@@ -447,8 +446,8 @@ export default function NewLesson() {
                       {getStudentName(r.student_id)}
                     </td>
                     <td className="py-2 pr-4">
-                      {r.delivery === "f2f" ? "F2F" : "Online"}
-                    </td>
+  {formatDeliveryLabel(r.delivery)}
+</td>
                     <td className="py-2 pr-4">{r.duration_min} min</td>
                     <td className="py-2 pr-4 capitalize">
                       {r.state.replace("_", " ")}

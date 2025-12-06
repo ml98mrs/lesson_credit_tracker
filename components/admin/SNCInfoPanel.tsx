@@ -2,6 +2,7 @@
 import React from "react";
 import { TierBadge } from "./TierBadge";
 import type { Tier } from "@/lib/enums";
+import { AlertBanner } from "@/components/ui/AlertBanner";
 
 // Keep this in sync with the API type
 export type SncStats = {
@@ -59,7 +60,7 @@ export default function SNCInfoPanel({
   }
 
   return (
-    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+    <AlertBanner severity="warningSoft" className="mt-4 rounded-2xl px-4 py-3 text-xs">
       <div className="mb-1 flex items-center justify-between gap-2">
         <div className="font-semibold tracking-wide uppercase">
           Short-notice cancellation
@@ -75,6 +76,6 @@ export default function SNCInfoPanel({
       </div>
 
       <div>{explainer}</div>
-    </div>
+    </AlertBanner>
   );
 }

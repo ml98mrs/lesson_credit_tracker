@@ -1,7 +1,9 @@
+// app/api/admin/credit-lots/import-invoice/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { DELIVERY, TIER, LENGTH_CAT, EXPIRY_POLICY } from "@/lib/enums";
+import type { Database } from "@/lib/database.types";
 
 // Simple YYYY-MM-DD check
 const ISO_DATE = z
@@ -18,7 +20,7 @@ const InvoiceSchema = z.object({
   // delivery restriction: 'online' | 'f2f' | null
   deliveryRestriction: z.enum(DELIVERY).nullable().optional(),
 
-  // tier restriction: 'basic' | 'premium' | 'elite' | null
+  // tier restriction: 
   tierRestriction: z.enum(TIER).nullable().optional(),
 
   lengthRestriction: z.enum(LENGTH_CAT).optional().default("none"),
@@ -33,6 +35,8 @@ const InvoiceSchema = z.object({
 
 type InvoiceInput = z.infer<typeof InvoiceSchema>;
 type ImportInvoiceResult = { id?: string } | null;
+type ImportInvoiceArgs =
+  Database["public"]["Functions"]["rpc_import_invoice"]["Args"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,13 +57,15 @@ export async function POST(req: NextRequest) {
     const p: InvoiceInput = parsed.data;
     const supabase = getAdminSupabase();
 
-    const { data, error } = await supabase.rpc("rpc_import_invoice", {
+    const payload = {
       p_student_id: p.studentId,
       p_external_ref: p.externalRef,
       p_minutes_granted: p.minutesGranted,
       p_amount_pennies: p.amountPennies,
       p_start_date: p.startDate,
 
+      // These are genuinely nullable in the SQL function, but the generated
+      // TypeScript types do not currently model that nullability.
       p_delivery_restriction: p.deliveryRestriction ?? null,
       p_tier_restriction: p.tierRestriction ?? null,
       p_length_restriction: p.lengthRestriction,
@@ -69,7 +75,12 @@ export async function POST(req: NextRequest) {
       p_lessons_per_month: p.lessonsPerMonth ?? null,
       p_duration_per_lesson_mins: p.durationPerLessonMins ?? null,
       p_buffer: p.buffer ?? null,
-    });
+    };
+
+    const { data, error } = await supabase.rpc(
+      "rpc_import_invoice",
+      payload as unknown as ImportInvoiceArgs,
+    );
 
     if (error) {
       // rpc_import_invoice raises with human-readable messages

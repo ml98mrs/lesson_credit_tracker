@@ -1,10 +1,9 @@
 // app/api/teacher/lessons/log/route.ts
 import { NextResponse } from "next/server";
 import { getTeacherSupabase } from "@/lib/supabase/teacher";
+import type { Delivery } from "@/lib/enums";
 
 export const dynamic = "force-dynamic";
-
-type Delivery = "online" | "f2f";
 
 export async function POST(req: Request) {
   try {
@@ -68,21 +67,34 @@ export async function POST(req: Request) {
       );
     }
 
+    // Expect the RPC to return the inserted lesson row with an `id`
+    const lesson = data as { id: string } | null;
+
+    if (!lesson?.id) {
+      return NextResponse.json(
+        {
+          error:
+            "Lesson was logged, but no lesson ID was returned from rpc_log_lesson.",
+        },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json(
-      { ok: true, result: data },
+      { ok: true, lessonId: lesson.id, lesson },
       { status: 200 },
     );
- } catch (e: unknown) {
-  if (e instanceof Error) {
+  } catch (e: unknown) {
+    if (e instanceof Error) {
+      return NextResponse.json(
+        { error: e.message },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json(
-      { error: e.message },
+      { error: "Unknown error" },
       { status: 500 },
     );
   }
-
-  return NextResponse.json(
-    { error: "Unknown error" },
-    { status: 500 },
-  );
-}
 }

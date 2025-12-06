@@ -45,8 +45,13 @@ export default async function ReportRevenueCost({
   const teacherNameFilter = getParam("teacherName");
   const studentNameFilter = getParam("studentName");
   const delivery = getParam("delivery");
-  const tier = getParam("tier");
-  const lengthCat = getParam("lengthCat") as LengthCatFilter;
+const tierParam = getParam("tier");
+const lengthCat = getParam("lengthCat") as LengthCatFilter;
+
+// Narrow tierParam to a valid Tier (or null if empty/invalid)
+const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
+  ? (tierParam as Tier)
+  : null;
 
   const monthStart =
     monthInput && monthInput.length === 7 ? `${monthInput}-01` : undefined;
@@ -99,8 +104,9 @@ export default async function ReportRevenueCost({
     lessonQuery = lessonQuery.eq("delivery", delivery);
   }
   if (tier) {
-    lessonQuery = lessonQuery.eq("student_tier", tier);
-  }
+
+  lessonQuery = lessonQuery.eq("student_tier", tier);
+}
   if (lengthCat) {
   lessonQuery = lessonQuery.eq("length_cat", lengthCat);
 }
@@ -204,19 +210,20 @@ export default async function ReportRevenueCost({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Tier</label>
-          <select
-  name="tier"
-  defaultValue={tier}
-  className="rounded-md border px-2 py-1"
->
-  {(["", ...TIER_VALUES] as const).map((v) => (
-    <option key={v} value={v}>
-      {formatTierFilterLabel(v as "" | Tier)}
-    </option>
-  ))}
-</select>
-        </div>
+  <label className="font-medium text-gray-700">Tier</label>
+  <select
+    name="tier"
+    defaultValue={tierParam}  // <-- change from `tier` to `tierParam`
+    className="rounded-md border px-2 py-1"
+  >
+    {(["", ...TIER_VALUES] as const).map((v) => (
+      <option key={v} value={v}>
+        {formatTierFilterLabel(v as "" | Tier)}
+      </option>
+    ))}
+  </select>
+</div>
+
 
        <div className="flex flex-col gap-1">
   <label className="font-medium text-gray-700">Length cat</label>

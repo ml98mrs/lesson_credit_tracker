@@ -1,29 +1,34 @@
 // lib/teacherInvoices.ts
 //
 // Domain helpers for teacher invoices.
-// - NO UI styling here (no Tailwind classes).
-// - Pure functions only (no React imports, no fetch/Supabase).
+// - Mostly pure domain helpers (no React, no data fetching).
+// - Contains a small UI-flavoured helper (getInvoiceStatusMeta) which
+//   returns labels + Tailwind classes for invoice status badges.
 //
-// UI-layer metadata (labels + classes) lives in:
-//   lib/domain/teachers.ts → getTeacherInvoiceStatusMeta()
+// If we ever want stricter layering, getInvoiceStatusMeta can be moved
+// to lib/domain/teachers.ts and re-exported there.
 
 /**
- * Shared status type for teacher invoice workflows.
- * Mirrors DB / view enums: 'not_generated' | 'generated' | 'paid'.
- */
-export type InvoiceStatus = "not_generated" | "generated" | "paid";
-
-/**
- * For teacher invoices, the "invoice month" is the *previous* calendar month.
- * Example: on 8th December we are looking at November ('YYYY-MM-01').
+ * Returns the first day of the *previous calendar month in UTC*
+ * as 'YYYY-MM-01'.
+ *
+ * This is the canonical key for invoice/reporting months.
+ * Convention: invoice/reporting months are defined in UTC, not
+ * Europe/London local time.
  */
 export function getInvoiceMonthKey(): string {
   const now = new Date();
   const monthStart = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
   );
-  return monthStart.toISOString().slice(0, 10); // 'YYYY-MM-01'
+  return monthStart.toISOString().slice(0, 10); // 'YYYY-MM-01' (UTC)
 }
+
+/**
+ * Shared status type for teacher invoice workflows.
+ * Mirrors DB / view enums: 'not_generated' | 'generated' | 'paid'.
+ */
+export type InvoiceStatus = "not_generated" | "generated" | "paid";
 
 /**
  * Format a month_start ('YYYY-MM-DD') as "Month YYYY" in en-GB,
@@ -36,9 +41,8 @@ export function formatInvoiceMonthLabel(monthStart: string): string {
 
 /**
  * Status metadata for UI layers (label + Tailwind classes).
- * Treat this as a small UI-flavoured domain helper, similar to
- * lib/domain/teachers.ts. Components should call this rather than
- * re-encoding invoice status labels or colours.
+ * Components should call this rather than re-encoding invoice
+ * status labels or colours.
  */
 export function getInvoiceStatusMeta(status: InvoiceStatus): {
   label: string;

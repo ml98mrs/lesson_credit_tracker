@@ -137,15 +137,15 @@ export default async function Page({
   const getParam = (key: string): string =>
     typeof sp[key] === "string" ? (sp[key] as string) : "";
 
-  const deliveryFilter = getParam("delivery"); // "", "online", "f2f", "unrestricted"
-  const tierFilter = getParam("tier"); // "", "basic","premium","elite","unrestricted"
-  const lengthFilter = getParam("length"); // "", "60","90","120","none","unrestricted"
-  const stateFilter = getParam("state"); // "", "open","closed","expired","cancelled"
-  const policyFilter = getParam("policy"); // "", "none","advisory","mandatory"
-  const studentFilter = getParam("student"); // free text
-  const extRefFilter = getParam("extRef"); // free text
-  const sortRemaining = getParam("sortRemaining"); // "", "asc", "desc"
-  const sortAmount = getParam("sortAmount"); // "", "asc", "desc"
+  const deliveryFilter = getParam("delivery"); 
+  const tierFilter = getParam("tier"); 
+  const lengthFilter = getParam("length"); 
+  const stateFilter = getParam("state"); 
+  const policyFilter = getParam("policy"); 
+  const studentFilter = getParam("student"); 
+  const extRefFilter = getParam("extRef"); 
+  const sortRemaining = getParam("sortRemaining"); 
+  const sortAmount = getParam("sortAmount"); 
 
   //
   // 1) Load recent invoice-backed credit lots
@@ -184,8 +184,11 @@ export default async function Page({
     } else {
       lots = data ?? [];
     }
-  } catch (e: any) {
-    errorMsg = e?.message ?? "Unknown error while loading credit invoices";
+  } catch (e: unknown) {
+    errorMsg =
+      e instanceof Error
+        ? e.message
+        : "Unknown error while loading credit invoices";
   }
 
   //

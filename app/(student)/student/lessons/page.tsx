@@ -8,6 +8,7 @@ import { formatDeliveryLabel, formatDeliveryUiLabel } from "@/lib/domain/deliver
 import type { Delivery } from "@/lib/enums";
 import type { ProfileRow } from "@/lib/types/profiles";
 import StudentLessonQueryButton from "@/components/student/StudentLessonQueryButton";
+import { StatusPill } from "@/components/ui/StatusPill";
 import {
   fetchStudentLessons,
   type StudentLessonsFilter,
@@ -35,27 +36,31 @@ const renderSncBadge = (lesson: LessonRow) => {
 
   if (lesson.snc_mode === "free") {
     return (
-      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-        Free SNC (no credit used)
-      </span>
+      <StatusPill
+        severity="success"
+        label="Free SNC (no credit used)"
+      />
     );
   }
 
   if (lesson.snc_mode === "charged") {
     return (
-      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-        Charged SNC (minutes deducted)
-      </span>
+      <StatusPill
+        severity="warningSoft"
+        label="Charged SNC (minutes deducted)"
+      />
     );
   }
 
-  // Fallback for any historical/edge cases
+  // Fallback / legacy edge cases
   return (
-    <span className="rounded-full bg-yellow-50 px-2 py-0.5 text-xs font-medium text-yellow-700">
-      SNC
-    </span>
+    <StatusPill
+      severity="warningSoft"
+      label="SNC"
+    />
   );
 };
+
 
 export default async function StudentLessons({
   searchParams,

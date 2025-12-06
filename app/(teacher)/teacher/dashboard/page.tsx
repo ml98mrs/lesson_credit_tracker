@@ -14,7 +14,7 @@ import {
   getInvoiceMonthKey,
   type InvoiceStatus,
 } from "@/lib/teacherInvoices";
-
+import { getTeacherInvoiceStatusMeta } from "@/lib/domain/teachers";
 
 type InvoiceSummaryRow = {
   month_start: string;
@@ -30,23 +30,11 @@ type StudentStatusRow = {
 };
 
 function StatusPill({ status }: { status: InvoiceStatus }) {
+  const { label, className } = getTeacherInvoiceStatusMeta(status);
   const base =
     "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium";
-  if (status === "paid") {
-    return <span className={`${base} bg-green-100 text-green-800`}>Paid</span>;
-  }
-  if (status === "generated") {
-    return (
-      <span className={`${base} bg-amber-100 text-amber-800`}>
-        Open (not paid)
-      </span>
-    );
-  }
-  return (
-    <span className={`${base} bg-gray-100 text-gray-800`}>Not generated</span>
-  );
+  return <span className={`${base} ${className}`}>{label}</span>;
 }
-
 export default async function TeacherDashboardPage() {
   const sb = await getServerSupabase();
 
@@ -80,38 +68,49 @@ export default async function TeacherDashboardPage() {
 
   const teacherId = t.id;
 
-const invoiceMonthKey = getInvoiceMonthKey();
-const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
-const generatedAtLabel = formatDateTimeLondon(new Date().toISOString());
+  // 0b) Teacher profile for personalised title
+  const { data: profileRow, error: profileError } = await sb
+    .from("profiles")
+    .select("full_name")
+    .eq("id", user.id)
+    .single();
 
-// 1) Pending lessons + invoice summary + assigned-student links
-const [
-  { count: pendingCountRaw, error: pendingError },
-  { data: invoiceSummaryData, error: invoiceError },
-  { data: linkRows, error: linksError },
-] = await Promise.all([
-  sb
-    .from("v_teacher_lessons")
-    .select("id", { count: "exact", head: true })
-    .eq("teacher_id", teacherId)
-    .eq("state", "pending"),
-  sb
-    .from("v_teacher_invoice_summary")
-    .select(
-      "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
-    )
-    .eq("teacher_id", teacherId)        // 👈 important fix
-    .eq("month_start", invoiceMonthKey)
-    .maybeSingle<InvoiceSummaryRow>(),
-  sb
-    .from("student_teacher")
-    .select("student_id")
-    .eq("teacher_id", teacherId),
-]);
+  // If this fails we just fall back to generic title
+  const teacherFullName =
+    !profileError && profileRow?.full_name ? profileRow.full_name : null;
 
+  const invoiceMonthKey = getInvoiceMonthKey();
+  const invoiceMonthLabel = formatInvoiceMonthLabel(invoiceMonthKey);
+  const generatedAtLabel = formatDateTimeLondon(new Date().toISOString());
+
+  // 1) Pending lessons + invoice summary + assigned-student links
+  const [
+    { count: pendingCountRaw, error: pendingError },
+    { data: invoiceSummaryData, error: invoiceError },
+    { data: linkRows, error: linksError },
+  ] = await Promise.all([
+    sb
+      .from("v_teacher_lessons")
+      .select("id", { count: "exact", head: true })
+      .eq("teacher_id", teacherId)
+      .eq("state", "pending"),
+    sb
+      .from("v_teacher_invoice_summary")
+      .select(
+        "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
+      )
+      .eq("teacher_id", teacherId)
+      .eq("month_start", invoiceMonthKey)
+      .maybeSingle<InvoiceSummaryRow>(),
+    sb
+      .from("student_teacher")
+      .select("student_id")
+      .eq("teacher_id", teacherId),
+  ]);
 
   const pendingCount = pendingCountRaw ?? 0;
-  const invoiceSummary = (invoiceSummaryData ?? null) as InvoiceSummaryRow | null;
+  const invoiceSummary =
+    (invoiceSummaryData ?? null) as InvoiceSummaryRow | null;
 
   const lessonGrossPennies = invoiceSummary?.lesson_gross_pennies ?? 0;
   const expensesPennies = invoiceSummary?.expenses_pennies ?? 0;
@@ -125,35 +124,39 @@ const [
   let dormantStudentsCount = 0;
 
   if (!linksError && linkRows && linkRows.length > 0) {
-  const studentIds = Array.from(
-    new Set(
-      linkRows
-        .map((r: { student_id: string | null }) => r.student_id) // 👈 typed `r`
-        .filter(Boolean),
-    ),
-  ) as string[];
+    const studentIds = Array.from(
+      new Set(
+        linkRows
+          .map((r: { student_id: string | null }) => r.student_id)
+          .filter(Boolean),
+      ),
+    ) as string[];
 
-  if (studentIds.length > 0) {
-    const { data: studentRows, error: studentsError } = await sb
-      .from("students")
-      .select("id, status")
-      .in("id", studentIds);
+    if (studentIds.length > 0) {
+      const { data: studentRows, error: studentsError } = await sb
+        .from("students")
+        .select("id, status")
+        .in("id", studentIds);
 
-    if (!studentsError && studentRows) {
-      const typed = studentRows as StudentStatusRow[];
-      currentStudentsCount = typed.filter(
-        (s) => s.status === "current",
-      ).length;
-      dormantStudentsCount = typed.filter(
-        (s) => s.status === "dormant",
-      ).length;
+      if (!studentsError && studentRows) {
+        const typed = studentRows as StudentStatusRow[];
+        currentStudentsCount = typed.filter(
+          (s) => s.status === "current",
+        ).length;
+        dormantStudentsCount = typed.filter(
+          (s) => s.status === "dormant",
+        ).length;
+      }
     }
   }
-}
 
   return (
     <Section
-      title="Teacher dashboard"
+      title={
+        teacherFullName
+          ? `${teacherFullName}'s dashboard`
+          : "Teacher dashboard"
+      }
       subtitle="At-a-glance view of your lessons, students, and invoice month."
     >
       {/* Last-updated / admin-maintained panel */}

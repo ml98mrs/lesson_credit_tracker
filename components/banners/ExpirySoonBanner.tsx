@@ -8,6 +8,7 @@ import {
   getExpiryPolicyLabel,
   getExpiryPolicyDescription,
 } from "@/lib/domain/expiryPolicy";
+import { AlertBanner } from "@/components/ui/AlertBanner";
 
 type ExpirySoonBannerProps = {
   /**
@@ -37,15 +38,15 @@ export default function ExpirySoonBanner({
   const expiryLabel = formatDateTimeLondon(expiryDateUtc);
 
   return (
-    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+    <AlertBanner severity="warningSoft" className="mt-3">
       <div className="font-semibold">
         {policyLabel} – some credit is expiring soon
       </div>
-      <div className="mt-0.5">
+      <div className="mt-0.5 text-xs">
         Some of your lesson credit will reach its expiry date by{" "}
         <span className="font-semibold">{expiryLabel}</span>.{" "}
         {policyDescription}
       </div>
-    </div>
+    </AlertBanner>
   );
 }

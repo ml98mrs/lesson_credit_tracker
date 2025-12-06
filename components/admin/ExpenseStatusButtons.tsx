@@ -3,6 +3,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { StatusPill } from "@/components/ui/StatusPill";
 
 type Props = {
   expenseId: number;
@@ -76,7 +77,14 @@ export default function ExpenseStatusButtons({
           {rejecting ? "Rejecting…" : "Reject"}
         </button>
       </div>
-      {error && <span className="text-[10px] text-red-600">{error}</span>}
+
+      {error && (
+        <StatusPill
+          severity="error"
+          label={error}
+          className="mt-1 text-[10px]"
+        />
+      )}
     </div>
   );
 }

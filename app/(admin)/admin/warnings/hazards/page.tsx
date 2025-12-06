@@ -1,5 +1,4 @@
 // app/(admin)/admin/warnings/hazards/page.tsx
-
 import Link from "next/link";
 import Section from "@/components/ui/Section";
 import { getAdminSupabase } from "@/lib/supabase/admin";
@@ -14,6 +13,8 @@ import {
   getHazardMeta,
   sortHazardsForDisplay,
 } from "@/lib/domain/hazards";
+import { StatusPill } from "@/components/ui/StatusPill";
+import type { UiSeverity } from "@/lib/ui/severity";
 
 // Basic hazard type from v_lesson_hazards
 type Hazard = {
@@ -37,6 +38,19 @@ type HazardWithStudent = Hazard & {
   studentName: string;
 };
 
+// helper to map domain severity → UI severity token
+function toUiSeverity(severity: string | null | undefined): UiSeverity {
+  switch (severity) {
+    case "error":
+      // serious business issue, not system error
+      return "warningCritical";
+    case "warning":
+      return "warningSoft";
+    default:
+      return "info";
+  }
+}
+
 export default async function HazardsPage() {
   const sb = getAdminSupabase();
 
@@ -51,7 +65,6 @@ export default async function HazardsPage() {
 
   const rows = data ?? [];
 
-  // If no hazards, early return
   if (rows.length === 0) {
     return (
       <Section
@@ -154,12 +167,7 @@ export default async function HazardsPage() {
                   ? "Medium"
                   : "Low";
 
-              const severityClass =
-                meta.severity === "error"
-                  ? "bg-rose-100 text-rose-800"
-                  : meta.severity === "warning"
-                  ? "bg-amber-100 text-amber-800"
-                  : "bg-sky-100 text-sky-800";
+              const uiSeverity = toUiSeverity(meta.severity);
 
               return (
                 <tr
@@ -182,11 +190,11 @@ export default async function HazardsPage() {
                     )}
                   </td>
                   <td className="py-2 pr-4">
-                    <span
-                      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${severityClass}`}
-                    >
-                      {severityLabel}
-                    </span>
+                    <StatusPill
+                      severity={uiSeverity}
+                      label={severityLabel}
+                      className="text-[11px]"
+                    />
                   </td>
                   <td className="py-2 pr-4">
                     <Link

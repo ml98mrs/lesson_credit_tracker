@@ -5,6 +5,8 @@ import {
   formatPenniesAsPounds,
   formatDateTimeLondon,
 } from "@/lib/formatters";
+import { AlertBanner } from "@/components/ui/AlertBanner";
+import { StatusPill } from "@/components/ui/StatusPill";
 
 type PendingExpenseRow = {
   id: number;
@@ -63,22 +65,24 @@ export default async function PendingTeacherExpensesCard() {
   }
 
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+    <AlertBanner severity="warningSoft" className="rounded-2xl shadow-sm">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-amber-900">
+        <h2 className="text-sm font-semibold">
           Pending teacher expenses
         </h2>
-        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-900">
-          {rows.length}
-        </span>
+        <StatusPill
+          severity="warningSoft"
+          label={String(rows.length)}
+          className="text-[11px] px-2 py-0.5"
+        />
       </div>
 
-      <p className="mb-3 text-[11px] text-amber-900">
+      <p className="mb-3 text-[11px]">
         New expense claims logged by teachers. Review them on the invoice page
         and approve or reject.
       </p>
 
-      <ul className="space-y-2 text-xs text-amber-900">
+      <ul className="space-y-2 text-xs">
         {rows.map((row) => {
           const teacherName =
             teacherNameById.get(row.teacher_id) ?? row.teacher_id;
@@ -107,6 +111,6 @@ export default async function PendingTeacherExpensesCard() {
           );
         })}
       </ul>
-    </div>
+    </AlertBanner>
   );
 }

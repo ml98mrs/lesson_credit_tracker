@@ -12,6 +12,7 @@ import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill"
 import type { TeacherInvoiceSummary } from "@/lib/types/teachers";
 import { formatTeacherMoney } from "@/lib/domain/teachers";
 import { listTeacherInvoicesForTeacher } from "@/lib/server/listTeacherInvoices";
+import { getAdminTeacherInvoiceSnapshot } from "@/lib/server/getAdminTeacherInvoiceSnapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,30 @@ export default async function TeacherInvoicesAdmin({
   // Limit to the latest 24 months (matching previous behaviour)
   const summaryRows = invoiceSummaries.slice(0, 24);
 
+  // Preload snapshots so totals match the invoice detail page
+  const snapshotByInvoiceId = new Map<
+    number,
+    Awaited<ReturnType<typeof getAdminTeacherInvoiceSnapshot>>
+  >();
+
+  await Promise.all(
+    summaryRows.map(async (row) => {
+      try {
+        const snapshot = await getAdminTeacherInvoiceSnapshot(
+          teacherId,
+          row.id,
+        );
+        snapshotByInvoiceId.set(row.id, snapshot);
+      } catch (err) {
+        console.error("[admin] Error loading teacher invoice snapshot", {
+          teacherId,
+          invoiceId: row.id,
+          err,
+        });
+      }
+    }),
+  );
+
   // Build a map of monthStart -> TeacherInvoiceSummary (from shared helper)
   const invoiceByMonth = new Map<string, TeacherInvoiceSummary>();
   for (const inv of summaryRows) {
@@ -92,9 +117,13 @@ export default async function TeacherInvoicesAdmin({
     (row) => row.monthStart !== invoiceMonthKey,
   );
 
-  const invoiceLessonGross = invoiceMonthSummary?.lessonGrossPennies ?? 0;
-  const invoiceExpenses = invoiceMonthSummary?.expensesPennies ?? 0;
-  const invoiceTotal = invoiceMonthSummary?.totalPennies ?? 0;
+  const invoiceSnapshot = invoiceMonthSummary
+    ? snapshotByInvoiceId.get(invoiceMonthSummary.id)
+    : undefined;
+
+  const invoiceLessonGross = invoiceSnapshot?.lessonGrossPennies ?? 0;
+  const invoiceExpenses = invoiceSnapshot?.approvedExpensesPennies ?? 0;
+  const invoiceTotal = invoiceSnapshot?.totalPennies ?? 0;
 
   return (
     <Section
@@ -176,6 +205,7 @@ export default async function TeacherInvoicesAdmin({
               {invoiceMonthSummary &&
                 (() => {
                   const inv = invoiceByMonth.get(invoiceMonthKey);
+
                   if (inv) {
                     return (
                       <Link
@@ -241,9 +271,12 @@ export default async function TeacherInvoicesAdmin({
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {historyRows.map((row) => {
                     const inv = invoiceByMonth.get(row.monthStart);
-                    const lessonGross = row.lessonGrossPennies ?? 0;
-                    const expenses = row.expensesPennies ?? 0;
-                    const total = row.totalPennies ?? 0;
+                    const snapshot = snapshotByInvoiceId.get(row.id);
+
+                    const lessonGross = snapshot?.lessonGrossPennies ?? 0;
+                    const expenses =
+                      snapshot?.approvedExpensesPennies ?? 0;
+                    const total = snapshot?.totalPennies ?? 0;
 
                     return (
                       <tr key={row.teacherId + row.monthStart}>

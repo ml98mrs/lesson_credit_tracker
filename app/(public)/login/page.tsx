@@ -1,23 +1,59 @@
+// app/(public)/login/page.tsx
 "use client";
 
 import { useState } from "react";
-import type * as React from "react";
+import type { FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Section from "@/components/ui/Section";
 import { getBrowserSupabase } from "@/lib/supabase/browser";
 
-const supabase = getBrowserSupabase(); // browser client, helper-based
-
 type ProfileRole = "admin" | "teacher" | "student" | null;
 
 export default function LoginPage() {
+  const supabase = getBrowserSupabase();
   const router = useRouter();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function onSignIn(e: React.FormEvent<HTMLFormElement>) {
+  async function syncSessionToServer() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    await fetch("/api/auth/callback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session }),
+    });
+  }
+
+  async function resolveProfileRole(): Promise<ProfileRole> {
+    const { data: me } = await supabase.auth.getUser();
+    const userId = me?.user?.id;
+
+    if (!userId) return null;
+
+    const { data: prof, error: profErr } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", userId)
+      .single();
+
+    if (profErr || !prof) return null;
+
+    const r = prof.role;
+    if (r === "admin" || r === "teacher" || r === "student") {
+      return r;
+    }
+
+    return null;
+  }
+
+  async function onSignIn(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setMsg(null);
@@ -27,42 +63,16 @@ export default function LoginPage() {
         email,
         password,
       });
+
       if (signInError) {
         setMsg(signInError.message);
         return;
       }
 
-      // 1) Bridge client session -> server cookies
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      await fetch("/api/auth/callback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session }),
-      });
+      await syncSessionToServer();
 
-      // 2) Load the user + role from profiles
-      const { data: me } = await supabase.auth.getUser();
-      const userId = me?.user?.id;
+      const role = await resolveProfileRole();
 
-      let role: ProfileRole = null;
-      if (userId) {
-        const { data: prof, error: profErr } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", userId)
-          .single();
-
-        if (!profErr && prof) {
-          const r = prof.role;
-          if (r === "admin" || r === "teacher" || r === "student") {
-            role = r;
-          }
-        }
-      }
-
-      // 3) Route by role (fallback to teacher dashboard if unknown)
       if (role === "admin") {
         router.replace("/admin/dashboard");
       } else if (role === "teacher") {
@@ -73,6 +83,7 @@ export default function LoginPage() {
         router.replace("/teacher/dashboard");
       }
     } catch (err: unknown) {
+      console.error("Sign-in failed", err);
       if (err instanceof Error) {
         setMsg(err.message ?? "Sign-in failed. Please try again.");
       } else {
@@ -86,16 +97,19 @@ export default function LoginPage() {
   async function onSignOut() {
     setLoading(true);
     setMsg(null);
+
     try {
       await supabase.auth.signOut();
+
       await fetch("/api/auth/callback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // clear server-side cookies
         body: JSON.stringify({ session: null }),
       });
+
       router.replace("/login");
     } catch (err: unknown) {
+      console.error("Sign-out failed", err);
       if (err instanceof Error) {
         setMsg(err.message ?? "Sign-out failed. Please try again.");
       } else {
@@ -120,6 +134,7 @@ export default function LoginPage() {
             required
           />
         </div>
+
         <div className="flex flex-col gap-1">
           <label className="text-sm">Password</label>
           <input
@@ -150,6 +165,14 @@ export default function LoginPage() {
             Sign out
           </button>
         </div>
+
+        <p className="text-xs text-gray-600">
+          Forgotten your password?{" "}
+          <Link href="/forgot-password" className="text-blue-600 underline">
+            Reset it by email
+          </Link>
+          .
+        </p>
 
         {msg && <p className="mt-2 text-sm text-rose-700">{msg}</p>}
       </form>

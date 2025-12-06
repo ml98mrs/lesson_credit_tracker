@@ -33,7 +33,7 @@ type AssignedStudentOption = {
 
 type StudentProfileLite = {
   preferred_name: string | null;
-  full_name: string | null;
+  full_name: string; // Supabase guarantees full_name is non-null
 };
 
 type OverrideRowRaw = {
@@ -41,17 +41,17 @@ type OverrideRowRaw = {
   student_id: string;
   f2f_rate_pennies: number;
   students?: {
-    profiles?: StudentProfileLite[] | null;
+    profiles?: StudentProfileLite | null; // single profile object, not an array
   } | null;
-};
-
-type StudentTeacherLinkRow = {
-  student_id: string;
 };
 
 type StudentWithProfilesRow = {
   id: string;
-  profiles: StudentProfileLite[] | null;
+  profiles: StudentProfileLite | null; // single profile object, not an array
+};
+
+type StudentTeacherLinkRow = {
+  student_id: string;
 };
 
 export default async function TeacherRatesPage({
@@ -128,22 +128,21 @@ export default async function TeacherRatesPage({
 
   const rawOverrides = (overrideRows ?? []) as OverrideRowRaw[];
 
-  const overrides: OverrideRow[] = rawOverrides.map((row) => {
-    const profiles = row.students?.profiles ?? [];
-    const p = profiles[0] ?? null;
+const overrides: OverrideRow[] = rawOverrides.map((row) => {
+  const p = row.students?.profiles ?? null;
 
-    const studentName =
-      (p?.preferred_name as string | null) ??
-      (p?.full_name as string | null) ??
-      "(student)";
+  const studentName =
+    (p?.preferred_name as string | null) ??
+    (p?.full_name as string | null) ??
+    "(student)";
 
-    return {
-      teacher_id: row.teacher_id,
-      student_id: row.student_id,
-      student_name: studentName,
-      f2f_rate_pennies: row.f2f_rate_pennies,
-    };
-  });
+  return {
+    teacher_id: row.teacher_id,
+    student_id: row.student_id,
+    student_name: studentName,
+    f2f_rate_pennies: row.f2f_rate_pennies,
+  };
+});
 
   // 4) Assigned students (for override selection)
   const { data: linkRows, error: linkErr } = await sb
@@ -172,18 +171,19 @@ export default async function TeacherRatesPage({
 
     const studentRows = (students ?? []) as StudentWithProfilesRow[];
 
-    assignedStudents = studentRows.map((s) => {
-      const p = s.profiles?.[0] ?? null;
-      const name =
-        (p?.preferred_name as string | null) ??
-        (p?.full_name as string | null) ??
-        "(student)";
+assignedStudents = studentRows.map((s) => {
+  const p = s.profiles ?? null;
+  const name =
+    (p?.preferred_name as string | null) ??
+    (p?.full_name as string | null) ??
+    "(student)";
 
-      return {
-        id: s.id,
-        name,
-      };
-    });
+  return {
+    id: s.id,
+    name,
+  };
+});
+
   }
 
   return (

@@ -93,7 +93,7 @@ export function getTeacherInvoiceStatusMeta(
       };
     case "generated":
       return {
-        label: "Generated (awaiting payment)",
+        label: "Awaiting payment",
         className: "bg-amber-50 text-amber-700",
       };
     case "paid":

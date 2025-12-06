@@ -65,7 +65,12 @@ export default async function SncAnalyticsPage({
   const monthInput = getParam("month"); // "YYYY-MM"
   const teacherNameFilter = getParam("teacherName");
   const studentNameFilter = getParam("studentName");
-  const tier = getParam("tier");
+  const tierParam = getParam("tier"); // raw string from URL
+
+  // Narrow to a valid Tier (or null if empty/invalid)
+  const tier: Tier | null = TIER_VALUES.includes(tierParam as Tier)
+    ? (tierParam as Tier)
+    : null;
 
   const monthStart =
     monthInput && monthInput.length === 7 ? `${monthInput}-01` : undefined;
@@ -111,6 +116,7 @@ export default async function SncAnalyticsPage({
   }
 
   if (tier) {
+    
     query = query.eq("student_tier", tier);
   }
 
@@ -165,19 +171,20 @@ export default async function SncAnalyticsPage({
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="font-medium text-gray-700">Tier</label>
-          <select
-  name="tier"
-  defaultValue={tier}
-  className="rounded-md border px-2 py-1"
->
-  {(["", ...TIER_VALUES] as const).map((v) => (
-    <option key={v} value={v}>
-      {formatTierFilterLabel(v as "" | Tier)}
-    </option>
-  ))}
-</select>
-        </div>
+  <label className="font-medium text-gray-700">Tier</label>
+  <select
+    name="tier"
+    defaultValue={tierParam}  // ← use the raw string param
+    className="rounded-md border px-2 py-1"
+  >
+    {(["", ...TIER_VALUES] as const).map((v) => (
+      <option key={v} value={v}>
+        {formatTierFilterLabel(v as "" | Tier)}
+      </option>
+    ))}
+  </select>
+</div>
+
 
         <div className="flex items-end gap-2">
           <button

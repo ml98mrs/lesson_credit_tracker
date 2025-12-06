@@ -178,12 +178,13 @@ export async function POST(req: Request) {
     }
 
     const { data, error } = await supabase.rpc("rpc_log_teacher_expense", {
-      p_incurred_at: incurredDate.toISOString(),
-      p_amount_pennies: amountPennies,
-      p_category: category,
-      p_description: description,
-      p_student_id: studentId,
-    });
+  p_incurred_at: incurredDate.toISOString(),
+  p_amount_pennies: amountPennies,
+  p_category: category,
+  p_description: description ?? "", // make it a definite string
+  p_student_id: studentId,
+});
+
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

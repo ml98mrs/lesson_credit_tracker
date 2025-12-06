@@ -26,6 +26,7 @@ import {
   type AllocationRow,
 } from "@/components/credit/LotAllocationsTable";
 import Section from "@/components/ui/Section";
+import { StatusPill } from "@/components/ui/StatusPill";
 
 import {
   getLowCreditAlertForStudent,
@@ -76,13 +77,16 @@ type LotRow = {
   minutes_granted: number;
   minutes_allocated: number;
   minutes_remaining: number;
+  is_overdrawn: boolean;
   expiry_date: string | null;
   expiry_policy: ExpiryPolicy;
   state: CreditLotState;
   delivery_restriction: DeliveryRestriction;
   days_to_expiry: number | null;
   expiry_within_30d: boolean | null;
+  is_low_remaining: boolean; // 👈 new
 };
+
 
 type TeacherRow = {
   id: string;
@@ -100,9 +104,6 @@ type StudentWithProfile = {
     | { full_name: string | null }[]
     | null;
 };
-
-
-const LOW_THRESHOLD_MIN = 360; // 6 hours generic rule for per-lot highlighting
 
 export default async function AdminStudentPage({
   params,
@@ -295,22 +296,29 @@ const studentName = (() => {
   const { data: lots, error: lotsErr } = await sb
     .from("v_credit_lot_remaining")
     .select(
-      [
-        "credit_lot_id",
-        "source_type",
-        "award_reason_code",
-        "external_ref",
-        "minutes_granted",
-        "minutes_allocated",
-        "minutes_remaining",
-        "expiry_date",
-        "expiry_policy",
-        "state",
-        "delivery_restriction",
-        "days_to_expiry",
-        "expiry_within_30d",
-      ].join(","),
-    )
+  [
+    "credit_lot_id",
+    "source_type",
+    "award_reason_code",
+    "external_ref",
+    "minutes_granted",
+    "minutes_allocated",
+    "minutes_remaining",
+    "is_overdrawn",
+    "delivery_restriction",
+    "tier_restriction",
+    "length_restriction",
+    "start_date",
+    "expiry_policy",
+    "expiry_date",
+    "days_to_expiry",
+    "expiry_within_30d",
+    "state",
+    "created_at",
+    "is_low_remaining", // 👈 add
+  ].join(","),
+)
+
     .eq("student_id", studentId)
     .order("start_date", { ascending: true });
 
@@ -618,10 +626,12 @@ const remainingMin = summary?.total_remaining_min ?? 0;
               ? `${avgMonthHours.toFixed(2)} h / month`
               : "—"}
             {isHeavyUser && (
-              <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
-                Heavy user
-              </span>
-            )}
+  <StatusPill
+    severity="warningSoft"
+    label="Heavy user"
+    className="ml-2 text-[10px]"
+  />
+)}
 
             {perDeliveryUsageAvailable && (
               <div className="mt-0.5">
@@ -744,14 +754,13 @@ const remainingMin = summary?.total_remaining_min ?? 0;
                         {formatMinutesAsHours(r.minutes_allocated)} h
                       </td>
                       <td
-                        className={`py-2 pr-4 ${
-                          r.minutes_remaining <= LOW_THRESHOLD_MIN
-                            ? "text-amber-700"
-                            : ""
-                        }`}
-                      >
-                        {formatMinutesAsHours(r.minutes_remaining)} h
-                      </td>
+  className={`py-2 pr-4 ${
+    r.is_low_remaining ? "text-amber-700" : ""
+  }`}
+>
+  {formatMinutesAsHours(r.minutes_remaining)} h
+</td>
+
                       <td className="py-2 pr-4">
                         {r.expiry_policy === "none" || !r.expiry_date ? (
                           ""

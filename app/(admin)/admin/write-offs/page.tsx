@@ -21,7 +21,7 @@ type ProfileRel = {
 
 type StudentRel = {
   id: string;
-  profiles: ProfileRel[];
+  profiles: ProfileRel | null; // single profile, not array
 };
 
 type WriteOffQueryRow = {
@@ -33,7 +33,7 @@ type WriteOffQueryRow = {
   note: string | null;
   accounting_period: string;
   created_at: string;
-  students: StudentRel[]; // array of students with profiles[]
+  students: StudentRel | null; // single student, not array
 };
 
 type WriteOffRow = {
@@ -47,6 +47,7 @@ type WriteOffRow = {
   accountingPeriod: string;
   createdAt: string;
 };
+
 
 export default async function WriteOffsPage({
   searchParams,
@@ -92,29 +93,28 @@ export default async function WriteOffsPage({
   // Now TS sees the shapes as compatible: students: { id; profiles[] }[]
   const rawRows = (data ?? []) as WriteOffQueryRow[];
 
-  const rows: WriteOffRow[] = rawRows.map((row) => {
-    let studentName = "(student)";
+const rows: WriteOffRow[] = rawRows.map((row) => {
+  let studentName = "(student)";
 
-    const students = row.students;
-    if (Array.isArray(students) && students.length > 0) {
-      const profiles = students[0]?.profiles;
-      if (Array.isArray(profiles) && profiles.length > 0) {
-        studentName = profiles[0]?.full_name ?? "(student)";
-      }
-    }
+  const studentRel = row.students;
+  const profile = studentRel?.profiles;
 
-    return {
-      id: row.id,
-      studentId: row.student_id,
-      studentName,
-      direction: row.direction,
-      minutes: row.minutes,
-      reasonCode: row.reason_code,
-      note: row.note ?? "",
-      accountingPeriod: row.accounting_period,
-      createdAt: row.created_at,
-    };
-  });
+  if (profile?.full_name) {
+    studentName = profile.full_name;
+  }
+
+  return {
+    id: row.id,
+    studentId: row.student_id,
+    studentName,
+    direction: row.direction,
+    minutes: row.minutes,
+    reasonCode: row.reason_code,
+    note: row.note ?? "",
+    accountingPeriod: row.accounting_period,
+    createdAt: row.created_at,
+  };
+});
 
   return (
     <Section

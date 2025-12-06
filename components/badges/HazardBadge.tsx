@@ -1,9 +1,38 @@
 // components/badges/HazardBadge.tsx
-export default function HazardBadge({ kind }: { kind: 'counter-delivery' | 'length-violation' | 'negative-balance' }) {
-  const m = {
-    'counter-delivery': { label: 'Counter-delivery', color: 'bg-amber-200 text-amber-900' },
-    'length-violation': { label: 'Length violation', color: 'bg-rose-200 text-rose-900' },
-    'negative-balance': { label: 'Negative balance', color: 'bg-red-200 text-red-900' },
-  }[kind];
-  return <span className={`px-2 py-1 rounded text-xs font-medium ${m.color}`}>{m.label}</span>;
+import { StatusPill } from "@/components/ui/StatusPill";
+import type { UiSeverity } from "@/lib/ui/severity";
+
+export type HazardKind =
+  | "counter-delivery"
+  | "length-violation"
+  | "negative-balance";
+
+const HAZARD_META: Record<
+  HazardKind,
+  { label: string; severity: UiSeverity }
+> = {
+  "counter-delivery": {
+    label: "Counter-delivery",
+    severity: "warningSoft", // heads-up, usually not catastrophic
+  },
+  "length-violation": {
+    label: "Length violation",
+    severity: "warningCritical", // more serious business rule breach
+  },
+  "negative-balance": {
+    label: "Negative balance",
+    severity: "warningCritical", // critical business state, but not a system error
+  },
+};
+
+export default function HazardBadge({ kind }: { kind: HazardKind }) {
+  const meta = HAZARD_META[kind];
+
+  return (
+    <StatusPill
+      severity={meta.severity}
+      label={meta.label}
+      className="text-[11px]"
+    />
+  );
 }

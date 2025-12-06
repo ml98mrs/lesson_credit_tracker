@@ -3,17 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+
 import Section from "@/components/ui/Section";
 import HazardBadge from "@/components/badges/HazardBadge";
+import LessonHazards from "@/components/admin/LessonHazards";
+import SNCInfoPanel, { SncStats } from "@/components/admin/SNCInfoPanel";
+import { TierBadge } from "@/components/admin/TierBadge";
+import { AlertBanner } from "@/components/ui/AlertBanner";
+import { StatusPill } from "@/components/ui/StatusPill";
+
 import {
   formatDateTimeLondon,
   formatMinutesAsHours,
 } from "@/lib/formatters";
 import { formatLotLabel } from "@/lib/creditLots/labels";
 import type { CreditLotSource } from "@/lib/creditLots/types";
-import LessonHazards from "@/components/admin/LessonHazards";
-import SNCInfoPanel, { SncStats } from "@/components/admin/SNCInfoPanel";
-import { TierBadge } from "@/components/admin/TierBadge";
 import type {
   Delivery,
   DeliveryRestriction,
@@ -22,12 +26,15 @@ import type {
   Tier,
   SncMode,
 } from "@/lib/enums";
+import { DELIVERY } from "@/lib/enums";
 import {
   LENGTH_RESTRICTIONS,
   formatLengthRestrictionLabel,
 } from "@/lib/domain/lengths";
-import { DELIVERY} from "@/lib/enums";
-import { formatDeliveryUiLabel, formatDeliveryRestrictionLabel } from "@/lib/domain/delivery";
+import {
+  formatDeliveryUiLabel,
+  formatDeliveryRestrictionLabel,
+} from "@/lib/domain/delivery";
 
 type Lesson = {
   id: string;
@@ -337,7 +344,10 @@ export default function ReviewLessonClient() {
   if (err) {
     return (
       <Section title="Review lesson">
-        <p className="text-sm text-rose-700">{err}</p>
+        <AlertBanner severity="error">
+          <strong>Something went wrong:</strong>{" "}
+          <span>{err}</span>
+        </AlertBanner>
       </Section>
     );
   }
@@ -345,13 +355,20 @@ export default function ReviewLessonClient() {
   if (!lesson) {
     return (
       <Section title="Review lesson">
-        <p className="text-sm text-rose-700">No lesson data.</p>
+        <AlertBanner severity="error">
+          <strong>Something went wrong:</strong>{" "}
+          <span>No lesson data.</span>
+        </AlertBanner>
       </Section>
     );
   }
 
   const isFreeSnc = !!(preview?.isSnc && preview?.isFreeSnc);
   const showsOverdraft = preview?.negativeBalance === true;
+
+  const confirmSeverity = confirmMsg
+    ? (confirmMsg.includes("confirmed") ? "success" : "error")
+    : null;
 
   return (
     <Section
@@ -389,9 +406,11 @@ export default function ReviewLessonClient() {
         <div>
           <span className="text-gray-500">State:</span> {lesson.state}
           {lesson.is_snc && (
-            <span className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-800">
-              Short-notice cancellation
-            </span>
+            <StatusPill
+              severity="warningSoft"
+              label="Short-notice cancellation"
+              className="ml-2 text-[11px]"
+            />
           )}
         </div>
 
@@ -418,20 +437,19 @@ export default function ReviewLessonClient() {
 
         {/* Delivery (editable) */}
         <label className="flex items-center gap-2">
-  <span className="text-gray-500">Delivery:</span>
-  <select
-    className="rounded border px-2 py-1"
-    value={editDelivery}
-    onChange={(e) => setEditDelivery(e.target.value as Delivery)}
-  >
-    {DELIVERY.map((value) => (
-      <option key={value} value={value}>
-        {formatDeliveryUiLabel(value)}
-      </option>
-    ))}
-  </select>
-</label>
-
+          <span className="text-gray-500">Delivery:</span>
+          <select
+            className="rounded border px-2 py-1"
+            value={editDelivery}
+            onChange={(e) => setEditDelivery(e.target.value as Delivery)}
+          >
+            {DELIVERY.map((value) => (
+              <option key={value} value={value}>
+                {formatDeliveryUiLabel(value)}
+              </option>
+            ))}
+          </select>
+        </label>
 
         {/* Length category (editable) */}
         <label className="flex items-center gap-2">
@@ -491,14 +509,12 @@ export default function ReviewLessonClient() {
               <HazardBadge kind="negative-balance" />
             )}
           </div>
-          {confirmMsg && (
-            <span className="text-sm">
-              {confirmMsg.includes("confirmed") ? (
-                <span className="text-green-700">{confirmMsg}</span>
-              ) : (
-                <span className="text-rose-700">{confirmMsg}</span>
-              )}
-            </span>
+          {confirmMsg && confirmSeverity && (
+            <StatusPill
+              severity={confirmSeverity}
+              label={confirmMsg}
+              className="text-xs"
+            />
           )}
           {isPending ? (
             <button
@@ -511,16 +527,21 @@ export default function ReviewLessonClient() {
               {confirming ? "Confirming…" : "Confirm lesson"}
             </button>
           ) : (
-            <span className="rounded bg-green-100 px-2 py-1 text-sm text-green-800">
-              Confirmed
-            </span>
+            <StatusPill
+              severity="success"
+              label="Confirmed"
+              className="text-sm"
+            />
           )}
         </div>
       </div>
 
       {/* Admin override bar – only shown when there are expired mandatory lots */}
       {showOverride && (
-        <div className="mb-3 rounded-xl border p-3 text-sm">
+        <AlertBanner
+          severity="warningCritical"
+          className="mb-3 rounded-xl text-sm"
+        >
           <div className="mb-2 font-medium">Confirm options</div>
 
           <label className="mb-2 flex items-center gap-2">
@@ -559,16 +580,17 @@ export default function ReviewLessonClient() {
             <code>expiry_policy = mandatory</code>. Tick override to allow
             allocation even for expired mandatory lots (logged with reason).
           </p>
-        </div>
+        </AlertBanner>
       )}
 
       {/* Plan table / explainer */}
       {previewLoading && !preview ? (
         <p className="text-sm text-gray-600">Computing preview…</p>
       ) : previewErr && !preview ? (
-        <p className="text-sm text-rose-700">
-          Failed to load preview: {previewErr}
-        </p>
+        <AlertBanner severity="error">
+          <strong>Failed to load preview:</strong>{" "}
+          <span>{previewErr}</span>
+        </AlertBanner>
       ) : planWithLots.length === 0 ? (
         // No allocation steps – interpret via planner flags, not guesses.
         isFreeSnc ? (
@@ -613,21 +635,25 @@ export default function ReviewLessonClient() {
                     );
 
                 const constraints = lot
-  ? [
-      lot.delivery_restriction
-        ? formatDeliveryRestrictionLabel(lot.delivery_restriction)
-        : null,
-      lot.tier_restriction ? `${lot.tier_restriction}` : null,
-      lot.length_restriction && lot.length_restriction !== "none"
-        ? `${formatLengthRestrictionLabel(
-            lot.length_restriction,
-          )} min only`
-        : null,
-    ]
-      .filter(Boolean)
-      .join(" · ") || "Any"
-  : "—";
-
+                  ? [
+                      lot.delivery_restriction
+                        ? formatDeliveryRestrictionLabel(
+                            lot.delivery_restriction,
+                          )
+                        : null,
+                      lot.tier_restriction
+                        ? `${lot.tier_restriction}`
+                        : null,
+                      lot.length_restriction &&
+                      lot.length_restriction !== "none"
+                        ? `${formatLengthRestrictionLabel(
+                            lot.length_restriction,
+                          )} min only`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "Any"
+                  : "—";
 
                 return (
                   <tr key={idx} className="border-b">

@@ -7,7 +7,6 @@ import { getAdminSupabase } from "@/lib/supabase/admin";
 import {
   getInvoiceMonthKey,
   formatInvoiceMonthLabel,
-  type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import BulkMarkInvoicesPaidButton from "@/components/admin/BulkMarkInvoicesPaidButton";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
@@ -16,17 +15,21 @@ import {
   readProfileDisplayName,
 } from "@/lib/types/profiles";
 import { formatTeacherMoney } from "@/lib/domain/teachers";
-import type { TeacherInvoiceRow } from "@/lib/types/teachers";
+import type {
+  TeacherInvoiceRow,
+  TeacherInvoiceMonthSummaryRow,
+} from "@/lib/types/teachers";
 
 export const dynamic = "force-dynamic";
 
-type SummaryRow = {
+// Raw DB shape from v_teacher_invoice_summary
+type SummaryRowDb = {
   teacher_id: string;
   month_start: string;
   lesson_gross_pennies: number | null;
   expenses_pennies: number | null;
   total_pennies: number | null;
-  status: InvoiceStatus;
+  status: string; // will be narrowed via InvoiceStatus in the mapped type
 };
 
 type InvoiceRow = TeacherInvoiceRow;
@@ -53,12 +56,22 @@ export default async function AdminMonthlyTeacherInvoicesPage({
     .eq("month_start", monthKey)
     .order("teacher_id", { ascending: true });
 
-  const summaryRows = (summaryData ?? []) as SummaryRow[];
+  const summaryRowsDb = (summaryData ?? []) as SummaryRowDb[];
+
+  // Map DB rows -> domain/camelCase rows
+  const summaryRows: TeacherInvoiceMonthSummaryRow[] = summaryRowsDb.map(
+    (r) => ({
+      teacherId: r.teacher_id,
+      monthStart: r.month_start,
+      lessonGrossPennies: r.lesson_gross_pennies ?? 0,
+      expensesPennies: r.expenses_pennies ?? 0,
+      totalPennies: r.total_pennies ?? 0,
+      status: r.status as TeacherInvoiceMonthSummaryRow["status"],
+    }),
+  );
 
   // Collect teacher ids
-  const teacherIds = Array.from(
-    new Set(summaryRows.map((r) => r.teacher_id)),
-  );
+  const teacherIds = Array.from(new Set(summaryRows.map((r) => r.teacherId)));
 
   // 2) Invoice rows for this month (one per teacher_id ideally)
   const { data: invoicesData } = await supabase
@@ -167,15 +180,15 @@ export default async function AdminMonthlyTeacherInvoicesPage({
             ) : (
               summaryRows.map((row) => {
                 const teacherName =
-                  teacherNameById.get(row.teacher_id) ?? row.teacher_id;
-                const inv = invoiceByTeacher.get(row.teacher_id);
+                  teacherNameById.get(row.teacherId) ?? row.teacherId;
+                const inv = invoiceByTeacher.get(row.teacherId);
 
-                const lessonGross = row.lesson_gross_pennies ?? 0;
-                const expenses = row.expenses_pennies ?? 0;
-                const total = row.total_pennies ?? 0;
+                const lessonGross = row.lessonGrossPennies;
+                const expenses = row.expensesPennies;
+                const total = row.totalPennies;
 
                 return (
-                  <tr key={row.teacher_id}>
+                  <tr key={row.teacherId}>
                     <td className="whitespace-nowrap px-4 py-2 text-gray-900">
                       {teacherName}
                     </td>
@@ -194,7 +207,7 @@ export default async function AdminMonthlyTeacherInvoicesPage({
                     <td className="whitespace-nowrap px-4 py-2 text-right">
                       {inv ? (
                         <Link
-                          href={`/admin/teachers/${row.teacher_id}/invoices/${inv.id}`}
+                          href={`/admin/teachers/${row.teacherId}/invoices/${inv.id}`}
                           className="text-xs font-medium text-blue-600 hover:text-blue-800"
                         >
                           Open

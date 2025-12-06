@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { formatDateTimeLondon } from "@/lib/formatters";
 
-export type NotificationVariant = "info" | "warning" | "success";
+export type NotificationVariant = "info" | "warning" | "success" | "error";
 
 export type DashboardNotification = {
   id: string; // unique per notification instance
   variant?: NotificationVariant;
   title: string;
   body?: string;
-  createdAt?: string; // ISO string
+  createdAt?: string; // ISO string (UTC)
 };
 
 type NotificationPanelProps = {
@@ -20,6 +21,7 @@ const variantAccent: Record<NotificationVariant, string> = {
   info: "border-sky-300",
   warning: "border-amber-300",
   success: "border-emerald-300",
+  error: "border-red-300",
 };
 
 export function NotificationPanel({
@@ -66,14 +68,7 @@ export function NotificationPanel({
 
                 {n.createdAt && (
                   <p className="mt-1 text-[11px] text-slate-400">
-                    {new Date(n.createdAt).toLocaleString("en-GB", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}{" "}
-                    London time
+                    {formatDateTimeLondon(n.createdAt)} (London time)
                   </p>
                 )}
               </div>

@@ -1,6 +1,6 @@
 // lib/types/teachers.ts
 import type { Database } from "@/lib/database.types";
-import type { InvoiceStatus } from "@/lib/teacherInvoices"; // ✅ NEW
+import type { InvoiceStatus } from "@/lib/teacherInvoices";
 
 // ---------------------------------------------------------------------------
 // Core teacher types
@@ -17,7 +17,6 @@ export type Teacher = {
   id: TeacherRow["id"];
   profileId: TeacherRow["profile_id"];
   status: TeacherStatus;
-  timeZone: TeacherRow["time_zone"] | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -38,11 +37,14 @@ export type TeacherInvoiceSummary = {
   id: TeacherInvoiceRow["id"];
   teacherId: TeacherInvoiceRow["teacher_id"];
   monthStart: TeacherInvoiceRow["month_start"]; // 'YYYY-MM-01'
-  status: TeacherInvoiceStatus; // e.g. 'generated' | 'paid'
+  status: TeacherInvoiceStatus; // 'not_generated' | 'generated' | 'paid'
   invoiceRef: TeacherInvoiceRow["invoice_ref"] | null;
-
-  // Totals from views (e.g. v_teacher_invoice_summary)
-  totalPennies?: number | null;
-  lessonGrossPennies?: number | null;
-  expensesPennies?: number | null;
+};
+export type TeacherInvoiceMonthSummaryRow = {
+  teacherId: string;
+  monthStart: string;
+  lessonGrossPennies: number;
+  expensesPennies: number;
+  totalPennies: number;
+  status: InvoiceStatus;
 };

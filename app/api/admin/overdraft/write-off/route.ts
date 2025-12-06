@@ -1,8 +1,12 @@
 // app/api/admin/overdraft/write-off/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import type { Database } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
+
+type WriteOffOverdraftArgs =
+  Database["public"]["Functions"]["rpc_write_off_overdraft"]["Args"];
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,9 +27,9 @@ export async function POST(req: NextRequest) {
     };
 
     const studentId = body.studentId;
-    const reasonCode = body.reasonCode;
-    const note = body.note ?? null;
-    const accountingPeriod = body.accountingPeriod ?? null;
+    const reasonCode = body.reasonCode?.trim();
+    const note = body.note;
+    const accountingPeriod = body.accountingPeriod?.trim() ?? null;
 
     if (!studentId) {
       return NextResponse.json(
@@ -34,7 +38,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!reasonCode || !reasonCode.trim()) {
+    if (!reasonCode) {
       return NextResponse.json(
         { error: "reasonCode is required" },
         { status: 400 },
@@ -43,12 +47,23 @@ export async function POST(req: NextRequest) {
 
     const sb = getAdminSupabase();
 
-    const { data, error } = await sb.rpc("rpc_write_off_overdraft", {
+    const args: WriteOffOverdraftArgs = {
       p_student_id: studentId,
       p_reason_code: reasonCode,
-      p_note: note,
-      p_accounting_period: accountingPeriod,
-    });
+    };
+
+    // Optional note: generated types are usually string | undefined.
+    // SQL treats NULL as "no note", so omitting is equivalent.
+    if (note !== null && note !== undefined && note.trim() !== "") {
+      args.p_note = note;
+    }
+
+    // Optional accounting period: same pattern.
+    if (accountingPeriod) {
+      args.p_accounting_period = accountingPeriod;
+    }
+
+    const { data, error } = await sb.rpc("rpc_write_off_overdraft", args);
 
     if (error) {
       return NextResponse.json(

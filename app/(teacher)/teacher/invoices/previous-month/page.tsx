@@ -13,9 +13,11 @@ import {
   type InvoiceStatus,
 } from "@/lib/teacherInvoices";
 import { TeacherInvoiceStatusPill } from "@/components/TeacherInvoiceStatusPill";
+import { getTeacherPortalInvoiceSnapshot } from "@/lib/server/getTeacherPortalInvoiceSnapshot";
 
 export const dynamic = "force-dynamic";
 
+// Types used only in the view-based fallback
 type InvoiceSummary = {
   month_start: string;
   lesson_gross_pennies: number | null;
@@ -71,10 +73,7 @@ export default async function TeacherInvoiceMonthSnapshotPage({
 
   if (!user) {
     return (
-      <Section
-        title="Invoice month snapshot"
-        subtitle={monthLabel}
-      >
+      <Section title="Invoice month snapshot" subtitle={monthLabel}>
         <p className="text-sm text-gray-600">Please sign in as a teacher.</p>
       </Section>
     );
@@ -88,10 +87,7 @@ export default async function TeacherInvoiceMonthSnapshotPage({
 
   if (teacherError || !t?.id) {
     return (
-      <Section
-        title="Invoice month snapshot"
-        subtitle={monthLabel}
-      >
+      <Section title="Invoice month snapshot" subtitle={monthLabel}>
         <p className="text-sm text-red-600">
           Error: teacher record not found for this login.
         </p>
@@ -101,104 +97,183 @@ export default async function TeacherInvoiceMonthSnapshotPage({
 
   const teacherId = t.id as string;
 
-  const [
-    { data: summaryData, error: summaryError },
-    { data: earningsData, error: earningsError },
-    { data: expensesSummaryData, error: expensesError },
-    { data: studentEarningsData, error: studentEarningsError },
-  ] = await Promise.all([
-    supabase
-      .from("v_teacher_invoice_summary")
-      .select(
-        "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthKey)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_lesson_earnings_by_month")
-      .select(
-        "month_start, lesson_minutes_total, gross_pennies, snc_free_minutes, snc_charged_minutes",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthKey)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_expenses_summary")
-      .select(
-        "month_start, approved_pennies, pending_pennies, rejected_pennies",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthKey)
-      .maybeSingle(),
-    supabase
-      .from("v_teacher_lesson_earnings_by_student_month")
-      .select(
-        "teacher_id, month_start, student_id, lesson_minutes_total, gross_pennies",
-      )
-      .eq("teacher_id", teacherId)
-      .eq("month_start", monthKey)
-      .order("student_id", { ascending: true }),
-  ]);
+  // ------------------------------------------------------------
+  // 1) Try invoice-based snapshot first (DRY with invoice detail)
+  // ------------------------------------------------------------
 
-  // Hard failure: some core query died
-  if (summaryError || earningsError || expensesError) {
-    return (
-      <Section
-        title="Invoice month snapshot"
-        subtitle={monthLabel}
-      >
-        <p className="text-sm text-red-600">
-          Sorry — there was a problem loading your invoice month snapshot.
-        </p>
-      </Section>
-    );
-  }
+  const { data: invoiceRow } = await supabase
+    .from("teacher_invoices")
+    .select("id")
+    .eq("teacher_id", teacherId)
+    .eq("month_start", monthKey)
+    .maybeSingle();
 
-  const summary = (summaryData ?? null) as InvoiceSummary | null;
-  const earnings = (earningsData ?? null) as LessonEarningsMonth | null;
-  const expenseSummary = (expensesSummaryData ?? null) as ExpenseSummary | null;
-  const studentEarnings = (studentEarningsData ?? []) as StudentEarningsRow[];
+  // Shared variables for render
+  let lessonMinutesTotal = 0;
+  let lessonGrossPennies = 0;
+  let sncFreeMinutes = 0;
+  let sncChargedMinutes = 0;
 
-  // Map student_id -> full_name for the table
-  const studentIds = Array.from(
-    new Set(studentEarnings.map((row) => row.student_id).filter(Boolean)),
-  );
+  let approvedExpensesPennies = 0;
+  let pendingExpensesPennies = 0;
+  let rejectedExpensesPennies = 0;
 
-  const studentNameById = new Map<string, string>();
+  let totalPennies = 0;
+  let status: InvoiceStatus = "not_generated";
 
-  if (studentIds.length > 0) {
-    const { data: studentNames } = await supabase
-      .from("v_student_names")
-      .select("student_id, full_name")
-      .in("student_id", studentIds);
+  let studentEarnings: StudentEarningsRow[] = [];
+  let studentNameById = new Map<string, string>();
 
-    if (studentNames) {
-      for (const sn of studentNames as StudentNameRow[]) {
-        studentNameById.set(sn.student_id, sn.full_name);
-      }
+  // For the view-based fallback error messages
+  let studentEarningsError: Error | null = null;
+  let expensesError: Error | null = null;
+
+  if (invoiceRow?.id) {
+    // Invoice exists → reuse canonical invoice snapshot
+    try {
+      const snapshot = await getTeacherPortalInvoiceSnapshot(
+        teacherId,
+        invoiceRow.id,
+      );
+
+      lessonMinutesTotal = snapshot.lessonMinutesTotal;
+      lessonGrossPennies = snapshot.lessonGrossPennies;
+      sncFreeMinutes = snapshot.sncFreeMinutes;
+      sncChargedMinutes = snapshot.sncChargedMinutes;
+
+      approvedExpensesPennies = snapshot.approvedExpensesPennies;
+      pendingExpensesPennies = snapshot.pendingExpensesPennies;
+      rejectedExpensesPennies = snapshot.rejectedExpensesPennies;
+
+      totalPennies = snapshot.totalPennies;
+      status = snapshot.displayStatus;
+
+      // Shapes match v_teacher_lesson_earnings_by_student_month / v_student_names
+      studentEarnings = snapshot.studentEarnings as StudentEarningsRow[];
+      studentNameById = snapshot.studentNameById;
+    } catch (err) {
+      // If snapshot fails for some reason, fall back to view-based logic below
+      console.error(
+        "[teacher] Error loading invoice snapshot for month snapshot; falling back to views",
+        {
+          teacherId,
+          monthKey,
+          err,
+        },
+      );
     }
   }
 
-  const lessonMinutesTotal = earnings?.lesson_minutes_total ?? 0;
-  const lessonGrossPennies = earnings?.gross_pennies ?? 0;
-  const sncFreeMinutes = earnings?.snc_free_minutes ?? 0;
-  const sncChargedMinutes = earnings?.snc_charged_minutes ?? 0;
+  // ------------------------------------------------------------
+  // 2) If there is no invoice (or snapshot failed), use view-based month snapshot
+  // ------------------------------------------------------------
 
-  const approvedExpensesPennies = expenseSummary?.approved_pennies ?? 0;
-  const pendingExpensesPennies = expenseSummary?.pending_pennies ?? 0;
-  const rejectedExpensesPennies = expenseSummary?.rejected_pennies ?? 0;
+  const snapshotMissingOrFailed = !invoiceRow?.id || totalPennies === 0;
 
-  const totalPennies =
-    summary?.total_pennies ?? lessonGrossPennies + approvedExpensesPennies;
+  if (snapshotMissingOrFailed) {
+    const [
+      { data: summaryData, error: summaryError },
+      { data: earningsData, error: earningsError },
+      { data: expensesSummaryData, error: expensesErrorLocal },
+      { data: studentEarningsData, error: studentEarningsErrorLocal },
+    ] = await Promise.all([
+      supabase
+        .from("v_teacher_invoice_summary")
+        .select(
+          "month_start, lesson_gross_pennies, expenses_pennies, total_pennies, status",
+        )
+        .eq("teacher_id", teacherId)
+        .eq("month_start", monthKey)
+        .maybeSingle(),
+      supabase
+        .from("v_teacher_lesson_earnings_by_month")
+        .select(
+          "month_start, lesson_minutes_total, gross_pennies, snc_free_minutes, snc_charged_minutes",
+        )
+        .eq("teacher_id", teacherId)
+        .eq("month_start", monthKey)
+        .maybeSingle(),
+      supabase
+        .from("v_teacher_expenses_summary")
+        .select(
+          "month_start, approved_pennies, pending_pennies, rejected_pennies",
+        )
+        .eq("teacher_id", teacherId)
+        .eq("month_start", monthKey)
+        .maybeSingle(),
+      supabase
+        .from("v_teacher_lesson_earnings_by_student_month")
+        .select(
+          "teacher_id, month_start, student_id, lesson_minutes_total, gross_pennies",
+        )
+        .eq("teacher_id", teacherId)
+        .eq("month_start", monthKey)
+        .order("student_id", { ascending: true }),
+    ]);
 
-  const status: InvoiceStatus = summary?.status ?? "not_generated";
+    // Hard failure: some core query died
+    if (summaryError || earningsError || expensesErrorLocal) {
+      return (
+        <Section title="Invoice month snapshot" subtitle={monthLabel}>
+          <p className="text-sm text-red-600">
+            Sorry — there was a problem loading your invoice month snapshot.
+          </p>
+        </Section>
+      );
+    }
+
+    const summary = (summaryData ?? null) as InvoiceSummary | null;
+    const earnings = (earningsData ?? null) as LessonEarningsMonth | null;
+    const expenseSummary = (expensesSummaryData ?? null) as
+      | ExpenseSummary
+      | null;
+    studentEarnings = (studentEarningsData ?? []) as StudentEarningsRow[];
+
+    studentEarningsError = studentEarningsErrorLocal as Error | null;
+    expensesError = expensesErrorLocal as Error | null;
+
+    // Map student_id -> full_name for the table
+    const studentIds = Array.from(
+      new Set(studentEarnings.map((row) => row.student_id).filter(Boolean)),
+    );
+
+    if (studentIds.length > 0) {
+      const { data: studentNames } = await supabase
+        .from("v_student_names")
+        .select("student_id, full_name")
+        .in("student_id", studentIds);
+
+      if (studentNames) {
+        studentNameById = new Map<string, string>();
+        for (const sn of studentNames as StudentNameRow[]) {
+          studentNameById.set(sn.student_id, sn.full_name);
+        }
+      }
+    }
+
+    lessonMinutesTotal = earnings?.lesson_minutes_total ?? 0;
+    lessonGrossPennies = earnings?.gross_pennies ?? 0;
+    sncFreeMinutes = earnings?.snc_free_minutes ?? 0;
+    sncChargedMinutes = earnings?.snc_charged_minutes ?? 0;
+
+    approvedExpensesPennies = expenseSummary?.approved_pennies ?? 0;
+    pendingExpensesPennies = expenseSummary?.pending_pennies ?? 0;
+    rejectedExpensesPennies = expenseSummary?.rejected_pennies ?? 0;
+
+    totalPennies =
+      summary?.total_pennies ?? lessonGrossPennies + approvedExpensesPennies;
+
+    status = summary?.status ?? "not_generated";
+  }
+
+  // ------------------------------------------------------------
+  // 3) Render (shared, regardless of where the data came from)
+  // ------------------------------------------------------------
+
+  const showRejected = rejectedExpensesPennies > 0;
 
   return (
-    <Section
-      title="Invoice month snapshot"
-      subtitle={monthLabel}
-    >
+    <Section title="Invoice month snapshot" subtitle={monthLabel}>
       <div className="space-y-6">
         {/* Top summary = invoice month totals */}
         <div className="flex flex-col justify-between gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
@@ -340,7 +415,7 @@ export default async function TeacherInvoiceMonthSnapshotPage({
           </div>
         </div>
 
-        {/* Expenses summary */}
+                {/* Expenses summary */}
         <div className="space-y-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-900">Expenses</h2>
 
@@ -350,31 +425,31 @@ export default async function TeacherInvoiceMonthSnapshotPage({
             </p>
           ) : (
             <>
-              <div className="grid grid-cols-3 gap-4 text-sm text-gray-900">
+              <div
+                className={`grid ${
+                  showRejected ? "grid-cols-3" : "grid-cols-2"
+                } gap-4 text-sm text-gray-900`}
+              >
                 <div>
                   <div className="text-xs font-semibold text-gray-500">
                     Approved
                   </div>
-                  <div>
-                    {formatPenniesAsPounds(approvedExpensesPennies)}
-                  </div>
+                  <div>{formatPenniesAsPounds(approvedExpensesPennies)}</div>
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-gray-500">
                     Pending
                   </div>
-                  <div>
-                    {formatPenniesAsPounds(pendingExpensesPennies)}
-                  </div>
+                  <div>{formatPenniesAsPounds(pendingExpensesPennies)}</div>
                 </div>
-                <div>
-                  <div className="text-xs font-semibold text-gray-500">
-                    Rejected
-                  </div>
+                {showRejected && (
                   <div>
-                    {formatPenniesAsPounds(rejectedExpensesPennies)}
+                    <div className="text-xs font-semibold text-gray-500">
+                      Rejected
+                    </div>
+                    <div>{formatPenniesAsPounds(rejectedExpensesPennies)}</div>
                   </div>
-                </div>
+                )}
               </div>
               <p className="mt-2 text-xs text-gray-600">
                 Only approved expenses for {monthLabel} are included in the

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSupabase } from "@/lib/supabase/admin";
+import type { Database } from "@/lib/database.types";
 
 const resolveHazardSchema = z
   .object({
@@ -14,6 +15,7 @@ const resolveHazardSchema = z
     const hasLesson = !!data.lessonId;
     const hasAlloc = !!data.allocationId;
 
+    // Exactly one of lessonId / allocationId must be provided
     if (hasLesson === hasAlloc) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -24,6 +26,8 @@ const resolveHazardSchema = z
   });
 
 type ResolveHazardInput = z.infer<typeof resolveHazardSchema>;
+type ResolveHazardArgs =
+  Database["public"]["Functions"]["rpc_resolve_hazard"]["Args"];
 
 export const dynamic = "force-dynamic";
 
@@ -44,12 +48,28 @@ export async function POST(req: NextRequest) {
 
     const supabase = getAdminSupabase();
 
-    const { data, error } = await supabase.rpc("rpc_resolve_hazard", {
+    // Build payload in a way that matches the generated types:
+    // optional string fields -> omit when null/undefined.
+    const payload: ResolveHazardArgs = {
       p_hazard_type: hazardType,
-      p_lesson_id: lessonId ?? null,
-      p_allocation_id: allocationId ?? null,
-      p_note: note ?? null,
-    });
+    };
+
+    if (lessonId) {
+      payload.p_lesson_id = lessonId;
+    }
+
+    if (allocationId) {
+      payload.p_allocation_id = allocationId;
+    }
+
+    if (note !== null && note !== undefined) {
+      payload.p_note = note;
+    }
+
+    const { data, error } = await supabase.rpc(
+      "rpc_resolve_hazard",
+      payload,
+    );
 
     if (error) {
       console.error("rpc_resolve_hazard error", error);
