@@ -65,9 +65,10 @@ import type {
   VStudentCreditSummaryRow,
 } from "@/lib/types/views/student";
 
-
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+type AdminClient = ReturnType<typeof getAdminSupabase>;
 
 type LotRow = {
   credit_lot_id: string;
@@ -84,9 +85,8 @@ type LotRow = {
   delivery_restriction: DeliveryRestriction;
   days_to_expiry: number | null;
   expiry_within_30d: boolean | null;
-  is_low_remaining: boolean; // 👈 new
+  is_low_remaining: boolean;
 };
-
 
 type TeacherRow = {
   id: string;
@@ -105,6 +105,72 @@ type StudentWithProfile = {
     | null;
 };
 
+type StudentCore = {
+  studentTier: Tier;
+  studentStatus: StudentStatus;
+  studentStatusLabel: string;
+  studentStatusClass: string;
+  isLegacyTier: boolean;
+  lastActivityAt: string | null;
+  studentName: string;
+};
+
+type TeacherOption = { id: string; name: string };
+
+type TeacherAndPricing = {
+  allTeacherOptions: TeacherOption[];
+  assignedTeachers: TeacherOption[];
+  studentTeacherRates: StudentTeacherRateRow[];
+};
+
+type UsageSummary = {
+  avgMonthHours: number | null;
+  isHeavyUser: boolean;
+};
+
+type LowCreditState = {
+  lowCreditAlert: Awaited<ReturnType<typeof getLowCreditAlertForStudent>> | null;
+  lowCreditAny: boolean;
+  showGenericLow: boolean;
+  lowCreditDynamic: boolean;
+  onlineAlert?: LowCreditByDeliveryRow;
+  f2fAlert?: LowCreditByDeliveryRow;
+  anyPerDeliveryLow: boolean;
+};
+
+type LotsState = {
+  rows: LotRow[];
+  allocationsByLot: Record<string, AllocationRow[]>;
+  overdraftMinutesRemaining: number;
+  hasOverdraft: boolean;
+  expiringLots: LotRow[];
+};
+
+type SncState = {
+  sncRows: SncHistoryRow[];
+  lifetimeFreeSncs: number;
+  lifetimeChargedSncs: number;
+  hasLifetimeFreeSnc: boolean;
+};
+
+type CreditSummary = {
+  totalGrantedMin: number;
+  usedMin: number;
+  remainingMin: number;
+  purchasedMin: number;
+  purchasedOnlineMin: number;
+  purchasedF2FMin: number;
+  usedOnlineInvoiceMin: number;
+  usedF2FInvoiceMin: number;
+  remainingOnlineInvoiceMin: number;
+  remainingF2FInvoiceMin: number;
+  hasBothInvoiceModes: boolean;
+  perDeliveryUsageAvailable: boolean;
+  awardLineAwarded: ReturnType<typeof buildAwardLine>;
+  awardLineUsed: ReturnType<typeof buildAwardLine>;
+  awardLineRemaining: ReturnType<typeof buildAwardLine>;
+};
+
 export default async function AdminStudentPage({
   params,
 }: {
@@ -115,25 +181,190 @@ export default async function AdminStudentPage({
 
   const sb = getAdminSupabase();
 
-  // --- 1) Core student record ------------------------------------------------
+  const studentCore = await loadStudentCore(sb, studentId);
+  const { allTeacherOptions, assignedTeachers, studentTeacherRates } =
+    await loadTeacherAndPricing(sb, studentId);
+
+  const usageSummary = await loadUsageSummary(sb, studentId);
+  const lowCreditState = await loadLowCreditState(studentId);
+  const lotsState = await loadLotsState(sb, studentId);
+  const sncState = await loadSncState(sb, studentId);
+  const creditSummary = await loadCreditSummary(
+    sb,
+    studentId,
+    lowCreditState.onlineAlert,
+    lowCreditState.f2fAlert,
+  );
+
+  return (
+    <Section title={`Student 360 — ${studentCore.studentName}`}>
+      <HeaderActions studentId={studentId} />
+
+      <div className="mb-6">
+        <CreditSnapshot
+          purchasedMin={creditSummary.purchasedMin}
+          awardedMin={
+            Math.max(
+              creditSummary.totalGrantedMin - creditSummary.purchasedMin,
+              0,
+            )
+          }
+          usedMin={creditSummary.usedMin}
+          remainingMin={creditSummary.remainingMin}
+          purchasedOnlineMin={creditSummary.purchasedOnlineMin}
+          purchasedF2fMin={creditSummary.purchasedF2FMin}
+          usedOnlineMin={creditSummary.usedOnlineInvoiceMin}
+          usedF2fMin={creditSummary.usedF2FInvoiceMin}
+          remainingOnlineMin={creditSummary.remainingOnlineInvoiceMin}
+          remainingF2fMin={creditSummary.remainingF2FInvoiceMin}
+          hasBothDeliveries={creditSummary.hasBothInvoiceModes}
+          awardedLine={creditSummary.awardLineAwarded}
+          usedAwardLine={creditSummary.awardLineUsed}
+          remainingAwardLine={creditSummary.awardLineRemaining}
+        />
+      </div>
+
+      <div className="mb-6">
+        <StudentWarningStrip
+          lowCreditAny={lowCreditState.lowCreditAny}
+          showGenericLow={lowCreditState.showGenericLow}
+          lowCreditDynamic={lowCreditState.lowCreditDynamic}
+          lowCreditAlertRemainingHours={
+            lowCreditState.lowCreditAlert?.remaining_hours != null
+              ? Number(lowCreditState.lowCreditAlert.remaining_hours)
+              : null
+          }
+          lowCreditAlertAvgMonthHours={
+            lowCreditState.lowCreditAlert?.avg_month_hours != null
+              ? Number(lowCreditState.lowCreditAlert.avg_month_hours)
+              : null
+          }
+          lowCreditAlertBufferHours={
+            lowCreditState.lowCreditAlert?.buffer_hours != null
+              ? Number(lowCreditState.lowCreditAlert.buffer_hours)
+              : null
+          }
+          onlineAlert={lowCreditState.onlineAlert}
+          f2fAlert={lowCreditState.f2fAlert}
+          anyPerDeliveryLow={lowCreditState.anyPerDeliveryLow}
+          hasOverdraft={lotsState.hasOverdraft}
+          overdraftMinutesRemaining={lotsState.overdraftMinutesRemaining}
+          expiringLotsCount={lotsState.expiringLots.length}
+        />
+      </div>
+
+      <StudentInfoPanel
+        studentId={studentId}
+        studentTier={studentCore.studentTier}
+        studentStatus={studentCore.studentStatus}
+        studentStatusLabel={studentCore.studentStatusLabel}
+        studentStatusClass={studentCore.studentStatusClass}
+        lastActivityAt={studentCore.lastActivityAt}
+        avgMonthHours={usageSummary.avgMonthHours}
+        isHeavyUser={usageSummary.isHeavyUser}
+        perDeliveryUsageAvailable={creditSummary.perDeliveryUsageAvailable}
+        onlineAlert={lowCreditState.onlineAlert}
+        f2fAlert={lowCreditState.f2fAlert}
+        remainingMin={creditSummary.remainingMin}
+        hasOverdraft={lotsState.hasOverdraft}
+        overdraftMinutesRemaining={lotsState.overdraftMinutesRemaining}
+      />
+
+      <TeacherPanel
+        studentId={studentId}
+        allTeacherOptions={allTeacherOptions}
+        assignedTeachers={assignedTeachers}
+        studentTeacherRates={studentTeacherRates}
+      />
+
+      <CreditLotsPanel
+        studentId={studentId}
+        rows={lotsState.rows}
+        allocationsByLot={lotsState.allocationsByLot}
+        hasOverdraft={lotsState.hasOverdraft}
+        overdraftMinutesRemaining={lotsState.overdraftMinutesRemaining}
+      />
+
+      <StudentSncHistory
+        sncRows={sncState.sncRows}
+        isLegacyTier={studentCore.isLegacyTier}
+        lifetimeFreeSncs={sncState.lifetimeFreeSncs}
+        lifetimeChargedSncs={sncState.lifetimeChargedSncs}
+        hasLifetimeFreeSnc={sncState.hasLifetimeFreeSnc}
+      />
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Data loaders
+// ---------------------------------------------------------------------------
+
+async function loadStudentCore(
+  sb: AdminClient,
+  studentId: string,
+): Promise<StudentCore> {
   const { data: student, error: sErr } = await sb
     .from("students")
     .select("id, profile_id, created_at, tier, status")
     .eq("id", studentId)
     .single();
 
-  if (sErr || !student) notFound();
+  if (sErr || !student) {
+    notFound();
+  }
 
-  // Tier is null for "No package (legacy rules)"
   const studentTier: Tier = (student.tier ?? null) as Tier;
   const studentStatus: StudentStatus = (student.status ?? "current") as StudentStatus;
   const isLegacyTier = !studentTier;
 
-  // 🔹 Domain-driven label + badge styling
   const studentStatusLabel = formatStudentStatus(studentStatus);
   const studentStatusClass = getStudentStatusBadgeClass(studentStatus);
 
-  // --- 2) Teacher assignments ------------------------------------------------
+  const { data: activityRow, error: activityErr } = await sb
+    .from("v_student_last_activity")
+    .select("last_activity_at")
+    .eq("student_id", studentId)
+    .maybeSingle();
+
+  const lastActivityAt: string | null =
+    activityErr || !activityRow
+      ? (student.created_at as string | null)
+      : ((activityRow.last_activity_at as string | null) ??
+          (student.created_at as string | null));
+
+  const { data: srow } = await sb
+    .from("students")
+    .select("id, profiles(full_name)")
+    .eq("id", studentId)
+    .maybeSingle();
+
+  const studentWithProfile = srow as StudentWithProfile | null;
+
+  const studentName = (() => {
+    const profiles = studentWithProfile?.profiles;
+    if (!profiles) return "(student)";
+    if (Array.isArray(profiles)) {
+      return profiles[0]?.full_name ?? "(student)";
+    }
+    return profiles.full_name ?? "(student)";
+  })();
+
+  return {
+    studentTier,
+    studentStatus,
+    studentStatusLabel,
+    studentStatusClass,
+    isLegacyTier,
+    lastActivityAt,
+    studentName,
+  };
+}
+
+async function loadTeacherAndPricing(
+  sb: AdminClient,
+  studentId: string,
+): Promise<TeacherAndPricing> {
   const { data: teacherRows, error: tErr } = await sb
     .from("teachers")
     .select("id, profile_id")
@@ -144,7 +375,7 @@ export default async function AdminStudentPage({
     throw new Error(tErr.message);
   }
 
-  let allTeacherOptions: { id: string; name: string }[] = [];
+  let allTeacherOptions: TeacherOption[] = [];
 
   if (teacherRows && teacherRows.length > 0) {
     const teacherProfileIds = teacherRows
@@ -188,12 +419,10 @@ export default async function AdminStudentPage({
   }
 
   const assignedIds = new Set((links ?? []).map((l) => l.teacher_id));
-
   const assignedTeachers = allTeacherOptions.filter((t) =>
     assignedIds.has(t.id),
   );
 
-  // --- X) Pricing snapshot: per-teacher rates for this student --------------
   const { data: rateRows, error: rateErr } = await sb
     .from("v_student_teacher_rate_summary")
     .select(
@@ -216,41 +445,17 @@ export default async function AdminStudentPage({
   const studentTeacherRates: StudentTeacherRateRow[] =
     (rateRows ?? []) as unknown as StudentTeacherRateRow[];
 
-  // --- 3) Last activity (for lifecycle explanations) ------------------------
-  const { data: activityRow, error: activityErr } = await sb
-    .from("v_student_last_activity")
-    .select("last_activity_at")
-    .eq("student_id", studentId)
-    .maybeSingle();
+  return {
+    allTeacherOptions,
+    assignedTeachers,
+    studentTeacherRates,
+  };
+}
 
-  const lastActivityAt: string | null =
-    activityErr || !activityRow
-      ? (student.created_at as string | null)
-      : ((activityRow.last_activity_at as string | null) ??
-          (student.created_at as string | null));
-
-// --- 4) Student display name (via profiles) -------------------------------
-const { data: srow } = await sb
-  .from("students")
-  .select("id, profiles(full_name)")
-  .eq("id", studentId)
-  .maybeSingle();
-
-const studentWithProfile = srow as StudentWithProfile | null;
-
-const studentName = (() => {
-  const profiles = studentWithProfile?.profiles;
-  if (!profiles) return "(student)";
-
-  if (Array.isArray(profiles)) {
-    return profiles[0]?.full_name ?? "(student)";
-  }
-
-  return profiles.full_name ?? "(student)";
-})();
-
-
-  // --- 5) Usage over last 3 months ------------------------------------------
+async function loadUsageSummary(
+  sb: AdminClient,
+  studentId: string,
+): Promise<UsageSummary> {
   const { data: usageRow, error: usageErr } = await sb
     .from("v_student_usage_last_3m")
     .select("avg_month_hours, is_heavy_user")
@@ -268,7 +473,10 @@ const studentName = (() => {
 
   const isHeavyUser = usageRow?.is_heavy_user ?? false;
 
-  // --- 6) Low-credit alert row (generic + dynamic buffer) -------------------
+  return { avgMonthHours, isHeavyUser };
+}
+
+async function loadLowCreditState(studentId: string): Promise<LowCreditState> {
   const lowCreditAlert = await getLowCreditAlertForStudent(studentId);
 
   const lowCreditGeneric = lowCreditAlert?.is_generic_low ?? false;
@@ -277,7 +485,6 @@ const studentName = (() => {
     lowCreditAlert?.is_low_any ?? lowCreditGeneric;
   const showGenericLow = lowCreditGeneric && !lowCreditDynamic;
 
-  // Per-delivery low-credit alerts (online / F2F)
   const lowCreditByDelivery: LowCreditByDeliveryRow[] =
     await getLowCreditAlertsByDeliveryForStudent(studentId);
 
@@ -292,33 +499,46 @@ const studentName = (() => {
     (onlineAlert?.isLowAny ?? false) ||
     (f2fAlert?.isLowAny ?? false);
 
-  // --- 7) Credit lots & allocations -----------------------------------------
+  return {
+    lowCreditAlert: lowCreditAlert ?? null,
+    lowCreditAny,
+    showGenericLow,
+    lowCreditDynamic,
+    onlineAlert,
+    f2fAlert,
+    anyPerDeliveryLow,
+  };
+}
+
+async function loadLotsState(
+  sb: AdminClient,
+  studentId: string,
+): Promise<LotsState> {
   const { data: lots, error: lotsErr } = await sb
     .from("v_credit_lot_remaining")
     .select(
-  [
-    "credit_lot_id",
-    "source_type",
-    "award_reason_code",
-    "external_ref",
-    "minutes_granted",
-    "minutes_allocated",
-    "minutes_remaining",
-    "is_overdrawn",
-    "delivery_restriction",
-    "tier_restriction",
-    "length_restriction",
-    "start_date",
-    "expiry_policy",
-    "expiry_date",
-    "days_to_expiry",
-    "expiry_within_30d",
-    "state",
-    "created_at",
-    "is_low_remaining", // 👈 add
-  ].join(","),
-)
-
+      [
+        "credit_lot_id",
+        "source_type",
+        "award_reason_code",
+        "external_ref",
+        "minutes_granted",
+        "minutes_allocated",
+        "minutes_remaining",
+        "is_overdrawn",
+        "delivery_restriction",
+        "tier_restriction",
+        "length_restriction",
+        "start_date",
+        "expiry_policy",
+        "expiry_date",
+        "days_to_expiry",
+        "expiry_within_30d",
+        "state",
+        "created_at",
+        "is_low_remaining",
+      ].join(","),
+    )
     .eq("student_id", studentId)
     .order("start_date", { ascending: true });
 
@@ -328,7 +548,6 @@ const studentName = (() => {
 
   const rows: LotRow[] = (lots ?? []) as unknown as LotRow[];
 
-  // Find the overdraft lot (if any) and its minutes (sum of negative balances)
   const overdraftLots = rows.filter(
     (r) => r.source_type === "overdraft" && r.minutes_remaining < 0,
   );
@@ -381,7 +600,26 @@ const studentName = (() => {
     );
   }
 
-  // --- 8) SNC history -------------------------------------------------------
+  const expiringLots = rows.filter(
+    (r) =>
+      r.state === "open" &&
+      r.expiry_policy !== "none" &&
+      (r.expiry_within_30d ?? false),
+  );
+
+  return {
+    rows,
+    allocationsByLot,
+    overdraftMinutesRemaining,
+    hasOverdraft,
+    expiringLots,
+  };
+}
+
+async function loadSncState(
+  sb: AdminClient,
+  studentId: string,
+): Promise<SncState> {
   type SncHistoryDbRow = {
     lesson_id: string;
     occurred_at: string;
@@ -402,12 +640,10 @@ const studentName = (() => {
 
   const sncDbRows: SncHistoryDbRow[] = (sncLessons ?? []) as SncHistoryDbRow[];
 
-  // Domain helper: lifetime SNC status from DB rows
   const sncStatus = computeStudentSncStatus(
     sncDbRows.map((r) => ({ is_charged: r.is_charged })),
   );
 
-  // UI table rows
   const sncRows: SncHistoryRow[] = sncDbRows.map((l) => ({
     id: l.lesson_id,
     occurred_at: l.occurred_at,
@@ -416,30 +652,36 @@ const studentName = (() => {
     charged: Boolean(l.is_charged),
   }));
 
-  const lifetimeFreeSncs = sncStatus?.freeSncs ?? 0;
-  const lifetimeChargedSncs = sncStatus?.chargedSncs ?? 0;
-  const hasLifetimeFreeSnc = sncStatus?.hasFreeSncUsed ?? false;
-
-  // --- 9) Totals & breakdowns (via views, to stay in sync with student portal) ---
-
-  // 9a) Overall totals
-const { data: summary, error: sumErr } = await sb
-  .from("v_student_credit_summary")
-  .select(
-    "student_id,total_granted_min,total_allocated_min,total_remaining_min",
-  )
-  .eq("student_id", studentId)
-  .maybeSingle<VStudentCreditSummaryRow>();
-
-if (sumErr) {
-  throw new Error(sumErr.message);
+  return {
+    sncRows,
+    lifetimeFreeSncs: sncStatus?.freeSncs ?? 0,
+    lifetimeChargedSncs: sncStatus?.chargedSncs ?? 0,
+    hasLifetimeFreeSnc: sncStatus?.hasFreeSncUsed ?? false,
+  };
 }
 
-const totalGrantedMin = summary?.total_granted_min ?? 0;
-const usedMin = summary?.total_allocated_min ?? 0;
-const remainingMin = summary?.total_remaining_min ?? 0;
+async function loadCreditSummary(
+  sb: AdminClient,
+  studentId: string,
+  onlineAlert?: LowCreditByDeliveryRow,
+  f2fAlert?: LowCreditByDeliveryRow,
+): Promise<CreditSummary> {
+  const { data: summary, error: sumErr } = await sb
+    .from("v_student_credit_summary")
+    .select(
+      "student_id,total_granted_min,total_allocated_min,total_remaining_min",
+    )
+    .eq("student_id", studentId)
+    .maybeSingle<VStudentCreditSummaryRow>();
 
-  // 9b) Per-delivery totals (invoice credit only)
+  if (sumErr) {
+    throw new Error(sumErr.message);
+  }
+
+  const totalGrantedMin = summary?.total_granted_min ?? 0;
+  const usedMin = summary?.total_allocated_min ?? 0;
+  const remainingMin = summary?.total_remaining_min ?? 0;
+
   const { data: deliveryRow, error: deliveryErr } = await sb
     .from("v_student_credit_delivery_summary")
     .select(
@@ -463,7 +705,6 @@ const remainingMin = summary?.total_remaining_min ?? 0;
     throw new Error(deliveryErr.message);
   }
 
-  // Raw view row → domain summary via shared helper
   const rawDeliveryRow = (deliveryRow ?? null) as
     | VStudentCreditDeliverySummaryRow
     | null;
@@ -471,13 +712,10 @@ const remainingMin = summary?.total_remaining_min ?? 0;
   const deliverySummary = mapCreditDeliverySummaryRow(rawDeliveryRow);
 
   const purchasedMin = deliverySummary.purchasedMin;
-
   const purchasedOnlineMin = deliverySummary.purchasedOnlineMin;
   const purchasedF2FMin = deliverySummary.purchasedF2fMin;
-
   const usedOnlineInvoiceMin = deliverySummary.usedOnlineMin;
   const usedF2FInvoiceMin = deliverySummary.usedF2fMin;
-
   const remainingOnlineInvoiceMin = deliverySummary.remainingOnlineMin;
   const remainingF2FInvoiceMin = deliverySummary.remainingF2fMin;
 
@@ -489,7 +727,6 @@ const remainingMin = summary?.total_remaining_min ?? 0;
     (onlineAlert?.avgMonthHours != null ||
       f2fAlert?.avgMonthHours != null);
 
-    // 9c) Award breakdown by reason (granted minutes)
   const { data: awardRows, error: awardErr } = await sb
     .from("v_student_award_reason_summary")
     .select(
@@ -501,15 +738,10 @@ const remainingMin = summary?.total_remaining_min ?? 0;
     throw new Error(awardErr.message);
   }
 
-  // Canonical view row → domain summaries (null-safe minutes)
   const awardReasons = mapAwardReasonRows(
     (awardRows ?? []) as VStudentAwardReasonSummaryRow[],
   );
 
-  // Awarded total = granted - purchased (same as student portal)
-  const awardedMin = Math.max(totalGrantedMin - purchasedMin, 0);
-
-  // Shape data for buildAwardLine helper (expects snake_case + non-null numbers)
   const awardRowsForLines = awardReasons.map((r) => ({
     award_reason_code: r.awardReasonCode,
     granted_award_min: r.grantedAwardMin,
@@ -519,285 +751,301 @@ const remainingMin = summary?.total_remaining_min ?? 0;
 
   const awardLineAwarded = buildAwardLine(awardRowsForLines, "granted");
   const awardLineUsed = buildAwardLine(awardRowsForLines, "used");
-  const awardLineRemaining = buildAwardLine(
-    awardRowsForLines,
-    "remaining",
-  );
+  const awardLineRemaining = buildAwardLine(awardRowsForLines, "remaining");
 
-  // --- 10) Expiry warnings (SQL-driven via v_credit_lot_remaining) ----------
-  const expiringLots = rows.filter(
-    (r) =>
-      r.state === "open" &&
-      r.expiry_policy !== "none" &&
-      (r.expiry_within_30d ?? false),
-  );
+  return {
+    totalGrantedMin,
+    usedMin,
+    remainingMin,
+    purchasedMin,
+    purchasedOnlineMin,
+    purchasedF2FMin,
+    usedOnlineInvoiceMin,
+    usedF2FInvoiceMin,
+    remainingOnlineInvoiceMin,
+    remainingF2FInvoiceMin,
+    hasBothInvoiceModes,
+    perDeliveryUsageAvailable,
+    awardLineAwarded,
+    awardLineUsed,
+    awardLineRemaining,
+  };
+}
 
-  // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// UI helpers
+// ---------------------------------------------------------------------------
+
+function HeaderActions({ studentId }: { studentId: string }) {
+  return (
+    <div className="mb-4 flex items-center justify-between">
+      <Link
+        href={`/admin/students/${studentId}/credit-lots/new`}
+        className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
+      >
+        + Add credit
+      </Link>
+    </div>
+  );
+}
+
+type StudentInfoPanelProps = {
+  studentId: string;
+  studentTier: Tier;
+  studentStatus: StudentStatus;
+  studentStatusLabel: string;
+  studentStatusClass: string;
+  lastActivityAt: string | null;
+  avgMonthHours: number | null;
+  isHeavyUser: boolean;
+  perDeliveryUsageAvailable: boolean;
+  onlineAlert?: LowCreditByDeliveryRow;
+  f2fAlert?: LowCreditByDeliveryRow;
+  remainingMin: number;
+  hasOverdraft: boolean;
+  overdraftMinutesRemaining: number;
+};
+
+function StudentInfoPanel(props: StudentInfoPanelProps) {
+  const {
+    studentId,
+    studentTier,
+    studentStatus,
+    studentStatusLabel,
+    studentStatusClass,
+    lastActivityAt,
+    avgMonthHours,
+    isHeavyUser,
+    perDeliveryUsageAvailable,
+    onlineAlert,
+    f2fAlert,
+    remainingMin,
+    hasOverdraft,
+    overdraftMinutesRemaining,
+  } = props;
 
   return (
-    <Section title={`Student 360 — ${studentName}`}>
-      {/* Header + Add credit button */}
-      <div className="mb-4 flex items-center justify-between">
-        <Link
-          href={`/admin/students/${studentId}/credit-lots/new`}
-          className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50"
-        >
-          + Add credit
-        </Link>
-      </div>
-
-      {/* 2) Credit summary */}
-      <div className="mb-6">
-        <CreditSnapshot
-          purchasedMin={purchasedMin}
-          awardedMin={awardedMin}
-          usedMin={usedMin}
-          remainingMin={remainingMin}
-          purchasedOnlineMin={purchasedOnlineMin}
-          purchasedF2fMin={purchasedF2FMin}
-          usedOnlineMin={usedOnlineInvoiceMin}
-          usedF2fMin={usedF2FInvoiceMin}
-          remainingOnlineMin={remainingOnlineInvoiceMin}
-          remainingF2fMin={remainingF2FInvoiceMin}
-          hasBothDeliveries={hasBothInvoiceModes}
-          awardedLine={awardLineAwarded}
-          usedAwardLine={awardLineUsed}
-          remainingAwardLine={awardLineRemaining}
-        />
-      </div>
-
-      {/* 3) Warning banners */}
-      <div className="mb-6">
-        <StudentWarningStrip
-          lowCreditAny={lowCreditAny}
-          showGenericLow={showGenericLow}
-          lowCreditDynamic={lowCreditDynamic}
-          lowCreditAlertRemainingHours={
-            lowCreditAlert?.remaining_hours != null
-              ? Number(lowCreditAlert.remaining_hours)
-              : null
-          }
-          lowCreditAlertAvgMonthHours={
-            lowCreditAlert?.avg_month_hours != null
-              ? Number(lowCreditAlert.avg_month_hours)
-              : null
-          }
-          lowCreditAlertBufferHours={
-            lowCreditAlert?.buffer_hours != null
-              ? Number(lowCreditAlert.buffer_hours)
-              : null
-          }
-          onlineAlert={onlineAlert}
-          f2fAlert={f2fAlert}
-          anyPerDeliveryLow={anyPerDeliveryLow}
-          hasOverdraft={hasOverdraft}
-          overdraftMinutesRemaining={overdraftMinutesRemaining}
-          expiringLotsCount={expiringLots.length}
-        />
-      </div>
-
-      {/* 4) Panel – key student info (tier, status, lifecycle, usage) */}
-      <div className="mb-6 rounded-lg border bg-white p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Tier status:</span>
-                <TierBadge tier={studentTier} />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">Student status:</span>
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${studentStatusClass}`}
-                >
-                  {studentStatusLabel}
-                </span>
-              </div>
+    <div className="mb-6 rounded-lg border bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Tier status:</span>
+              <TierBadge tier={studentTier} />
             </div>
-            <div className="text-[11px] text-gray-500">
-              Last activity:{" "}
-              {lastActivityAt ? formatDateTimeLondon(lastActivityAt) : "—"}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Student status:</span>
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${studentStatusClass}`}
+              >
+                {studentStatusLabel}
+              </span>
             </div>
           </div>
-
           <div className="text-[11px] text-gray-500">
-            Avg usage (last 3 months):{" "}
-            {avgMonthHours != null
-              ? `${avgMonthHours.toFixed(2)} h / month`
-              : "—"}
-            {isHeavyUser && (
-  <StatusPill
-    severity="warningSoft"
-    label="Heavy user"
-    className="ml-2 text-[10px]"
-  />
-)}
-
-            {perDeliveryUsageAvailable && (
-              <div className="mt-0.5">
-                Online:{" "}
-                {onlineAlert?.avgMonthHours != null
-                  ? `${onlineAlert.avgMonthHours.toFixed(2)} h`
-                  : "—"}
-                {" · "}
-                F2F:{" "}
-                {f2fAlert?.avgMonthHours != null
-                  ? `${f2fAlert.avgMonthHours.toFixed(2)} h`
-                  : "—"}
-              </div>
-            )}
+            Last activity:{" "}
+            {lastActivityAt ? formatDateTimeLondon(lastActivityAt) : "—"}
           </div>
+        </div>
 
-          <div className="flex items-center gap-3">
-            <StudentTierSelector
-              studentId={studentId}
-              initialTier={studentTier}
+        <div className="text-[11px] text-gray-500">
+          Avg usage (last 3 months):{" "}
+          {avgMonthHours != null
+            ? `${avgMonthHours.toFixed(2)} h / month`
+            : "—"}
+          {isHeavyUser && (
+            <StatusPill
+              severity="warningSoft"
+              label="Heavy user"
+              className="ml-2 text-[10px]"
             />
-            <StudentStatusToggle
+          )}
+
+          {perDeliveryUsageAvailable && (
+            <div className="mt-0.5">
+              Online:{" "}
+              {onlineAlert?.avgMonthHours != null
+                ? `${onlineAlert.avgMonthHours.toFixed(2)} h`
+                : "—"}
+              {" · "}
+              F2F:{" "}
+              {f2fAlert?.avgMonthHours != null
+                ? `${f2fAlert.avgMonthHours.toFixed(2)} h`
+                : "—"}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <StudentTierSelector
+            studentId={studentId}
+            initialTier={studentTier}
+          />
+          <StudentStatusToggle
+            studentId={studentId}
+            initialStatus={studentStatus}
+            remainingMinutes={remainingMin}
+          />
+        </div>
+      </div>
+
+      {studentStatus === "dormant" && (remainingMin > 0 || hasOverdraft) && (
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
+          {remainingMin > 0 && (
+            <WriteOffRemainingButton
               studentId={studentId}
-              initialStatus={studentStatus}
               remainingMinutes={remainingMin}
             />
-          </div>
+          )}
+          {hasOverdraft && (
+            <WriteOffOverdraftButton
+              studentId={studentId}
+              overdraftMinutes={overdraftMinutesRemaining}
+            />
+          )}
         </div>
+      )}
+    </div>
+  );
+}
 
-        {studentStatus === "dormant" && (remainingMin > 0 || hasOverdraft) && (
-          <div className="mt-2 flex flex-wrap justify-end gap-2">
-            {remainingMin > 0 && (
-              <WriteOffRemainingButton
-                studentId={studentId}
-                remainingMinutes={remainingMin}
-              />
-            )}
-            {hasOverdraft && (
-              <WriteOffOverdraftButton
-                studentId={studentId}
-                overdraftMinutes={overdraftMinutesRemaining}
-              />
-            )}
-          </div>
-        )}
+type TeacherPanelProps = {
+  studentId: string;
+  allTeacherOptions: TeacherOption[];
+  assignedTeachers: TeacherOption[];
+  studentTeacherRates: StudentTeacherRateRow[];
+};
+
+function TeacherPanel({
+  studentId,
+  allTeacherOptions,
+  assignedTeachers,
+  studentTeacherRates,
+}: TeacherPanelProps) {
+  return (
+    <div className="mb-6 rounded-lg border bg-white p-4">
+      <div className="mb-3">
+        <StudentTeacherAssignments
+          studentId={studentId}
+          allTeachers={allTeacherOptions}
+          assignedTeachers={assignedTeachers}
+        />
       </div>
 
-      {/* 5) Panel – teacher-related info */}
-      <div className="mb-6 rounded-lg border bg-white p-4">
-        <div className="mb-3">
-          <StudentTeacherAssignments
-            studentId={studentId}
-            allTeachers={allTeacherOptions}
-            assignedTeachers={assignedTeachers}
-          />
+      {assignedTeachers.length > 0 && (
+        <StudentPricingSnapshot
+          assignedTeachers={assignedTeachers}
+          studentTeacherRates={studentTeacherRates}
+        />
+      )}
+    </div>
+  );
+}
+
+type CreditLotsPanelProps = {
+  studentId: string;
+  rows: LotRow[];
+  allocationsByLot: Record<string, AllocationRow[]>;
+  hasOverdraft: boolean;
+  overdraftMinutesRemaining: number;
+};
+
+function CreditLotsPanel({
+  studentId,
+  rows,
+  allocationsByLot,
+  hasOverdraft,
+}: CreditLotsPanelProps) {
+  return (
+    <div className="mb-6 rounded-lg border bg-white p-4">
+      <h3 className="mb-2 text-sm font-semibold">
+        Credit lots &amp; allocations
+      </h3>
+      <p className="mb-3 text-[11px] text-gray-500">
+        Detailed view of each credit lot and how lessons have been allocated
+        against it.
+      </p>
+
+      {hasOverdraft && (
+        <div className="mb-3 flex justify-end">
+          <OverdraftActionButtons studentId={studentId} />
         </div>
+      )}
 
-        {assignedTeachers.length > 0 && (
-          <StudentPricingSnapshot
-            assignedTeachers={assignedTeachers}
-            studentTeacherRates={studentTeacherRates}
-          />
-        )}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b text-left">
+              <th className="py-2 pr-4">Source</th>
+              <th className="py-2 pr-4">Delivery</th>
+              <th className="py-2 pr-4">Granted (h)</th>
+              <th className="py-2 pr-4">Used (h)</th>
+              <th className="py-2 pr-4">Remaining (h)</th>
+              <th className="py-2 pr-4">Expiry</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const label = formatLotLabel(
+                r.source_type,
+                r.external_ref,
+                r.award_reason_code,
+              );
+
+              const isExpiring =
+                r.state === "open" &&
+                r.expiry_policy !== "none" &&
+                (r.expiry_within_30d ?? false);
+
+              const lotAllocations = allocationsByLot[r.credit_lot_id] ?? [];
+
+              return (
+                <React.Fragment key={r.credit_lot_id}>
+                  <tr className="border-b">
+                    <td className="py-2 pr-4">{label}</td>
+                    <td className="py-2 pr-4">
+                      {formatDeliveryUiLabel(r.delivery_restriction)}
+                    </td>
+                    <td className="py-2 pr-4">
+                      {formatMinutesAsHours(r.minutes_granted)} h
+                    </td>
+                    <td className="py-2 pr-4">
+                      {formatMinutesAsHours(r.minutes_allocated)} h
+                    </td>
+                    <td
+                      className={`py-2 pr-4 ${
+                        r.is_low_remaining ? "text-amber-700" : ""
+                      }`}
+                    >
+                      {formatMinutesAsHours(r.minutes_remaining)} h
+                    </td>
+                    <td className="py-2 pr-4">
+                      {r.expiry_policy === "none" || !r.expiry_date ? (
+                        ""
+                      ) : (
+                        <span className={isExpiring ? "text-rose-700" : ""}>
+                          {getExpiryPolicyLabel(r.expiry_policy)}{" "}
+                          {formatDateTimeLondon(r.expiry_date)}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+
+                  <tr className="border-b">
+                    <td colSpan={6} className="bg-gray-50 py-2 pr-4">
+                      <LotAllocationsTable
+                        allocations={lotAllocations}
+                        variant="admin"
+                        lotId={r.credit_lot_id}
+                      />
+                    </td>
+                  </tr>
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-
-      {/* 6) Panel – credit / allocation info */}
-      <div className="mb-6 rounded-lg border bg-white p-4">
-        <h3 className="mb-2 text-sm font-semibold">
-          Credit lots &amp; allocations
-        </h3>
-        <p className="mb-3 text-[11px] text-gray-500">
-          Detailed view of each credit lot and how lessons have been allocated
-          against it.
-        </p>
-
-        {hasOverdraft && (
-          <div className="mb-3 flex justify-end">
-            <OverdraftActionButtons studentId={studentId} />
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b text-left">
-                <th className="py-2 pr-4">Source</th>
-                <th className="py-2 pr-4">Delivery</th>
-                <th className="py-2 pr-4">Granted (h)</th>
-                <th className="py-2 pr-4">Used (h)</th>
-                <th className="py-2 pr-4">Remaining (h)</th>
-                <th className="py-2 pr-4">Expiry</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const label = formatLotLabel(
-                  r.source_type,
-                  r.external_ref,
-                  r.award_reason_code,
-                );
-
-                const isExpiring =
-                  r.state === "open" &&
-                  r.expiry_policy !== "none" &&
-                  (r.expiry_within_30d ?? false);
-
-                const lotAllocations = allocationsByLot[r.credit_lot_id] ?? [];
-
-                return (
-                  <React.Fragment key={r.credit_lot_id}>
-                    <tr className="border-b">
-                      <td className="py-2 pr-4">{label}</td>
-                      <td className="py-2 pr-4">
-                        {formatDeliveryUiLabel(r.delivery_restriction)}
-                      </td>
-                      <td className="py-2 pr-4">
-                        {formatMinutesAsHours(r.minutes_granted)} h
-                      </td>
-                      <td className="py-2 pr-4">
-                        {formatMinutesAsHours(r.minutes_allocated)} h
-                      </td>
-                      <td
-  className={`py-2 pr-4 ${
-    r.is_low_remaining ? "text-amber-700" : ""
-  }`}
->
-  {formatMinutesAsHours(r.minutes_remaining)} h
-</td>
-
-                      <td className="py-2 pr-4">
-                        {r.expiry_policy === "none" || !r.expiry_date ? (
-                          ""
-                        ) : (
-                          <span className={isExpiring ? "text-rose-700" : ""}>
-                            {getExpiryPolicyLabel(r.expiry_policy)}{" "}
-                            {formatDateTimeLondon(r.expiry_date)}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-
-                    <tr className="border-b">
-                      <td colSpan={6} className="bg-gray-50 py-2 pr-4">
-                        <LotAllocationsTable
-                          allocations={lotAllocations}
-                          variant="admin"
-                          lotId={r.credit_lot_id}
-                        />
-                      </td>
-                    </tr>
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* 7) SNCs – as shared component */}
-      <StudentSncHistory
-        sncRows={sncRows}
-        isLegacyTier={isLegacyTier}
-        lifetimeFreeSncs={lifetimeFreeSncs}
-        lifetimeChargedSncs={lifetimeChargedSncs}
-        hasLifetimeFreeSnc={hasLifetimeFreeSnc}
-      />
-    </Section>
+    </div>
   );
 }

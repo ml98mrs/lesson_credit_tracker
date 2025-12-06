@@ -47,23 +47,47 @@ type LotMetaRow = {
   award_reason_code: string | null;
 };
 
-export default async function ConfirmedLessonsPage({ searchParams }: PageProps) {
-  const sb = await getAdminSupabase();
+type NormalizedFilters = {
+  monthParam: string;
+  lessonIdFilter: string;
+  studentNameFilterRaw: string;
+  teacherNameFilterRaw: string;
+  deliveryFilter: string;
+  fromDateParam: string;
+  toDateParam: string;
+};
 
-  // Next 16: searchParams arrives as a Promise
-  const sp = (searchParams ? await searchParams : {}) as SearchParams;
+// ─────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────
 
-  const monthParam = (sp.month ?? "").trim();
-  const lessonIdFilter = (sp.lessonId ?? "").trim();
-  const studentNameFilterRaw = (sp.studentName ?? "").trim();
-  const teacherNameFilterRaw = (sp.teacherName ?? "").trim();
-  const deliveryFilter = (sp.delivery ?? "").trim(); // "f2f" | "online" | ""
-  const fromDateParam = (sp.fromDate ?? "").trim();
-  const toDateParam = (sp.toDate ?? "").trim();
+function normalizeFilters(sp: SearchParams | undefined): NormalizedFilters {
+  const safe = sp ?? {};
+  const trim = (v?: string) => (v ?? "").trim();
 
-  // --------------------------
-  // Build lessons query
-  // --------------------------
+  return {
+    monthParam: trim(safe.month),
+    lessonIdFilter: trim(safe.lessonId),
+    studentNameFilterRaw: trim(safe.studentName),
+    teacherNameFilterRaw: trim(safe.teacherName),
+    deliveryFilter: trim(safe.delivery),
+    fromDateParam: trim(safe.fromDate),
+    toDateParam: trim(safe.toDate),
+  };
+}
+
+async function fetchConfirmedLessons(
+  sb: Awaited<ReturnType<typeof getAdminSupabase>>,
+  filters: NormalizedFilters,
+): Promise<LessonRow[]> {
+  const {
+    monthParam,
+    lessonIdFilter,
+    deliveryFilter,
+    fromDateParam,
+    toDateParam,
+  } = filters;
+
   let query = sb
     .from("lessons")
     .select(
@@ -71,7 +95,6 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     )
     .eq("state", "confirmed");
 
-  // Shared date-range logic (from lib/domain/lessons)
   const { fromIso, toExclusiveIso } = computeLessonDateRange({
     monthParam,
     fromDateParam,
@@ -79,17 +102,13 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
   });
 
   if (fromIso && toExclusiveIso) {
-    query = query
-      .gte("occurred_at", fromIso)
-      .lt("occurred_at", toExclusiveIso);
+    query = query.gte("occurred_at", fromIso).lt("occurred_at", toExclusiveIso);
   }
 
-  // Exact lesson ID filter
   if (lessonIdFilter) {
     query = query.eq("id", lessonIdFilter);
   }
 
-  // Delivery filter
   if (deliveryFilter === "f2f" || deliveryFilter === "online") {
     query = query.eq("delivery", deliveryFilter);
   }
@@ -102,26 +121,28 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     throw new Error(lessonErr.message);
   }
 
-  const lessons: LessonRow[] = (lessonData ?? []) as LessonRow[];
+  return (lessonData ?? []) as LessonRow[];
+}
 
-  // --------------------------
-  // Allocations → credit lot labels (read-only)
-  // --------------------------
+async function fetchLessonLotsLabel(
+  sb: Awaited<ReturnType<typeof getAdminSupabase>>,
+  lessons: LessonRow[],
+): Promise<Map<string, string>> {
   const lessonIds = lessons.map((l) => l.id);
+  const lessonLotsLabel = new Map<string, string>();
 
-  let allocRows: AllocRow[] = [];
-  if (lessonIds.length > 0) {
-    const { data, error } = await sb
-      .from("allocations")
-      .select("lesson_id, credit_lot_id")
-      .in("lesson_id", lessonIds);
+  if (lessonIds.length === 0) return lessonLotsLabel;
 
-    if (error) {
-      throw new Error(error.message);
-    }
+  const { data: allocData, error: allocErr } = await sb
+    .from("allocations")
+    .select("lesson_id, credit_lot_id")
+    .in("lesson_id", lessonIds);
 
-    allocRows = (data ?? []) as AllocRow[];
+  if (allocErr) {
+    throw new Error(allocErr.message);
   }
+
+  const allocRows = (allocData ?? []) as AllocRow[];
 
   const creditLotIds = Array.from(
     new Set(
@@ -153,8 +174,6 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     }
   }
 
-  // lesson_id → "Invoice X · Award Y" labels
-  const lessonLotsLabel = new Map<string, string>();
   for (const a of allocRows) {
     if (!a.credit_lot_id) continue;
     const label = lotLabelById.get(a.credit_lot_id);
@@ -168,23 +187,20 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     }
   }
 
-  // --------------------------
-  // Student / teacher names (via helper)
-  // --------------------------
-  const nameMaps = await buildAdminLessonNameMaps(sb, lessons);
-  const { studentNameById, teacherNameById } = nameMaps;
+  return lessonLotsLabel;
+}
 
-  // Datalist options for autocomplete (via helper)
-  const { studentOptions, teacherOptions } =
-    buildAdminNameOptionsFromMaps(nameMaps);
-
-  // --------------------------
-  // In-memory filters by *name* (human-friendly)
-  // --------------------------
+function filterLessonsByName(
+  lessons: LessonRow[],
+  studentNameById: Map<string, string>,
+  teacherNameById: Map<string, string>,
+  studentNameFilterRaw: string,
+  teacherNameFilterRaw: string,
+): LessonRow[] {
   const studentNameFilter = studentNameFilterRaw.toLowerCase();
   const teacherNameFilter = teacherNameFilterRaw.toLowerCase();
 
-  const filteredLessons = lessons.filter((l) => {
+  return lessons.filter((l) => {
     const sName = (studentNameById.get(l.student_id) ?? "").toLowerCase();
     const tName = (teacherNameById.get(l.teacher_id) ?? "").toLowerCase();
 
@@ -196,10 +212,48 @@ export default async function ConfirmedLessonsPage({ searchParams }: PageProps) 
     }
     return true;
   });
+}
 
-  // --------------------------
-  // Render
-  // --------------------------
+// ─────────────────────────────────────────
+// Page
+// ─────────────────────────────────────────
+
+export default async function ConfirmedLessonsPage({ searchParams }: PageProps) {
+  const sb = await getAdminSupabase();
+
+  // Next 16: searchParams arrives as a Promise
+  const sp = searchParams ? await searchParams : {};
+  const filters = normalizeFilters(sp as SearchParams);
+
+  const lessons = await fetchConfirmedLessons(sb, filters);
+
+  const [lessonLotsLabel, nameMaps] = await Promise.all([
+    fetchLessonLotsLabel(sb, lessons),
+    buildAdminLessonNameMaps(sb, lessons),
+  ]);
+
+  const { studentNameById, teacherNameById } = nameMaps;
+  const { studentOptions, teacherOptions } =
+    buildAdminNameOptionsFromMaps(nameMaps);
+
+  const filteredLessons = filterLessonsByName(
+    lessons,
+    studentNameById,
+    teacherNameById,
+    filters.studentNameFilterRaw,
+    filters.teacherNameFilterRaw,
+  );
+
+  const {
+    monthParam,
+    lessonIdFilter,
+    studentNameFilterRaw,
+    teacherNameFilterRaw,
+    deliveryFilter,
+    fromDateParam,
+    toDateParam,
+  } = filters;
+
   return (
     <Section title="Confirmed Lessons">
       <FilterForm

@@ -20,18 +20,49 @@ type PageProps = {
   searchParams?: Promise<SearchParams>;
 };
 
+type TeacherLike = {
+  status: TeacherStatus | null | string | undefined;
+};
+
+/**
+ * Normalise the incoming status query param to a valid StatusFilter.
+ */
+function resolveSelectedStatus(rawStatus?: string): StatusFilter {
+  if (rawStatus === "current" || rawStatus === "potential" || rawStatus === "all") {
+    return rawStatus;
+  }
+  return "current";
+}
+
+/**
+ * In-memory filter based on DB status + selected tab.
+ */
+function filterTeachersByStatus<T extends TeacherLike>(
+  teachers: T[],
+  selectedStatus: StatusFilter,
+): T[] {
+  if (selectedStatus === "all") {
+    // Show all statuses for now, including 'past'
+    return teachers;
+  }
+
+  return teachers.filter((t) => {
+    const status = (t.status as TeacherStatus) ?? "potential";
+
+    if (selectedStatus === "current") {
+      return status === "current";
+    }
+
+    // "potential" tab shows both 'potential' and 'inactive'
+    return status === "potential" || status === "inactive";
+  });
+}
+
 export default async function TeachersIndex({ searchParams }: PageProps) {
   // 🔹 Resolve searchParams (Next 16 passes a Promise)
   const sp = (searchParams ? await searchParams : {}) as SearchParams;
 
-  const rawStatus = (sp.status ?? "current") as string;
-
-  const selectedStatus: StatusFilter =
-    rawStatus === "current" || rawStatus === "potential"
-      ? rawStatus
-      : rawStatus === "all"
-      ? "all"
-      : "current";
+  const selectedStatus = resolveSelectedStatus(sp.status);
 
   const sb = getAdminSupabase();
 
@@ -69,7 +100,7 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
     );
   }
 
-   // 2) Load teacher names from profiles
+  // 2) Load teacher names from profiles
   const profileIds = teachers.map((t) => t.profile_id);
   const { data: profiles, error: pErr } = await sb
     .from("profiles")
@@ -131,7 +162,7 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
   }
 
   const studentIds = Array.from(
-    new Set((links ?? []).map((l) => l.student_id as string))
+    new Set((links ?? []).map((l) => l.student_id as string)),
   );
 
   let statusByStudent = new Map<string, string>();
@@ -153,7 +184,7 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
     }
 
     statusByStudent = new Map(
-      (students ?? []).map((s) => [s.id as string, s.status as string])
+      (students ?? []).map((s) => [s.id as string, s.status as string]),
     );
   }
 
@@ -182,24 +213,7 @@ export default async function TeachersIndex({ searchParams }: PageProps) {
   }
 
   // 5) Filter in-memory using DB status
-  const filteredTeachers = teachers.filter((t) => {
-    const status = (t.status as TeacherStatus) ?? "potential";
-
-    if (selectedStatus === "all") {
-      return true; // show all statuses for now, including 'past'
-    }
-
-    if (selectedStatus === "current") {
-      return status === "current";
-    }
-
-    // "potential" tab shows both 'potential' and 'inactive'
-    if (selectedStatus === "potential") {
-      return status === "potential" || status === "inactive";
-    }
-
-    return true;
-  });
+  const filteredTeachers = filterTeachersByStatus(teachers, selectedStatus);
 
   return (
     <Section title="Teachers">

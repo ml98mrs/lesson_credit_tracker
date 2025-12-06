@@ -159,19 +159,38 @@ rowIndex = addInvoiceTotalsSection(sheet, {
 // File name helper
 // ---------------------------------------------------------------------------
 
+// Simple, linear-time helper that strips leading/trailing "-" without regex
+function trimEdgeHyphens(value: string): string {
+  let start = 0;
+  let end = value.length;
+
+  // Trim leading "-"
+  while (start < end && value.charCodeAt(start) === 45 /* "-" */) {
+    start++;
+  }
+
+  // Trim trailing "-"
+  while (end > start && value.charCodeAt(end - 1) === 45 /* "-" */) {
+    end--;
+  }
+
+  return value.slice(start, end);
+}
+
 // Build a consistent file name
 export function buildTeacherInvoiceExcelFileName(
   monthStart: string,
   teacherLabel: string,
 ): string {
-  const fileNameSafeTeacher = teacherLabel
+  const normalised = teacherLabel
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "") // trim leading hyphens
-    .replace(/-+$/, ""); // trim trailing hyphens
+    .replace(/[^a-z0-9]+/g, "-");
+
+  const fileNameSafeTeacher = trimEdgeHyphens(normalised);
 
   return `teacherinvoice-${monthStart}-${fileNameSafeTeacher}.xlsx`;
 }
+
 
 // ---------------------------------------------------------------------------
 // Helpers: money
