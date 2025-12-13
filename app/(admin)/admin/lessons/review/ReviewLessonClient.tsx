@@ -626,78 +626,94 @@ export default function ReviewLessonClient() {
   // --- Initial load -----------------------------------------------------
 
   useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    setErr(null);
+  let mounted = true;
 
-    if (!lessonId) {
-      setErr("Missing ?lessonId");
-      setLoading(false);
-      return;
-    }
+  const safe = <T extends unknown[]>(fn: (...args: T) => void) => {
+    return (...args: T) => {
+      if (!mounted) return;
+      fn(...args);
+    };
+  };
 
-    (async () => {
-      try {
-        const r = await fetch(
-          `/api/admin/lessons/review?lessonId=${encodeURIComponent(
-            lessonId,
-          )}`,
-        );
-        if (!r.ok) {
-          const j = await r.json().catch(() => ({}));
-          throw new Error(j.error || r.statusText);
-        }
-        const j = await r.json();
+  const safeSetLoading = safe(setLoading);
+  const safeSetErr = safe(setErr);
+  const safeSetLesson = safe(setLesson);
+  const safeSetEditDuration = safe(setEditDuration);
+  const safeSetEditDelivery = safe(setEditDelivery);
+  const safeSetEditLength = safe(setEditLength);
+  const safeSetStudentName = safe(setStudentName);
+  const safeSetTeacherName = safe(setTeacherName);
+  const safeSetLots = safe(setLots);
+  const safeSetSncStats = safe(setSncStats);
+  const safeSetStudentTier = safe(setStudentTier);
 
-        if (!mounted) return;
+  const safeSetPreviewLoading = safe(setPreviewLoading);
+  const safeSetPreviewErr = safe(setPreviewErr);
+  const safeSetPreview = safe(setPreview);
 
-        const L = j.lesson as Lesson;
-        setLesson(L);
-        setEditDuration(L.duration_min);
-        setEditDelivery(L.delivery);
-        setEditLength(L.length_cat);
-        setStudentName(j.studentName as string);
-        setTeacherName(j.teacherName as string);
-        setLots((j.lots ?? []) as LotRow[]);
-        setSncStats((j.sncStats ?? null) as SncStats | null);
-        setStudentTier((j.studentTier ?? null) as Tier | null);
+  safeSetLoading(true);
+  safeSetErr(null);
 
-        // Only run planner preview for pending lessons
-        if (L.state === "pending") {
-          setPreviewLoading(true);
-          setPreviewErr(null);
-          fetchPreviewPlan(lessonId, false)
-            .then((p) => {
-              if (!mounted) return;
-              setPreview(p);
-            })
-            .catch((e: unknown) => {
-              if (!mounted) return;
-              setPreview(null);
-              setPreviewErr(
-                e instanceof Error
-                  ? e.message
-                  : "Unknown error while generating preview",
-              );
-            })
-            .finally(() => {
-              if (!mounted) return;
-              setPreviewLoading(false);
-            });
-        }
-      } catch (e: unknown) {
-        if (!mounted) return;
-        setErr(e instanceof Error ? e.message : "Unknown error");
-      } finally {
-        if (!mounted) return;
-        setLoading(false);
-      }
-    })();
-
+  if (!lessonId) {
+    safeSetErr("Missing ?lessonId");
+    safeSetLoading(false);
     return () => {
       mounted = false;
     };
-  }, [lessonId]);
+  }
+
+  (async () => {
+    try {
+      const r = await fetch(
+        `/api/admin/lessons/review?lessonId=${encodeURIComponent(lessonId)}`,
+      );
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error || r.statusText);
+      }
+      const j = await r.json();
+
+      const L = j.lesson as Lesson;
+
+      safeSetLesson(L);
+      safeSetEditDuration(L.duration_min);
+      safeSetEditDelivery(L.delivery);
+      safeSetEditLength(L.length_cat);
+      safeSetStudentName(j.studentName as string);
+      safeSetTeacherName(j.teacherName as string);
+      safeSetLots((j.lots ?? []) as LotRow[]);
+      safeSetSncStats((j.sncStats ?? null) as SncStats | null);
+      safeSetStudentTier((j.studentTier ?? null) as Tier | null);
+
+      // Only run planner preview for pending lessons
+      if (L.state === "pending") {
+        safeSetPreviewLoading(true);
+        safeSetPreviewErr(null);
+
+        fetchPreviewPlan(lessonId, false)
+          .then((p) => safeSetPreview(p))
+          .catch((e: unknown) => {
+            safeSetPreview(null);
+            safeSetPreviewErr(
+              e instanceof Error
+                ? e.message
+                : "Unknown error while generating preview",
+            );
+          })
+          .finally(() => safeSetPreviewLoading(false));
+      }
+    } catch (e: unknown) {
+      safeSetErr(e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      safeSetLoading(false);
+    }
+  })();
+
+  return () => {
+    mounted = false;
+  };
+}, [lessonId]);
+
 
   // --- Confirm handler --------------------------------------------------
 
